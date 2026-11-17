@@ -127,11 +127,15 @@ table.t td.act { text-align: right; white-space: nowrap; }
 .big { font: 700 34px/1.1 ui-monospace, Menlo, monospace; letter-spacing: .08em; }
 .big.pin { color: var(--a2); font-size: 44px; }
 .live-qr .link { word-break: break-all; max-width: 320px; }
-.beamer { position: fixed; inset: 0; z-index: 99; background: #0b1230; color: #fff; display: flex; align-items: center; justify-content: center; gap: 6vw; padding: 4vw; flex-wrap: wrap; }
+.beamer { position: fixed; inset: 0; z-index: 99; background: #0b1230; color: #fff; box-sizing: border-box; height: 100vh; height: 100dvh; overflow: hidden;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-content: center; gap: 5vw; padding: 5vh 5vw; }
 .beamer > [data-x] { position: absolute; top: 16px; right: 16px; }
-.beamer .bq { width: min(70vh, 46vw); aspect-ratio: 1; background: #fff; padding: 2vh; border-radius: 2vh; }
-.beamer .big { font-size: 7vh; } .beamer .big.pin { font-size: 11vh; color: #ffd27a; }
-.beamer .help { color: #c9d3ea; font-size: 2.4vh; } .beamer .cnt { font-size: 3.4vh; font-weight: 700; margin: 3vh 0 1vh; }
+/* links der QR-Code, rechts Code, darunter PIN – Größen hängen an Breite und Höhe, damit nichts abgeschnitten wird */
+.beamer .bq { width: min(78vh, 46vw); aspect-ratio: 1; background: #fff; padding: min(2vh, 1.4vw); border-radius: 2vh; box-sizing: border-box; }
+.beamer .bi { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: .6vh; }
+.beamer .big { font-size: min(9vh, 5.6vw); letter-spacing: .06em; white-space: nowrap; } .beamer .big.pin { font-size: min(17vh, 10vw); color: #ffd27a; margin-bottom: 1vh; }
+.beamer .help { color: #c9d3ea; font-size: min(2.6vh, 1.6vw); overflow-wrap: anywhere; } .beamer .cnt { font-size: min(3.6vh, 2.2vw); font-weight: 700; margin: 2vh 0 1vh; }
+@media (orientation: portrait) { .beamer { grid-template-columns: 1fr; justify-items: center; text-align: center; gap: 3vh; } .beamer .bq { width: min(46vh, 80vw); } .beamer .big { font-size: min(7vh, 11vw); } .beamer .big.pin { font-size: min(12vh, 18vw); } .beamer .help { font-size: 2vh; } .beamer .cnt { font-size: 2.8vh; } }
 /* Auswertung */
 .keys { display: grid; gap: 4px; margin-bottom: 10px; }
 .kr { display: grid; grid-template-columns: 6.5em 1fr 3.4em 6.5em; gap: 8px; align-items: center; font-size: 14px; }
