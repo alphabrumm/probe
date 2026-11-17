@@ -55,10 +55,11 @@ async function boot() {
 function drawWho() {
   const w = $('#who');
   if (!S.user || !S.priv) { w.innerHTML = ''; return; }
-  w.innerHTML = `<span class="btns">${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
+  w.innerHTML = `<span class="btns">${S.user.is_demo ? '<span class="chip warn" title="Alles wird nach ein paar Stunden gelöscht">Demo</span><button class="btn sm" id="bDemoEnd">Demo beenden</button>' : ''}${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
+  $('#bDemoEnd') && ($('#bDemoEnd').onclick = endDemo);
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
-      <div class="btns"><button class="btn" data-fa>Meine Fächer</button><button class="btn" data-pw>Passwort ändern</button><button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
+      <div class="btns"><button class="btn" data-fa>Meine Fächer</button>${S.user.is_demo ? '' : '<button class="btn" data-pw>Passwort ändern</button>'}<button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
     d.el.onclick = async e => {
       if (e.target.closest('[data-out]')) { await api('logout').catch(() => { }); S.user = null; S.priv = null; S.csrf = ''; d.close(); location.hash = '#/'; boot(); }
       if (e.target.closest('[data-pw]')) { d.close(); changePassword(); }
@@ -117,7 +118,10 @@ function viewLogin() {
     ${field('Kürzel', '<input type="text" id="k" autocapitalize="characters" autocomplete="username" required>')}
     ${field('Passwort', '<input type="password" id="p" autocomplete="current-password" required>')}
     <div class="err" id="err"></div><button class="btn pri">Anmelden</button>
-    <p class="help tc">Passwort vergessen? Der Admin setzt ein neues Startpasswort. Deine Prüfungen öffnest du danach mit deinem Wiederherstellungscode.</p></form></div>`;
+    <p class="help tc">Passwort vergessen? Der Admin setzt ein neues Startpasswort. Deine Prüfungen öffnest du danach mit deinem Wiederherstellungscode.</p></form>
+    <div class="card narrow demo-card"><button type="button" class="demo-btn" id="demo"><img src="app/icon.svg" alt=""><span><b>Demo-Modus starten</b><small>ohne Konto ausprobieren</small></span><i aria-hidden="true">›</i></button>
+    <p class="help tc">Eine Prüfung zum Auswerten und eine startklare, die du mit einem Schüler-iPad per QR-Code ausprobieren kannst. Jede Demo ist für sich – nach 4 Stunden wird alles gelöscht.</p></div></div>`;
+  $('#demo').onclick = startDemo;
   setTimeout(() => $('#k').focus(), 50);
   $('#f').onsubmit = async ev => {
     ev.preventDefault(); $('#err').textContent = '';
@@ -142,6 +146,8 @@ function viewUnlock() {
     <div class="err" id="err"></div><div class="btns"><button class="btn pri">Entsperren</button><button type="button" class="btn ghost" id="out">Abmelden</button></div></form></div>`;
   setTimeout(() => $('#p').focus(), 50);
   $('#out').onclick = async () => { await api('logout').catch(() => { }); S.user = null; boot(); };
+  const dm = S.user.is_demo && demoCreds(); // Demo nach dem Neuladen: ohne Passwort weiter
+  if (dm && dm.k === S.user.kuerzel) setTimeout(() => { $('#p').value = dm.pw; $('#f').requestSubmit(); }, 0);
   $('#f').onsubmit = async ev => {
     ev.preventDefault();
     try {
@@ -155,6 +161,27 @@ function viewUnlock() {
     } catch (er) { $('#err').textContent = er.message; }
   };
 }
+/* ---------- Demo-Modus: vorübergehendes Konto, eigene Schlüssel, Beispielprüfungen ---------- */
+const DEMO_KEY = 'probe.demo';
+const demoCreds = () => { try { return JSON.parse(sessionStorage.getItem(DEMO_KEY)); } catch (e) { return null; } };
+async function startDemo() {
+  try {
+    await withBusy('Demo wird vorbereitet …', async () => {
+      const pw = K.startPassword(), salt = K.randomSalt(), { auth, key } = await K.fromPassword(pw, salt), kp = await K.newKeyPair();
+      const r = await api('demo_start', { salt, auth, pub_key: kp.pub, priv_pw: await K.wrapPriv(kp.priv, key) });
+      S.user = r.user; S.csrf = r.csrf; S.keys = r.keys; S.priv = kp.priv; S.demoTried = false;
+      try { sessionStorage.setItem(DEMO_KEY, JSON.stringify({ k: r.user.kuerzel, pw })); } catch (e) { }
+    });
+    location.hash = '#/'; route();
+  } catch (er) { toast('⚠ ' + esc(er.message), 5000); }
+}
+async function endDemo() {
+  if (!confirm('Demo beenden? Alle Demo-Prüfungen werden sofort gelöscht.')) return;
+  await api('demo_end').catch(() => { });
+  try { sessionStorage.removeItem(DEMO_KEY); } catch (e) { }
+  S.user = null; S.priv = null; S.csrf = ''; location.hash = '#/'; boot();
+}
+
 /** erstes Anmelden (oder nach neuem Startpasswort): eigenes Passwort, Schlüssel neu oder per Wiederherstellungscode behalten */
 function viewKeySetup() {
   const had = S.user.has_keys;

@@ -60,7 +60,7 @@ function ufields(array $u): array {
     $fl = db()->prepare('SELECT f.id, f.name FROM fachleitungen l JOIN fachschaften f ON f.id = l.fachschaft_id WHERE l.user_id = ? ORDER BY f.name');
     $fl->execute([$u['id']]);
     return ['id' => (int)$u['id'], 'kuerzel' => $u['kuerzel'], 'name' => $u['name'], 'is_admin' => (bool)$u['is_admin'], 'must_setup' => (bool)$u['must_setup'],
-        'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id'])];
+        'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'is_demo' => (bool)$u['is_demo'], 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id'])];
 }
 function user_faecher(int $id): array {
     $st = db()->prepare('SELECT fach_id FROM user_faecher WHERE user_id = ?'); $st->execute([$id]);
@@ -121,6 +121,8 @@ function throttle(string $k, int $max, int $win = 600): void {
     $st = $pdo->prepare('SELECT COUNT(*) FROM join_fails WHERE k = ? AND ip = ?'); $st->execute([$k, ip()]);
     if ((int)$st->fetchColumn() >= $max) fail('Zu viele Versuche – bitte ein paar Minuten warten.', 429);
 }
+const DEMO_TTL = 4 * 3600; // Demo-Konten mit allen Prüfungen nach 4 Stunden löschen
+function demo_cleanup(): void { db()->prepare('DELETE FROM users WHERE is_demo = 1 AND created < ?')->execute([time() - DEMO_TTL]); }
 function throttle_fail(string $k): void { db()->prepare('INSERT INTO join_fails (k, ip, t) VALUES (?,?,?)')->execute([$k, ip(), time()]); }
 function student_state(array $e, array $p): array {
     return ['pid' => (int)$p['id'], 'status' => $p['status'], 'exam_status' => $e['status'], 'deadline' => deadline($e, $p), 'auto' => (bool)$e['auto_abgabe'], 'now' => time()];
@@ -129,7 +131,7 @@ function student_state(array $e, array $p): array {
 /* ---------- Anmeldung und Schlüssel ---------- */
 switch ($a) {
 case 'status': {
-    $n = (int)db()->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    demo_cleanup(); $n = (int)db()->query('SELECT COUNT(*) FROM users WHERE is_demo = 0')->fetchColumn();
     $u = $uid ? user($uid) : null;
     if ($u && empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
     out(['setup' => $n === 0, 'user' => $u ? ufields($u) : null, 'csrf' => $u ? $_SESSION['csrf'] : null, 'keys' => $u ? keys($u) : null,
@@ -137,7 +139,7 @@ case 'status': {
 }
 case 'setup_admin': { // allererster Start: das erste Konto ist Admin, mit eigenem Passwort und Schlüsseln
     $pdo = db(); $pdo->beginTransaction();
-    if ((int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() > 0) fail('Probe ist schon eingerichtet', 409);
+    if ((int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_demo = 0')->fetchColumn() > 0) fail('Probe ist schon eingerichtet', 409);
     $k = str($in, 'kuerzel', 20, true); if (!preg_match('~^[\p{L}0-9._-]{2,20}$~u', $k)) fail('Kürzel: 2–20 Buchstaben oder Ziffern');
     $salt = str($in, 'salt', 64, true); $auth = str($in, 'auth', 64, true);
     foreach (['pub_key', 'priv_pw', 'rec_salt', 'priv_rec'] as $f) if (!b64ok(str($in, $f, 4000, true))) fail('Schlüssel ungültig');
@@ -168,6 +170,30 @@ case 'login': {
     out(['user' => ufields($u), 'csrf' => $_SESSION['csrf'], 'keys' => keys($u)]);
 }
 case 'logout': { $_SESSION = []; session_destroy(); out([]); }
+case 'demo_start': { // Demo-Modus: vorübergehendes Konto, Schlüssel erzeugt der Browser; nach DEMO_TTL automatisch gelöscht
+    $pdo = db(); demo_cleanup();
+    throttle('demo', 40, 3600); throttle_fail('demo'); // eine Schule teilt sich oft eine IP – daher großzügig
+    if ((int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_demo = 1')->fetchColumn() >= 80) fail('Gerade probieren sehr viele die Demo aus – bitte in ein paar Minuten noch einmal.', 429);
+    $salt = str($in, 'salt', 64, true); $auth = str($in, 'auth', 64, true); $pub = str($in, 'pub_key', 400, true); $priv = str($in, 'priv_pw', 4000, true);
+    if (!b64ok($salt) || !hexok($auth) || !b64ok($pub, 60) || strlen($priv) < 40) fail('Ungültige Schlüssel');
+    for ($t = 0; $t < 20; $t++) {
+        $A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; $k = 'DEMO-'; for ($i = 0; $i < 4; $i++) $k .= $A[random_int(0, strlen($A) - 1)];
+        try {
+            $pdo->prepare("INSERT INTO users (kuerzel, name, salt, login_hash, pub_key, priv_pw, must_setup, created, last_login, is_demo) VALUES (?, 'Demo-Lehrkraft', ?, ?, ?, ?, 0, ?, ?, 1)")
+                ->execute([$k, $salt, password_hash($auth, PASSWORD_DEFAULT), $pub, $priv, time(), time()]);
+            break;
+        } catch (PDOException $e) { if ($t === 19) fail('Demo konnte nicht angelegt werden'); }
+    }
+    $id = (int)$pdo->lastInsertId();
+    $f = $pdo->query("SELECT id FROM faecher WHERE name = 'Physik' COLLATE NOCASE")->fetchColumn(); if ($f) set_user_faecher($id, [(int)$f]);
+    session_regenerate_id(true); $_SESSION = ['uid' => $id, 'seen' => time(), 'csrf' => bin2hex(random_bytes(16))];
+    $u = user($id); out(['user' => ufields($u), 'csrf' => $_SESSION['csrf'], 'keys' => keys($u), 'ttl' => DEMO_TTL]);
+}
+case 'demo_end': {
+    $u = teacher(); if (!$u['is_demo']) fail('Das ist kein Demo-Konto');
+    db()->prepare('DELETE FROM users WHERE id = ? AND is_demo = 1')->execute([$u['id']]); // Prüfungen, Teilnehmer und Berichte werden mitgelöscht
+    $_SESSION = []; session_destroy(); out([]);
+}
 case 'unlock_check': { // Passwort erneut prüfen (Sitzung noch gültig, Schlüssel nach Neuladen wieder entsperren)
     $u = me(); csrf();
     $pdo = db(); $st = $pdo->prepare('SELECT COUNT(*) FROM login_fails WHERE kuerzel = ? AND t > ?'); $st->execute([mb_strtolower($u['kuerzel']), time() - 900]);
@@ -204,7 +230,7 @@ case 'change_password': {
 /* ---------- Admin ---------- */
 case 'admin_list': {
     admin(); $pdo = db();
-    $users = $pdo->query('SELECT id, kuerzel, name, is_admin, must_setup, pub_key IS NOT NULL AS has_keys, last_login FROM users ORDER BY kuerzel')->fetchAll();
+    $users = $pdo->query('SELECT id, kuerzel, name, is_admin, must_setup, pub_key IS NOT NULL AS has_keys, last_login FROM users WHERE is_demo = 0 ORDER BY kuerzel')->fetchAll();
     $fl = $pdo->query('SELECT user_id, fachschaft_id FROM fachleitungen')->fetchAll();
     foreach ($users as &$x) { $x['fachleitung'] = array_values(array_map(fn($r) => (int)$r['fachschaft_id'], array_filter($fl, fn($r) => (int)$r['user_id'] === (int)$x['id']))); $x['faecher'] = user_faecher((int)$x['id']); }
     unset($x);

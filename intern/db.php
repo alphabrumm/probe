@@ -140,4 +140,10 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 5;
         SQL);
     }
+    if ($v < 6) { // Demo-Modus: vorübergehende Konten ohne Anmeldung
+        $pdo->exec(<<<SQL
+        ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version = 6;
+        SQL);
+    }
 }

@@ -162,3 +162,13 @@ table.t td.act { text-align: right; white-space: nowrap; }
 .zeit .check { display: flex; gap: 8px; align-items: center; font-weight: 600; }
 .zeit .check input { width: 22px; height: 22px; }
 .chip .x { border: 0; background: none; cursor: pointer; font: inherit; color: inherit; padding: 0 0 0 4px; }
+/* Demo-Modus auf der Anmeldeseite */
+.center:has(.demo-card) { align-content: center; gap: 16px; }
+.demo-card { display: grid; gap: 10px; padding: 14px; }
+.demo-btn { display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px 16px; border: 0; border-radius: 14px; cursor: pointer; text-align: left; color: #fff; font: inherit;
+  background: radial-gradient(120% 140% at 0% 0%, #3b5bdb 0%, #1b2a6b 45%, #0b1230 100%); box-shadow: 0 6px 22px rgba(27, 42, 107, .35), inset 0 1px 0 rgba(255, 255, 255, .15); transition: transform .15s, box-shadow .15s; }
+.demo-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(27, 42, 107, .45), inset 0 1px 0 rgba(255, 255, 255, .15); }
+.demo-btn:active { transform: translateY(0); }
+.demo-btn img { width: 46px; height: 46px; border-radius: 12px; flex: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, .25), 0 0 18px rgba(255, 210, 122, .35); }
+.demo-btn span { display: grid; flex: 1; } .demo-btn b { font-size: 17px; } .demo-btn small { color: #c9d3ea; font-size: 13px; }
+.demo-btn i { font-style: normal; font-size: 28px; line-height: 1; color: #ffd27a; }
