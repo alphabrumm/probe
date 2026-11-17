@@ -3,7 +3,7 @@
 // Der Server sieht nie Passwörter, Schülernamen, Antworten oder Lösungen im Klartext: Diese verschlüsselt der Browser.
 
 declare(strict_types=1);
-require __DIR__ . '/lib/db.php';
+require __DIR__ . '/intern/db.php'; // nicht „lib“: manche Webspaces erlauben keinen Ordner dieses Namens
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');

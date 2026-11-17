@@ -8,7 +8,7 @@ import os, re, shutil, subprocess, sys, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILES = ['index.html', 'editor.html', 's.html', 'e.html', 'api.php', 'manifest.webmanifest', '.htaccess']
-DIRS = ['app', 'lib']
+DIRS = ['app', 'intern']
 VENDOR = ['core', 'fonts']
 # from './x.js'  ·  import('./x.js')  ·  src="app/x.js"  ·  href="app/x.css"  (nur relative Pfade, ohne vorhandenes ?)
 REF = re.compile(r"""((?:\bfrom\s*|\bimport\s*\(\s*|\b(?:src|href)=)(['"]))((?![a-z]+:|/)[^'"?#\s]+\.(?:js|css))(\2)""")
@@ -34,7 +34,7 @@ def main():
         shutil.copytree(os.path.join(ROOT, d), os.path.join(out, d))
     for d in VENDOR:
         shutil.copytree(os.path.join(ROOT, 'vendor/pathfinder', d), os.path.join(out, 'vendor/pathfinder', d))
-    for p in ['data', 'config.local.php', 'lib/config.local.php']:
+    for p in ['data', 'config.local.php', 'intern/config.local.php']:
         assert not os.path.exists(os.path.join(out, p)), p
     n = 0
     for base, _, names in os.walk(out):

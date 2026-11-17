@@ -1,6 +1,5 @@
 name: FTP-Ordner prüfen (nur lesen)
-# Zeigt, was im Probe-Ordner auf dem Webspace liegt, und ob sich der Ordner lib/ anlegen lässt.
-# Ändert nichts außer: legt lib/ an, falls es fehlt. Daten (data/) werden nicht gelesen.
+# Zeigt nur an, was im Probe-Ordner auf dem Webspace liegt (ändert nichts, liest keine Daten).
 on:
   workflow_dispatch:
 permissions:
@@ -33,16 +32,7 @@ jobs:
           pwd
           echo "== Inhalt:"
           cls -la
-          echo "== lib/:"
-          cls -la lib/
-          echo "== app/ (Anzahl Einträge):"
-          cls -1 app/ | wc -l
-          echo "== lib anlegen:"
-          mkdir lib
-          cls -la lib/
-          echo "== Test: anderer Name"
-          mkdir probe-test-ordner
-          cls -la probe-test-ordner/
-          rmdir probe-test-ordner
+          echo "== intern/:"
+          cls -la intern/
           bye
           EOT

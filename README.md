@@ -71,5 +71,5 @@ php -S localhost:8800
 | `index.html`, `app/probe.js`, `app/probe.css` | Oberfläche (Einrichtung, Anmeldung, Prüfungen, Admin) |
 | `app/crypto.js` | Schlüssel, Passwort-Ableitung, Ver- und Entschlüsseln |
 | `editor.html` | PathFinder, eingebettet (nur Prüfungen), wird als Vollbild-Rahmen geöffnet |
-| `api.php`, `lib/db.php` | Schnittstelle und Datenbank (SQLite, eine Datei) |
+| `api.php`, `intern/db.php` | Schnittstelle und Datenbank (SQLite, eine Datei) |
 | `vendor/pathfinder` | PathFinder als Git-Untermodul |
