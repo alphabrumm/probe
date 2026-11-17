@@ -89,4 +89,14 @@ function migrate(PDO $pdo): void {
         $st = $pdo->prepare('INSERT INTO faecher (name, sort) VALUES (?, ?)');
         foreach (FAECHER as $i => $f) $st->execute([$f, $i * 10]);
     }
+    if ($v < 2) { // Fächer, die eine Lehrkraft unterrichtet (legt der Admin an, die Lehrkraft kann ergänzen)
+        $pdo->exec(<<<SQL
+        CREATE TABLE user_faecher (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            fach_id INTEGER NOT NULL REFERENCES faecher(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, fach_id)
+        );
+        PRAGMA user_version = 2;
+        SQL);
+    }
 }

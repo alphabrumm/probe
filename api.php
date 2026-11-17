@@ -60,7 +60,16 @@ function ufields(array $u): array {
     $fl = db()->prepare('SELECT f.id, f.name FROM fachleitungen l JOIN fachschaften f ON f.id = l.fachschaft_id WHERE l.user_id = ? ORDER BY f.name');
     $fl->execute([$u['id']]);
     return ['id' => (int)$u['id'], 'kuerzel' => $u['kuerzel'], 'name' => $u['name'], 'is_admin' => (bool)$u['is_admin'], 'must_setup' => (bool)$u['must_setup'],
-        'has_keys' => (bool)$u['pub_key'], 'fachleitung' => $fl->fetchAll()];
+        'has_keys' => (bool)$u['pub_key'], 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id'])];
+}
+function user_faecher(int $id): array {
+    $st = db()->prepare('SELECT fach_id FROM user_faecher WHERE user_id = ?'); $st->execute([$id]);
+    return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+}
+function set_user_faecher(int $id, array $ids): void {
+    db()->prepare('DELETE FROM user_faecher WHERE user_id = ?')->execute([$id]);
+    $st = db()->prepare('INSERT OR IGNORE INTO user_faecher (user_id, fach_id) SELECT ?, id FROM faecher WHERE id = ?');
+    foreach ($ids as $f) $st->execute([$id, (int)$f]);
 }
 function keys(array $u): array { return ['pub_key' => $u['pub_key'], 'priv_pw' => $u['priv_pw'], 'rec_salt' => $u['rec_salt'], 'priv_rec' => $u['priv_rec']]; }
 function schuljahr(?string $datum = null): string {
@@ -160,7 +169,7 @@ case 'admin_list': {
     admin(); $pdo = db();
     $users = $pdo->query('SELECT id, kuerzel, name, is_admin, must_setup, pub_key IS NOT NULL AS has_keys, last_login FROM users ORDER BY kuerzel')->fetchAll();
     $fl = $pdo->query('SELECT user_id, fachschaft_id FROM fachleitungen')->fetchAll();
-    foreach ($users as &$x) { $x['fachleitung'] = array_values(array_map(fn($r) => (int)$r['fachschaft_id'], array_filter($fl, fn($r) => (int)$r['user_id'] === (int)$x['id']))); }
+    foreach ($users as &$x) { $x['fachleitung'] = array_values(array_map(fn($r) => (int)$r['fachschaft_id'], array_filter($fl, fn($r) => (int)$r['user_id'] === (int)$x['id']))); $x['faecher'] = user_faecher((int)$x['id']); }
     unset($x);
     $ex = $pdo->query('SELECT schuljahr, COUNT(*) AS n FROM exams GROUP BY schuljahr ORDER BY schuljahr DESC')->fetchAll();
     out(['users' => $users, 'fachschaften' => $pdo->query('SELECT * FROM fachschaften ORDER BY name')->fetchAll(),
@@ -185,6 +194,7 @@ case 'user_save': {
         $pdo->prepare('DELETE FROM fachleitungen WHERE user_id = ?')->execute([$id]);
         $st = $pdo->prepare('INSERT INTO fachleitungen (user_id, fachschaft_id) VALUES (?, ?)');
         foreach ((array)($in['fachleitung'] ?? []) as $f) $st->execute([$id, (int)$f]);
+        if (isset($in['faecher'])) set_user_faecher($id, (array)$in['faecher']);
         $pdo->commit();
     } catch (PDOException $e) { $pdo->rollBack(); fail(str_contains($e->getMessage(), 'UNIQUE') ? 'Dieses Kürzel gibt es schon' : 'Speichern fehlgeschlagen'); }
     out(['id' => $id]);
@@ -236,10 +246,16 @@ case 'security_check': { // liegt die Datenbank geschützt? (Die Oberfläche ver
 }
 
 /* ---------- Prüfungen der Lehrkraft ---------- */
+case 'my_faecher': { // Lehrkraft ergänzt oder ändert die eigenen Fächer
+    $u = teacher(); set_user_faecher((int)$u['id'], (array)($in['faecher'] ?? []));
+    out(['user' => ufields(user((int)$u['id']))]);
+}
 case 'catalog': {
-    teacher(); $pdo = db();
+    $u = teacher(); $pdo = db();
     $sj = $pdo->prepare('SELECT DISTINCT schuljahr FROM exams WHERE owner_id = ? ORDER BY schuljahr DESC'); $sj->execute([$uid]);
-    out(['faecher' => $pdo->query('SELECT id, name FROM faecher WHERE aktiv = 1 ORDER BY sort, name')->fetchAll(), 'arten' => ARTEN,
+    $all = $pdo->query('SELECT id, name FROM faecher WHERE aktiv = 1 ORDER BY sort, name')->fetchAll();
+    $mine = user_faecher((int)$u['id']);
+    out(['faecher' => $mine ? array_values(array_filter($all, fn($f) => in_array((int)$f['id'], $mine, true))) : $all, 'eigene' => (bool)$mine, 'alle_faecher' => $all, 'arten' => ARTEN,
         'schuljahr' => schuljahr(), 'schuljahre' => array_values(array_unique(array_merge([schuljahr()], $sj->fetchAll(PDO::FETCH_COLUMN))))]);
 }
 case 'exam_list': {

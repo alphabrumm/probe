@@ -57,10 +57,11 @@ function drawWho() {
   w.innerHTML = `<span class="btns">${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
-      <div class="btns"><button class="btn" data-pw>Passwort ändern</button><button class="btn" data-out>Abmelden</button></div>`);
+      <div class="btns"><button class="btn" data-fa>Meine Fächer</button><button class="btn" data-pw>Passwort ändern</button><button class="btn" data-out>Abmelden</button></div>`);
     d.el.onclick = async e => {
       if (e.target.closest('[data-out]')) { await api('logout').catch(() => { }); S.user = null; S.priv = null; S.csrf = ''; d.close(); location.hash = '#/'; boot(); }
       if (e.target.closest('[data-pw]')) { d.close(); changePassword(); }
+      if (e.target.closest('[data-fa]')) { d.close(); myFaecher(); }
     };
   };
 }
@@ -184,6 +185,16 @@ function showRecovery(code, next) {
   $('#ok').onchange = () => { $('#go').disabled = !$('#ok').checked; };
   $('#go').onclick = next;
 }
+async function myFaecher() {
+  const C = await catalog(), mine = new Set(S.user.faecher || []);
+  const d = dialog('Meine Fächer', `<p class="help">Beim Anlegen einer Prüfung stehen nur deine Fächer zur Wahl. Der Admin hat sie beim Anlegen deines Kontos eingetragen – hier kannst du weitere ergänzen.</p>
+    <div class="row" style="gap:0 12px">${C.alle_faecher.map(f => `<label class="ck"><input type="checkbox" data-f="${f.id}"${mine.has(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('')}</div>
+    <div class="err" id="err"></div><button class="btn pri" id="go">Speichern</button>`, { wide: true });
+  $('#go', d.el).onclick = async () => {
+    try { const r = await api('my_faecher', { faecher: $$('[data-f]', d.el).filter(x => x.checked).map(x => +x.dataset.f) }); S.user = r.user; S.catalog = null; d.close(); toast('✓ Fächer gespeichert'); route(); }
+    catch (er) { $('#err', d.el).textContent = er.message; }
+  };
+}
 function changePassword() {
   const d = dialog('Passwort ändern', `${field('Bisheriges Passwort', '<input type="password" id="po" autocomplete="current-password">')}${field('Neues Passwort', '<input type="password" id="p1" autocomplete="new-password">', 'Mindestens 10 Zeichen.')}${field('Neues Passwort wiederholen', '<input type="password" id="p2" autocomplete="new-password">')}<div class="err" id="err"></div><button class="btn pri" id="go">Ändern</button>`);
   $('#go', d.el).onclick = async () => {
@@ -224,10 +235,11 @@ async function viewDashboard() {
 async function examForm(e) {
   const C = await catalog();
   const klassen = [...new Set((await api('exam_list', { schuljahr: S.sj })).exams.map(x => x.klasse))];
-  const v = e || { klasse: '', fach_id: C.faecher[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'Schulaufgabe', erwartet: 0, dauer: 45, pin_on: true, skala: 'noten' };
+  const F = [...C.faecher]; if (e?.fach_id && !F.some(f => +f.id === +e.fach_id)) F.push({ id: e.fach_id, name: e.fach });
+  const v = e || { klasse: '', fach_id: F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'Schulaufgabe', erwartet: 0, dauer: 45, pin_on: true, skala: 'noten' };
   const d = dialog(e ? 'Rahmenbedingungen' : 'Neue Prüfung', `
     <div class="row">${field('Klasse', `<input type="text" id="kl" list="kll" value="${esc(v.klasse)}" placeholder="z. B. 8b" autocapitalize="off"><datalist id="kll">${klassen.map(k => `<option value="${esc(k)}">`).join('')}</datalist>`)}
-    ${field('Fach', `<select id="fa">${C.faecher.map(f => `<option value="${f.id}"${f.id === v.fach_id ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`)}</div>
+    ${field('Fach', `<select id="fa">${F.map(f => `<option value="${f.id}"${+f.id === +v.fach_id ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`, C.eigene ? 'Deine Fächer – weitere über dein Kürzel oben rechts → Meine Fächer.' : 'Lege über dein Kürzel oben rechts → Meine Fächer fest, welche Fächer du unterrichtest.')}</div>
     <div class="row">${field('Datum', `<input type="date" id="da" value="${esc(v.datum)}">`)}${field('Art', `<select id="ar">${Object.entries(ARTEN).map(([k, n]) => `<option value="${esc(k)}"${k === v.art ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`)}</div>
     <div class="row">${field('Bearbeitungszeit (Minuten)', `<input type="number" id="du" min="0" max="600" inputmode="numeric" value="${v.dauer || ''}" placeholder="45">`, 'Leer = ohne Countdown.')}
     ${field('Erwartete Teilnehmer', `<input type="number" id="er" min="0" max="200" inputmode="numeric" value="${v.erwartet || ''}" placeholder="z. B. 28">`, 'Mit Klassenliste automatisch.')}</div>
@@ -337,7 +349,9 @@ async function saveDraft(id, d, fertig = false) {
 }
 function openEditor(e, doc) {
   const wrap = document.createElement('div'); wrap.className = 'editor';
-  wrap.innerHTML = '<iframe src="editor.html" title="Prüfung bearbeiten"></iframe>';
+  // Vorgaben für den KI-Dialog in PathFinder: Fach, Jahrgangsstufe (aus der Klasse), Umfang (Bearbeitungszeit), Kopfzeile
+  const q = new URLSearchParams({ fach: e.fach, klasse: e.klasse, kopf: `${e.fach} · ${e.klasse} · ${e.art}` }); if (e.dauer) q.set('min', e.dauer);
+  wrap.innerHTML = `<iframe src="editor.html?${esc(q.toString())}" title="Prüfung bearbeiten"></iframe>`;
   document.body.appendChild(wrap); document.body.style.overflow = 'hidden';
   const fr = $('iframe', wrap);
   let timer = null, pending = null, saving = Promise.resolve();
@@ -373,8 +387,8 @@ async function viewAdmin() {
   const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['si', 'Sicherheit']];
   let h = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Admin</h1><p class="sub">Lehrkräfte, Fachschaften und Fächer. Prüfungsinhalte und Schülernamen sieht der Admin nicht.</p>
     <div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" aria-pressed="${adminTab === k}">${n}</button>`).join('')}</div><section class="card">`;
-  if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th>Kürzel</th><th>Name</th><th>Rollen</th><th>Status</th><th></th></tr>
-    ${D.users.map(u => `<tr><td><b>${esc(u.kuerzel)}</b></td><td>${esc(u.name)}</td><td><span class="fl">${+u.is_admin ? '<span class="chip">Admin</span>' : ''}${u.fachleitung.map(f => `<span class="chip">Fachleitung ${esc(FS[f]?.name)}</span>`).join('')}</span></td>
+  if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th>Kürzel</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
+    ${D.users.map(u => `<tr><td><b>${esc(u.kuerzel)}</b></td><td>${esc(u.name)}</td><td class="help">${D.faecher.filter(f => u.faecher.includes(+f.id)).map(f => esc(f.name)).join(', ') || '–'}</td><td><span class="fl">${+u.is_admin ? '<span class="chip">Admin</span>' : ''}${u.fachleitung.map(f => `<span class="chip">Fachleitung ${esc(FS[f]?.name)}</span>`).join('')}</span></td>
     <td>${+u.must_setup ? '<span class="chip warn">Startpasswort</span>' : '<span class="chip good">eingerichtet</span>'}</td><td class="act"><button class="btn sm" data-uedit="${u.id}">Bearbeiten</button> <button class="btn sm" data-ureset="${u.id}">Startpasswort</button> <button class="btn sm danger" data-udel="${u.id}" ${u.id === S.user.id ? 'disabled' : ''}>Löschen</button></td></tr>`).join('')}</table></div>`;
   if (adminTab === 'fs') h += `<div class="bar"><h2 style="margin:0">Fachschaften</h2><span class="sp"></span><button class="btn pri" data-fsadd>＋ Fachschaft</button></div>
     ${D.fachschaften.length ? `<table class="t"><tr><th>Fachschaft</th><th>Fächer</th><th>Fachleitung</th><th></th></tr>${D.fachschaften.map(f => `<tr><td><b>${esc(f.name)}</b></td><td><span class="fl">${D.faecher.filter(x => +x.fachschaft_id === +f.id).map(x => `<span class="chip">${esc(x.name)}</span>`).join('') || '<span class="help">keine</span>'}</span></td><td>${D.users.filter(u => u.fachleitung.includes(+f.id)).map(u => esc(u.kuerzel)).join(', ') || '<span class="help">keine</span>'}</td><td class="act"><button class="btn sm" data-fsedit="${f.id}">Bearbeiten</button> <button class="btn sm danger" data-fsdel="${f.id}">Löschen</button></td></tr>`).join('')}</table>` : '<p class="help">Noch keine Fachschaft. Eine Fachschaft (z. B. „Physik“ oder „Naturwissenschaften“) bündelt Fächer; ihre Fachleitung bekommt die Prüfungen zur Respizienz.</p>'}`;
@@ -426,12 +440,13 @@ function showStartPw(kuerzel, pw) {
 function userForm(D, u) {
   const d = dialog(u ? `Lehrkraft ${esc(u.kuerzel)}` : 'Neue Lehrkraft', `
     <div class="row">${field('Kürzel', `<input type="text" id="k" value="${esc(u?.kuerzel || '')}" autocapitalize="characters" autocomplete="off">`, 'Das Kürzel ist der Login.')}${field('Name', `<input type="text" id="n" value="${esc(u?.name || '')}" placeholder="optional">`)}</div>
+    <div><b>Unterrichtet</b><div class="row" style="gap:0 12px">${D.faecher.filter(f => +f.aktiv || u?.faecher.includes(+f.id)).map(f => `<label class="ck"><input type="checkbox" data-uf="${f.id}"${u?.faecher.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('')}</div><span class="help">Nur diese Fächer stehen der Lehrkraft beim Anlegen einer Prüfung zur Wahl; weitere kann sie selbst ergänzen.</span></div>
     <label class="ck"><input type="checkbox" id="ad"${+u?.is_admin ? ' checked' : ''}>Admin (verwaltet Lehrkräfte, Fachschaften und Fächer)</label>
     <div><b>Fachleitung für</b>${D.fachschaften.length ? D.fachschaften.map(f => `<label class="ck"><input type="checkbox" data-fl="${f.id}"${u?.fachleitung.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('') : '<p class="help">Noch keine Fachschaften angelegt.</p>'}</div>
     ${u ? '' : '<p class="help">Probe erzeugt ein Startpasswort, das du der Lehrkraft gibst.</p>'}
     <div class="err" id="err"></div><button class="btn pri" id="go">${u ? 'Speichern' : 'Anlegen'}</button>`);
   $('#go', d.el).onclick = async () => {
-    const data = { id: u?.id, kuerzel: $('#k', d.el).value.trim(), name: $('#n', d.el).value.trim(), is_admin: $('#ad', d.el).checked, fachleitung: $$('[data-fl]', d.el).filter(x => x.checked).map(x => +x.dataset.fl) };
+    const data = { id: u?.id, kuerzel: $('#k', d.el).value.trim(), name: $('#n', d.el).value.trim(), is_admin: $('#ad', d.el).checked, fachleitung: $$('[data-fl]', d.el).filter(x => x.checked).map(x => +x.dataset.fl), faecher: $$('[data-uf]', d.el).filter(x => x.checked).map(x => +x.dataset.uf) };
     try {
       let pw = null;
       if (!u) { pw = K.startPassword(); const salt = K.randomSalt(), { auth } = await withBusy('Startpasswort …', () => K.fromPassword(pw, salt)); Object.assign(data, { salt, auth }); }
