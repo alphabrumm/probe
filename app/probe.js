@@ -274,9 +274,9 @@ async function viewExam(id) {
       <section class="card"><h2>Inhalt</h2>
         ${e.draft ? `<div class="stat"><div><b>${e.aufgaben}</b><span>Aufgaben</span></div><div><b>${fmtPts(e.punkte)}</b><span>Punkte</span></div><div><b>${e.fertig ? '✓' : '…'}</b><span>${e.fertig ? 'bereit' : 'Entwurf'}</span></div></div><p><b>${esc(e.titel || 'ohne Titel')}</b></p>`
           : '<p class="help">Noch kein Inhalt. Baue die Prüfung mit PathFinder – aus einem Lernpfad, mit KI oder von Grund auf.</p>'}
-        ${e.draft && !e.fertig ? '<p class="help">Im Editor oben rechts auf „✓ Fertig“ tippen, damit die Prüfung für die Durchführung vorbereitet wird.</p>' : ''}
-        <div class="btns"><button class="btn pri" id="edit">✎ ${e.draft ? 'Prüfung bearbeiten' : 'Inhalt bauen'}</button><button class="btn" id="imp">⤒ Prüfungsdatei laden</button></div>
-        <p class="help">Prüfungsdatei: in PathFinder unter ⋯ → Export → „Prüfungsdatei für Probe (.json)“.</p></section>
+        ${e.draft ? `<p class="help">${e.fertig ? 'Übernommen' : 'Zwischengespeichert'} am ${new Date(e.updated * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}.${e.fertig ? '' : ' Im Editor oben rechts auf „✓ Fertig – zurück zu Probe“ tippen, dann ist die Prüfung bereit.'}</p>` : ''}
+        <div class="btns"><button class="btn pri" id="edit">✎ ${e.draft ? 'Prüfung bearbeiten' : 'Inhalt bauen'}</button></div>
+        <details class="help" style="margin-top:12px"><summary>Prüfung woanders gebaut?</summary><p>Hast du die Prüfung im normalen PathFinder gebaut (nicht hier in Probe), speichere sie dort unter ⋯ → Export → „Prüfungsdatei für Probe“ und lade die Datei hier.</p><button class="btn sm" id="imp">⤒ Prüfungsdatei laden</button></details></section>
       <section class="card"><h2>Klassenliste</h2>
         ${R.length ? `<p>${R.length} Schüler · während der Prüfung siehst du, wer fehlt.</p><ul class="names">${R.map(s => `<li>${esc(s.n)}, ${esc(s.v)}</li>`).join('')}</ul>` : '<p class="help">Optional: Mit einer Liste der Vor- und Nachnamen erkennt Probe, wer bei der Prüfung fehlt. Die Namen werden verschlüsselt gespeichert.</p>'}
         <div class="btns" style="margin-top:10px"><button class="btn" id="csv">⤒ CSV-Datei wählen</button><button class="btn" id="paste">Namen einfügen</button>${R.length ? '<button class="btn danger" id="rdel">Liste entfernen</button>' : ''}</div></section>
@@ -359,7 +359,8 @@ function openEditor(e, doc) {
   const close = () => { wrap.remove(); document.body.style.overflow = ''; cleanLocal(); viewExam(e.id); };
   const start = () => {
     fr.contentWindow.probeEdit({
-      doc: doc || undefined, startDialog: !doc,
+      // Startdialog auch, wenn bisher nur eine leere Prüfung gespeichert ist (z. B. Dialog abgebrochen)
+      doc: doc || undefined, startDialog: !doc || (!countTasks(doc).aufgaben && !String(doc.title || '').trim()),
       host: {
         saved: d => { pending = d; clearTimeout(timer); timer = setTimeout(flush, 1500); },
         done: async d => {

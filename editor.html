@@ -4,6 +4,14 @@
 <title>Probe · Prüfung bearbeiten</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="stylesheet" href="vendor/pathfinder/core/pathfinder.css">
+<style>
+  /* „Fertig – zurück zu Probe“: zart grün und leicht pulsierend, damit man ihn findet */
+  #bDone { background: #dcf3e4; border-color: #8fd1a8; color: #1d6b3d; animation: probe-puls 2.4s ease-in-out infinite; }
+  #bDone:hover { background: #c9ecd6; }
+  @keyframes probe-puls { 0%, 100% { box-shadow: 0 0 0 0 rgba(47, 160, 95, .45); } 50% { box-shadow: 0 0 0 7px rgba(47, 160, 95, 0); } }
+  @media (prefers-color-scheme: dark) { #bDone { background: #1d3a2a; border-color: #3f8a5f; color: #b9f0cd; } #bDone:hover { background: #24493a; } }
+  @media (prefers-reduced-motion: reduce) { #bDone { animation: none; } }
+</style>
 </head>
 <body>
 <!-- PathFinder, eingebettet in Probe: wird von der Probe-Seite gestartet (window.probeEdit) -->
