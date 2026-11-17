@@ -37,7 +37,7 @@ jobs:
       - name: Paket zusammenstellen
         run: |
           mkdir -p out/vendor/pathfinder
-          cp -r index.html editor.html api.php manifest.webmanifest .htaccess app lib out/
+          cp -r index.html editor.html s.html e.html api.php manifest.webmanifest .htaccess app lib out/
           cp -r vendor/pathfinder/core vendor/pathfinder/fonts out/vendor/pathfinder/
           php -l out/api.php && php -l out/lib/db.php
           echo "Version: ${GITHUB_SHA::7}" > out/app/version.txt

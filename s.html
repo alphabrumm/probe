@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Probe · Prüfung</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="app/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="app/icon-180.png">
+<link rel="stylesheet" href="vendor/pathfinder/core/pathfinder.css">
+<link rel="stylesheet" href="app/student.css">
+</head>
+<body class="pf-player">
+<div class="sbar" id="sbar" hidden>
+  <img src="app/icon.svg" alt="">
+  <span class="sb-t" id="sbT"></span>
+  <span class="sb-sp"></span>
+  <span class="sb-save" id="sbSave"></span>
+  <span class="sb-time" id="sbTime" hidden></span>
+  <button id="sbProt" title="Protokoll deiner Antworten als PDF">📄<span class="t"> Protokoll</span></button>
+  <button id="sbExp" title="Abgabe als Datei sichern (wenn das Internet ausfällt)">⇩<span class="t"> Sichern</span></button>
+  <button id="sbFull" title="Vollbild">⛶</button>
+</div>
+<div class="app" id="app" hidden><section class="lpwrap"><div class="lp-scroll" id="scroll"><div class="lp" id="lp"></div></div></section></div>
+<div class="screen" id="screen"><div class="card">lädt …</div></div>
+<script type="module" src="app/student.js"></script>
+</body></html>

@@ -61,6 +61,23 @@ export async function open(priv, sealed) {
   return JSON.parse(td.decode(await aesOpen(k, o.d)));
 }
 
+/* ---------- Ergebniscode der Schüler ---------- */
+// 12 Zeichen (60 Bit) – erzeugt auf dem Schüler-iPad. Daraus entstehen die Bericht-ID (für den Server) und der Berichtsschlüssel.
+export function resultCode() {
+  const A = '23456789ABCDEFGHJKMNPQRSTUVWXYZ', r = crypto.getRandomValues(new Uint8Array(12));
+  let s = ''; for (let i = 0; i < 12; i++) s += A[r[i] % A.length];
+  return s.match(/.{4}/g).join('-');
+}
+export const normResult = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+export async function reportKeys(code) {
+  const n = normResult(code);
+  const rid = hex(new Uint8Array(await C.digest('SHA-256', te.encode('probe-bericht|' + n)))).slice(0, 40);
+  const key = await aesKey(new Uint8Array(await C.digest('SHA-256', te.encode('probe-schluessel|' + n))));
+  return { rid, key };
+}
+export const sealSym = async (key, data) => aesSeal(key, te.encode(JSON.stringify(data)));
+export const openSym = async (key, s) => JSON.parse(td.decode(await aesOpen(key, s)));
+
 /** Startpasswort für neue Konten: gut lesbar, 12 Zeichen */
 export function startPassword() {
   const A = 'abcdefghjkmnpqrstuvwxyz23456789', r = crypto.getRandomValues(new Uint8Array(12));

@@ -1,6 +1,7 @@
 // Probe – Oberfläche: Einrichtung, Anmeldung, Prüfungen der Lehrkraft, Admin.
 // Alles Persönliche (Schülernamen, Inhalte mit Lösungen) wird hier im Browser verschlüsselt, bevor es zum Server geht.
 import * as K from './crypto.js';
+import { viewLive, viewEval, stopLive } from './run.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -214,7 +215,8 @@ function changePassword() {
 
 /* ---------- Prüfungen: Übersicht ---------- */
 async function catalog() { if (!S.catalog) S.catalog = await api('catalog'); if (!S.sj) S.sj = S.catalog.schuljahr; return S.catalog; }
-const statusChip = e => e.status !== 'entwurf' ? `<span class="chip good">${esc(e.status)}</span>`
+const STATUS = { offen: ['🟢 läuft', 'good'], geschlossen: ['⏸ geschlossen', 'warn'], beendet: ['Auswertung', 'warn'], veroeffentlicht: ['✓ veröffentlicht', 'good'] };
+const statusChip = e => e.status !== 'entwurf' ? `<span class="chip ${STATUS[e.status]?.[1] || ''}">${STATUS[e.status]?.[0] || esc(e.status)}${e.teilnehmer ? ` · ${e.teilnehmer} Teilnehmer` : ''}</span>`
   : !e.has_draft ? '<span class="chip warn">Inhalt fehlt</span>'
   : e.fertig ? `<span class="chip good">✓ bereit · ${e.aufgaben} Aufgaben · ${fmtPts(e.punkte)} P.</span>` : `<span class="chip warn">Entwurf · ${e.aufgaben} Aufgaben</span>`;
 async function viewDashboard() {
@@ -266,7 +268,11 @@ async function loadExam(id) {
 }
 async function viewExam(id) {
   main.innerHTML = '<p class="help">lädt …</p>';
+  stopLive();
   let e; try { e = await loadExam(id); } catch (er) { main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a><p class="err">${esc(er.message)}</p>`; return; }
+  const H = { S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam };
+  if (['offen', 'geschlossen'].includes(e.status)) return viewLive(e, H);
+  if (['beendet', 'veroeffentlicht'].includes(e.status)) return viewEval(e, H);
   const R = e.roster || [];
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
     <h1>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}</h1><p class="sub">${esc(fmtDate(e.datum))} · Schuljahr ${esc(e.schuljahr)}</p>
@@ -285,10 +291,14 @@ async function viewExam(id) {
         <table class="t"><tr><td>Klasse</td><td><b>${esc(e.klasse)}</b></td></tr><tr><td>Fach</td><td><b>${esc(e.fach)}</b></td></tr><tr><td>Datum</td><td><b>${esc(fmtDate(e.datum))}</b></td></tr><tr><td>Art</td><td><b>${esc(ARTEN[e.art] || e.art)}</b></td></tr>
         <tr><td>Bearbeitungszeit</td><td><b>${e.dauer ? e.dauer + ' min' : 'ohne Countdown'}</b></td></tr><tr><td>Teilnehmer</td><td><b>${e.erwartet || '–'}</b></td></tr><tr><td>Einlass-PIN</td><td><b>${e.pin_on ? 'an' : 'aus'}</b></td></tr><tr><td>Bewertung</td><td><b>${e.skala === 'punkte' ? 'Punkte 0–15' : 'Noten 1–6'}</b></td></tr></table>
         <div class="btns" style="margin-top:12px"><button class="btn" id="meta">Ändern</button></div></section>
-      <section class="card phase"><h2>Durchführung</h2><p class="help">Starten, QR-Code, Live-Ansicht und Auswertung folgen im nächsten Schritt (Phase 3 und 4).</p><button class="btn pri" disabled>▶ Prüfung starten</button></section>
+      <section class="card"><h2>Durchführung</h2><p class="help">${e.fertig ? 'Beim Start bekommt die Prüfung einen QR-Code' + (e.pin_on ? ' und eine PIN' : '') + '. Danach lässt sich der Inhalt nicht mehr ändern.' : 'Erst den Inhalt fertigstellen (im Editor „✓ Fertig – zurück zu Probe“).'}</p><button class="btn pri" id="start"${e.fertig ? '' : ' disabled'}>▶ Prüfung starten</button></section>
       <section class="card"><h2>Löschen</h2><p class="help">Löscht die Prüfung mit Inhalt und Klassenliste endgültig.</p><button class="btn danger" id="del">Prüfung löschen</button></section>
     </div></div>`;
   $('#edit').onclick = () => openEditor(e, e.draft);
+  $('#start').onclick = async () => {
+    if (!confirm(`Prüfung ${e.klasse} · ${e.fach} jetzt starten? Schüler können sich dann per QR-Code anmelden.`)) return;
+    try { await api('exam_state', { id: e.id, to: 'offen' }); viewExam(e.id); } catch (er) { toast('⚠ ' + esc(er.message), 5000); }
+  };
   $('#meta').onclick = () => examForm(e);
   $('#imp').onclick = () => pickFile('.json,application/json', async f => {
     try {

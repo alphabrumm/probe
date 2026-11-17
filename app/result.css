@@ -1,0 +1,17 @@
+/* Probe – Ergebnisseite für Schüler */
+.res-head { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+.res-note { text-align: center; padding: 12px 22px; border-radius: 16px; background: var(--a1s); }
+.res-note b { display: block; font-size: 40px; line-height: 1.1; }
+.res-note span { font-size: 13px; color: var(--ink-2); }
+.task { border-top: 1px solid var(--line); padding: 14px 0; }
+.task h3 { display: flex; justify-content: space-between; gap: 10px; }
+.part { padding: 3px 0 3px 26px; position: relative; }
+.part::before { position: absolute; left: 4px; font-weight: 700; }
+.part.ok::before { content: "✓"; color: var(--good); }
+.part.no::before { content: "✗"; color: var(--bad); }
+.part .exp { color: var(--good); font-size: 14px; }
+.ans { white-space: pre-wrap; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; margin: 6px 0; }
+.fb { background: var(--a2s); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.cm textarea { min-height: 70px; }
+.cm .sent { color: var(--good); font-weight: 700; }
+@media print { .top, .no-print, .cm { display: none !important; } body { background: #fff; } .card { box-shadow: none; border: 0; } main { padding: 0; } }

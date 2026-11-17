@@ -86,7 +86,38 @@ function exam_meta(array $e): array {
     return ['id' => (int)$e['id'], 'schuljahr' => $e['schuljahr'], 'klasse' => $e['klasse'], 'fach_id' => $e['fach_id'] ? (int)$e['fach_id'] : null, 'fach' => $e['fach'],
         'datum' => $e['datum'], 'art' => $e['art'], 'titel' => $e['titel'], 'erwartet' => (int)$e['erwartet'], 'dauer' => (int)$e['dauer'], 'pin_on' => (bool)$e['pin_on'],
         'skala' => $e['skala'], 'status' => $e['status'], 'roster_n' => (int)$e['roster_n'], 'aufgaben' => (int)$e['aufgaben'], 'punkte' => (float)$e['punkte'],
-        'fertig' => (bool)$e['fertig'], 'has_draft' => (bool)$e['draft_enc'], 'updated' => (int)$e['updated']];
+        'fertig' => (bool)$e['fertig'], 'has_draft' => (bool)$e['draft_enc'], 'updated' => (int)$e['updated'],
+        'code' => $e['code'], 'pin' => $e['pin'], 'join_open' => (bool)$e['join_open'], 'opened' => $e['opened'] ? (int)$e['opened'] : null,
+        'ended' => $e['ended'] ? (int)$e['ended'] : null, 'expires' => $e['expires'] ? (int)$e['expires'] : null,
+        'teilnehmer' => (int)(db()->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn())];
+}
+const STATES = ['entwurf', 'offen', 'geschlossen', 'beendet', 'veroeffentlicht'];
+function new_code(): string {
+    $A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    for ($t = 0; $t < 50; $t++) {
+        $c = ''; for ($i = 0; $i < 8; $i++) $c .= $A[random_int(0, strlen($A) - 1)];
+        $st = db()->prepare('SELECT 1 FROM exams WHERE code = ?'); $st->execute([$c]); if (!$st->fetchColumn()) return $c;
+    }
+    fail('Kein freier Prüfungscode');
+}
+function exam_by_code(string $code): array {
+    $st = db()->prepare("SELECT * FROM exams WHERE code = ? AND status <> 'entwurf'"); $st->execute([strtoupper(trim($code))]);
+    return $st->fetch() ?: fail('Diese Prüfung gibt es nicht (mehr). Prüfe den Link oder scanne den QR-Code erneut.', 404);
+}
+function participant(array $e, string $token): array {
+    $st = db()->prepare('SELECT * FROM participants WHERE exam_id = ? AND token_hash = ?'); $st->execute([$e['id'], hash('sha256', $token)]);
+    return $st->fetch() ?: fail('Diese Anmeldung gilt nicht mehr. Bitte melde dich bei deiner Lehrkraft.', 403);
+}
+function deadline(array $e, array $p): ?int { return (int)$e['dauer'] > 0 && $e['opened'] ? (int)$e['opened'] + ((int)$e['dauer'] + (int)$p['zuschlag']) * 60 : null; }
+function owner_pub(array $e): string { $st = db()->prepare('SELECT pub_key FROM users WHERE id = ?'); $st->execute([$e['owner_id']]); return (string)$st->fetchColumn(); }
+function throttle(string $k, int $max, int $win = 600): void {
+    $pdo = db(); $pdo->prepare('DELETE FROM join_fails WHERE t < ?')->execute([time() - $win]);
+    $st = $pdo->prepare('SELECT COUNT(*) FROM join_fails WHERE k = ? AND ip = ?'); $st->execute([$k, ip()]);
+    if ((int)$st->fetchColumn() >= $max) fail('Zu viele Versuche – bitte ein paar Minuten warten.', 429);
+}
+function throttle_fail(string $k): void { db()->prepare('INSERT INTO join_fails (k, ip, t) VALUES (?,?,?)')->execute([$k, ip(), time()]); }
+function student_state(array $e, array $p): array {
+    return ['pid' => (int)$p['id'], 'status' => $p['status'], 'exam_status' => $e['status'], 'deadline' => deadline($e, $p), 'now' => time()];
 }
 
 /* ---------- Anmeldung und Schlüssel ---------- */
@@ -302,6 +333,145 @@ case 'exam_roster': { // Klassenliste (Vor- und Nachnamen) – verschlüsselt
 case 'exam_delete': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
     db()->prepare('DELETE FROM exams WHERE id = ?')->execute([$e['id']]); out([]);
+}
+/* ---------- Schüler: ohne Konto, mit Prüfungscode und Gerätetoken ---------- */
+case 'p_info': {
+    $e = exam_by_code(str($in, 'code', 12, true));
+    out(['exam' => ['status' => $e['status'], 'titel' => $e['titel'], 'fach' => $e['fach'], 'klasse' => $e['klasse'], 'art' => $e['art'], 'datum' => $e['datum'],
+        'dauer' => (int)$e['dauer'], 'pin_on' => (bool)$e['pin_on'], 'join_open' => (bool)$e['join_open']], 'pub_key' => owner_pub($e), 'now' => time()]);
+}
+case 'p_join': {
+    $code = strtoupper(str($in, 'code', 12, true)); throttle('j:' . $code, 15);
+    $e = exam_by_code($code);
+    if ($e['status'] !== 'offen') fail($e['status'] === 'geschlossen' ? 'Die Prüfung ist gerade geschlossen.' : 'Die Prüfung ist nicht geöffnet.', 409);
+    if (!$e['join_open']) fail('Der Einlass ist geschlossen. Bitte melde dich bei deiner Lehrkraft.', 409);
+    if ($e['pin_on'] && !hash_equals((string)$e['pin'], preg_replace('~\D~', '', (string)($in['pin'] ?? '')))) { throttle_fail('j:' . $code); usleep(400000); fail('Die PIN stimmt nicht.', 401); }
+    $id = str($in, 'identity_enc', 4000, true);
+    $token = bin2hex(random_bytes(24));
+    db()->prepare('INSERT INTO participants (exam_id, token_hash, identity_enc, joined, last_seen) VALUES (?,?,?,?,?)')->execute([$e['id'], hash('sha256', $token), $id, time(), time()]);
+    $p = participant($e, $token);
+    out(['token' => $token, 'doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e)] + student_state($e, $p));
+}
+case 'p_resume': {
+    $e = exam_by_code(str($in, 'code', 12, true)); $p = participant($e, str($in, 'token', 64, true));
+    db()->prepare('UPDATE participants SET last_seen = ? WHERE id = ?')->execute([time(), $p['id']]);
+    out(['doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e)] + student_state($e, $p));
+}
+case 'p_save': { // Zwischenstand oder Abgabe (Antworten verschlüsselt für die Lehrkraft)
+    $e = exam_by_code(str($in, 'code', 12, true)); $p = participant($e, str($in, 'token', 64, true));
+    $final = !empty($in['final']); $ans = blob($in, 'answers_enc', 5_000_000);
+    if ($p['status'] === 'abgegeben') fail('Schon abgegeben', 409);
+    if ($e['status'] !== 'offen') { out(['saved' => false] + student_state($e, $p)); }
+    $dl = deadline($e, $p);
+    if ($dl && time() > $dl + 120) { db()->prepare("UPDATE participants SET status = 'abgegeben', last_seen = ? WHERE id = ?")->execute([time(), $p['id']]); $p = participant($e, (string)$in['token']); out(['saved' => false, 'late' => true] + student_state($e, $p)); }
+    db()->prepare('UPDATE participants SET answers_enc = COALESCE(?, answers_enc), saved = ?, last_seen = ?, n_saves = n_saves + 1, fokus = MAX(fokus, ?), status = ? WHERE id = ?')
+        ->execute([$ans, time(), time(), max(0, (int)($in['fokus'] ?? 0)), $final ? 'abgegeben' : 'aktiv', $p['id']]);
+    $p = participant($e, (string)$in['token']);
+    out(['saved' => true] + student_state($e, $p));
+}
+case 'p_ping': {
+    $e = exam_by_code(str($in, 'code', 12, true)); $p = participant($e, str($in, 'token', 64, true));
+    db()->prepare('UPDATE participants SET last_seen = ?, fokus = MAX(fokus, ?) WHERE id = ?')->execute([time(), max(0, (int)($in['fokus'] ?? 0)), $p['id']]);
+    out(student_state($e, $p));
+}
+
+/* ---------- Ergebnisseite der Schüler (Bericht verschlüsselt mit dem Ergebniscode) ---------- */
+case 'r_get': {
+    $rid = str($in, 'rid', 64, true); throttle('r', 40);
+    db()->prepare('DELETE FROM reports WHERE expires < ?')->execute([time()]);
+    $st = db()->prepare('SELECT report_enc, expires FROM reports WHERE rid = ?'); $st->execute([$rid]); $r = $st->fetch();
+    if (!$r) { throttle_fail('r'); usleep(300000); fail('Zu diesem Code gibt es (noch) kein Ergebnis. Vielleicht ist die Korrektur noch nicht fertig – oder die Ergebnisseite ist schon abgelaufen.', 404); }
+    out(['report_enc' => $r['report_enc'], 'expires' => (int)$r['expires']]);
+}
+case 'r_comment': {
+    $rid = str($in, 'rid', 64, true); $c = str($in, 'comment_enc', 20000, true);
+    $st = db()->prepare('SELECT exam_id FROM reports WHERE rid = ? AND expires >= ?'); $st->execute([$rid, time()]); $ex = $st->fetchColumn();
+    if (!$ex) fail('Die Ergebnisseite ist abgelaufen.', 404);
+    $st = db()->prepare('SELECT COUNT(*) FROM report_comments WHERE rid = ?'); $st->execute([$rid]); if ((int)$st->fetchColumn() >= 30) fail('Zu viele Kommentare');
+    db()->prepare('INSERT INTO report_comments (exam_id, rid, comment_enc, created) VALUES (?,?,?,?)')->execute([$ex, $rid, $c, time()]);
+    out([]);
+}
+
+/* ---------- Lehrkraft: Durchführung ---------- */
+case 'exam_state': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); $to = (string)($in['to'] ?? ''); $from = $e['status']; $pdo = db();
+    if (!in_array($to, STATES, true)) fail('Unbekannter Zustand');
+    $n = (int)$pdo->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn();
+    $ok = match ([$from, $to]) {
+        ['entwurf', 'offen'] => (bool)$e['fertig'] ?: fail('Bitte zuerst den Inhalt fertigstellen („✓ Fertig“ im Editor).'),
+        ['offen', 'geschlossen'], ['geschlossen', 'offen'], ['offen', 'beendet'], ['geschlossen', 'beendet'], ['veroeffentlicht', 'beendet'] => true,
+        ['offen', 'entwurf'], ['geschlossen', 'entwurf'] => $n === 0 ?: fail('Es haben schon Schüler teilgenommen – zurück zum Entwurf geht nicht mehr.'),
+        default => fail("Von „{$from}“ nach „{$to}“ geht nicht."),
+    };
+    if ($to === 'offen' && $from === 'entwurf') {
+        $pdo->prepare('UPDATE exams SET status = ?, code = COALESCE(code, ?), pin = ?, join_open = 1, opened = ?, closed = NULL, ended = NULL WHERE id = ?')
+            ->execute(['offen', new_code(), $e['pin_on'] ? str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT) : '', time(), $e['id']]);
+    } elseif ($to === 'entwurf') {
+        $pdo->prepare("UPDATE exams SET status = 'entwurf', opened = NULL WHERE id = ?")->execute([$e['id']]);
+    } elseif ($to === 'beendet' && $from === 'veroeffentlicht') {
+        $pdo->prepare("DELETE FROM reports WHERE exam_id = ?")->execute([$e['id']]);
+        $pdo->prepare("UPDATE exams SET status = 'beendet', published = NULL, expires = NULL WHERE id = ?")->execute([$e['id']]);
+    } else {
+        $col = ['geschlossen' => 'closed', 'beendet' => 'ended', 'offen' => 'closed'][$to];
+        $pdo->prepare("UPDATE exams SET status = ?, {$col} = ? WHERE id = ?")->execute([$to, $to === 'offen' ? null : time(), $e['id']]);
+        if ($to === 'beendet') $pdo->prepare("UPDATE participants SET status = 'abgegeben' WHERE exam_id = ?")->execute([$e['id']]); // offene Arbeiten zählen mit dem letzten Stand
+    }
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
+case 'exam_live': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    $st = db()->prepare('SELECT id, identity_enc, status, joined, last_seen, saved, n_saves, zuschlag, fokus, imported, answers_enc IS NOT NULL AS has_answers FROM participants WHERE exam_id = ? ORDER BY id');
+    $st->execute([$e['id']]);
+    out(['exam' => exam_meta($e), 'now' => time(), 'participants' => $st->fetchAll()]);
+}
+case 'exam_join_open': { $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); db()->prepare('UPDATE exams SET join_open = ? WHERE id = ?')->execute([!empty($in['open']) ? 1 : 0, $e['id']]); out([]); }
+case 'exam_zuschlag': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    db()->prepare('UPDATE participants SET zuschlag = ? WHERE id = ? AND exam_id = ?')->execute([max(0, min(240, (int)($in['minutes'] ?? 0))), (int)($in['pid'] ?? 0), $e['id']]); out([]);
+}
+case 'exam_participant_delete': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    db()->prepare('DELETE FROM participants WHERE id = ? AND exam_id = ?')->execute([(int)($in['pid'] ?? 0), $e['id']]); out([]);
+}
+case 'exam_import': { // Notfall: Abgabe per Datei (AirDrop) – die Lehrkraft entscheidet
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); $pid = (int)($in['pid'] ?? 0);
+    $ans = str($in, 'answers_enc', 5_000_000, true); $idn = str($in, 'identity_enc', 4000, true);
+    $st = db()->prepare('SELECT id FROM participants WHERE id = ? AND exam_id = ?'); $st->execute([$pid, $e['id']]);
+    if ($st->fetchColumn()) db()->prepare("UPDATE participants SET answers_enc = ?, imported = 1, status = 'abgegeben', saved = ? WHERE id = ?")->execute([$ans, time(), $pid]);
+    else db()->prepare("INSERT INTO participants (exam_id, token_hash, identity_enc, status, joined, last_seen, saved, imported, answers_enc) VALUES (?,?,?,'abgegeben',?,?,?,1,?)")
+        ->execute([$e['id'], hash('sha256', bin2hex(random_bytes(24))), $idn, time(), time(), time(), $ans]);
+    out([]);
+}
+
+/* ---------- Lehrkraft: Auswertung ---------- */
+case 'exam_results': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    $p = db()->prepare('SELECT id, identity_enc, answers_enc, status, saved, fokus, zuschlag, imported FROM participants WHERE exam_id = ? ORDER BY id'); $p->execute([$e['id']]);
+    $c = db()->prepare('SELECT id, rid, comment_enc, created, gelesen FROM report_comments WHERE exam_id = ? ORDER BY id'); $c->execute([$e['id']]);
+    out(['exam' => exam_meta($e), 'key_enc' => $e['key_enc'], 'grading_enc' => $e['grading_enc'], 'participants' => $p->fetchAll(), 'comments' => $c->fetchAll()]);
+}
+case 'exam_grading': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    db()->prepare('UPDATE exams SET grading_enc = ?, updated = ? WHERE id = ?')->execute([str($in, 'grading_enc', 5_000_000, true), time(), $e['id']]); out([]);
+}
+case 'exam_publish': { // Ergebnisse veröffentlichen (Quittieren): Berichte je Schüler, verschlüsselt mit dessen Ergebniscode
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    if (!in_array($e['status'], ['beendet', 'veroeffentlicht'], true)) fail('Erst die Prüfung beenden.');
+    $days = max(1, min(90, (int)($in['days'] ?? 14))); $exp = strtotime('tomorrow', time()) + ($days - 1) * 86400 + 86399;
+    $pdo = db(); $pdo->beginTransaction();
+    $pdo->prepare('DELETE FROM reports WHERE exam_id = ?')->execute([$e['id']]);
+    $st = $pdo->prepare('INSERT OR REPLACE INTO reports (rid, exam_id, report_enc, expires) VALUES (?,?,?,?)');
+    foreach ((array)($in['reports'] ?? []) as $r) {
+        $rid = (string)($r['rid'] ?? ''); if (!preg_match('~^[0-9a-f]{32,64}$~', $rid)) continue;
+        $st->execute([$rid, $e['id'], substr((string)($r['report_enc'] ?? ''), 0, 2_000_000), $exp]);
+    }
+    $pdo->prepare("UPDATE exams SET status = 'veroeffentlicht', published = ?, expires = ? WHERE id = ?")->execute([time(), $exp, $e['id']]);
+    $pdo->commit();
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
+case 'comment_read': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    db()->prepare('UPDATE report_comments SET gelesen = 1 WHERE id = ? AND exam_id = ?')->execute([(int)($in['cid'] ?? 0), $e['id']]); out([]);
 }
 default: fail('Unbekannte Aktion', 404);
 }

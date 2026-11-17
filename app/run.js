@@ -1,0 +1,292 @@
+// Probe – Durchführung (Live-Ansicht mit QR-Code) und Auswertung (Notenschlüssel, Korrektur, Veröffentlichen).
+// Namen, Antworten, Lösungsschlüssel und Bewertung werden hier im Browser der Lehrkraft entschlüsselt.
+import { qrSvg } from './qr.js';
+
+let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+let liveTimer = null;
+export const stopLive = () => { clearInterval(liveTimer); liveTimer = null; };
+addEventListener('hashchange', stopLive);
+
+/* ---------- Namen abgleichen (Klassenliste ↔ Anmeldungen) ---------- */
+const norm = s => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+function lev(a, b) { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; }
+/** jede Anmeldung einem Namen der Liste zuordnen: exakt, vertauscht oder mit bis zu 2 Tippfehlern (dann „≈“) */
+export function matchRoster(roster, people) {
+  const R = roster.map((r, i) => ({ i, a: norm(r.v + ' ' + r.n), b: norm(r.n + ' ' + r.v) })), used = new Set(), res = new Map();
+  const cands = [];
+  people.forEach(p => { const k = norm(p.v + ' ' + p.n); R.forEach(r => { const d = Math.min(lev(k, r.a), lev(k, r.b)); if (d <= 2) cands.push({ p, r, d }); }); });
+  cands.sort((x, y) => x.d - y.d);
+  for (const c of cands) if (!res.has(c.p.id) && !used.has(c.r.i)) { res.set(c.p.id, { idx: c.r.i, exact: c.d === 0 }); used.add(c.r.i); }
+  return { byPerson: res, missing: roster.filter((_, i) => !used.has(i)) };
+}
+
+/* ---------- Live ---------- */
+export async function viewLive(e, helpers) {
+  X = helpers; stopLive();
+  const { esc, main } = X, ids = new Map();
+  const link = new URL('s.html', location.href).href.replace(/[?#].*$/, '') + '?c=' + e.code;
+  const decrypt = async p => { if (!ids.has(p.id)) { try { ids.set(p.id, await X.K.open(X.S.priv, p.identity_enc)); } catch (er) { ids.set(p.id, { v: '?', n: '(unlesbar)' }); } } return { ...p, ...ids.get(p.id) }; };
+  main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
+    <h1>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}</h1><p class="sub">${esc(e.titel)} · ${esc(X.fmtDate(e.datum))}</p>
+    <div class="grid2"><section class="card live-qr"><div class="qrbox">${qrSvg(link, { title: 'QR-Code zur Prüfung' })}</div>
+      <div class="stack"><div><span class="help">Code</span><div class="big">${esc(e.code)}</div></div>${e.pin_on ? `<div><span class="help">PIN</span><div class="big pin">${esc(e.pin)}</div></div>` : ''}
+      <div class="help link">${esc(link)}</div><button class="btn" id="beamer">⛶ Für den Beamer</button></div></section>
+    <section class="card"><h2 id="state"></h2><div class="stat" id="stat"></div><div class="btns" id="acts"></div><p class="help" id="hint"></p></section></div>
+    <section class="card" style="margin-top:16px"><div class="bar"><h2 style="margin:0">Teilnehmer</h2><span class="sp"></span><button class="btn sm" id="imp">⤒ Abgabe aus Datei</button></div><div class="scroll-x"><table class="t" id="tab"></table></div></section>`;
+  $('#beamer').onclick = () => beamer(e, link);
+  $('#imp').onclick = () => importFile(e);
+  const draw = async () => {
+    let r; try { r = await X.api('exam_live', { id: e.id }); } catch (er) { $('#hint').textContent = '⚠ ' + er.message; return; }
+    e = { ...e, ...r.exam }; const now = r.now;
+    if (!['offen', 'geschlossen'].includes(e.status)) { stopLive(); X.viewExam(e.id); return; }
+    const P = await Promise.all(r.participants.map(decrypt));
+    const M = e.roster?.length ? matchRoster(e.roster, P) : null;
+    const abg = P.filter(p => p.status === 'abgegeben').length, soll = e.erwartet || e.roster?.length || 0;
+    $('#state').innerHTML = e.status === 'offen' ? '🟢 Prüfung läuft' : '⏸ Geschlossen – keine Abgaben';
+    const end = e.dauer && e.opened ? e.opened + e.dauer * 60 : null, left = end ? end - now : null;
+    $('#stat').innerHTML = `<div><b>${P.length}${soll ? ` / ${soll}` : ''}</b><span>angemeldet</span></div><div><b>${abg}</b><span>abgegeben</span></div>${end ? `<div><b>${left > 0 ? Math.ceil(left / 60) + ' min' : 'abgelaufen'}</b><span>Restzeit (ohne Zuschlag)</span></div>` : ''}${M ? `<div><b>${M.missing.length}</b><span>fehlen</span></div>` : ''}`;
+    $('#acts').innerHTML = (e.status === 'offen' ? `<button class="btn" data-st="geschlossen">⏸ Schließen</button>` : `<button class="btn pri" data-st="offen">▶ Wieder öffnen</button>`)
+      + `<button class="btn" data-join>${e.join_open ? '🔒 Einlass sperren' : '🔓 Einlass öffnen'}</button><button class="btn danger" data-st="beendet">■ Beenden und auswerten</button>`;
+    $('#hint').textContent = e.status === 'offen' ? (e.join_open ? 'Schüler scannen den QR-Code und melden sich mit Namen' + (e.pin_on ? ' und PIN' : '') + ' an.' : 'Einlass gesperrt: Neue Anmeldungen sind nicht möglich, angemeldete Schüler arbeiten weiter.')
+      : 'Solange geschlossen ist, kann niemand speichern oder abgeben. Wieder öffnen setzt die Prüfung fort; Beenden ist endgültig.';
+    const rows = P.map(p => ({ ...p, m: M?.byPerson.get(p.id) })).sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
+    const ago = t => !t ? '–' : now - t < 60 ? 'gerade' : `vor ${Math.round((now - t) / 60)} min`;
+    $('#tab').innerHTML = `<tr><th>Name</th><th>Status</th><th>gespeichert</th><th>Fokus verlassen</th><th>Zuschlag</th><th></th></tr>`
+      + rows.map(p => `<tr><td><b>${esc(p.n)}</b>, ${esc(p.v)}${M ? (p.m ? (p.m.exact ? '' : ' <span class="chip warn" title="ähnlicher Name in der Klassenliste">≈ Liste</span>') : ' <span class="chip warn">nicht in Liste</span>') : ''}</td>
+        <td>${p.status === 'abgegeben' ? `<span class="chip good">✓ abgegeben${+p.imported ? ' (Datei)' : ''}</span>` : now - p.last_seen > 75 ? `<span class="chip bad">offline ${ago(p.last_seen)}</span>` : '<span class="chip">arbeitet</span>'}</td>
+        <td>${ago(p.saved)}</td><td>${+p.fokus ? `<span class="chip ${+p.fokus > 2 ? 'bad' : 'warn'}">${p.fokus}×</span>` : '–'}</td>
+        <td><select data-zu="${p.id}" style="width:auto;min-height:36px">${[0, 5, 10, 15, 20, 30, 45].map(m => `<option value="${m}"${+p.zuschlag === m ? ' selected' : ''}>${m ? '+' + m + ' min' : '–'}</option>`).join('')}</select></td>
+        <td class="act"><button class="btn sm ghost" data-del="${p.id}" title="Anmeldung entfernen (z. B. doppelt)">✕</button></td></tr>`).join('')
+      + (M ? M.missing.map(r => `<tr style="opacity:.55"><td>${esc(r.n)}, ${esc(r.v)}</td><td><span class="chip">fehlt</span></td><td colspan="4"></td></tr>`).join('') : '')
+      + (!rows.length && !M ? '<tr><td colspan="6" class="help">Noch niemand angemeldet.</td></tr>' : '');
+    const bm = $('#bm'); if (bm) bm.querySelector('.cnt').textContent = `${P.length}${soll ? ' / ' + soll : ''} angemeldet · ${abg} abgegeben`;
+  };
+  main.onclick = async ev => {
+    const t = ev.target.closest('button'); if (!t) return;
+    try {
+      if (t.dataset.st) {
+        const to = t.dataset.st;
+        if (to === 'beendet' && !confirm('Prüfung endgültig beenden? Danach kann niemand mehr abgeben; offene Arbeiten zählen mit ihrem letzten gespeicherten Stand. Weiter geht es mit der Auswertung.')) return;
+        await X.api('exam_state', { id: e.id, to }); if (to === 'beendet') { stopLive(); X.viewExam(e.id); return; }
+      }
+      if (t.dataset.join != null) await X.api('exam_join_open', { id: e.id, open: !e.join_open });
+      if (t.dataset.del && confirm('Diese Anmeldung entfernen? Ihre Antworten gehen verloren.')) await X.api('exam_participant_delete', { id: e.id, pid: +t.dataset.del });
+      draw();
+    } catch (er) { X.toast('⚠ ' + esc(er.message)); }
+  };
+  main.onchange = async ev => { const s = ev.target.closest('[data-zu]'); if (s) { await X.api('exam_zuschlag', { id: e.id, pid: +s.dataset.zu, minutes: +s.value }); X.toast('Zuschlag gespeichert'); } };
+  await draw();
+  liveTimer = setInterval(draw, 4000);
+}
+function beamer(e, link) {
+  const d = document.createElement('div'); d.className = 'beamer'; d.id = 'bm';
+  d.innerHTML = `<button class="btn" data-x>✕ Schließen</button><div class="bq">${qrSvg(link)}</div><div class="bi"><div class="help">Code</div><div class="big">${X.esc(e.code)}</div>${e.pin_on ? `<div class="help">PIN</div><div class="big pin">${X.esc(e.pin)}</div>` : ''}<div class="cnt"></div><div class="help">${X.esc(link)}</div></div>`;
+  document.body.appendChild(d);
+  d.onclick = ev => { if (ev.target.closest('[data-x]')) { d.remove(); document.exitFullscreen?.().catch(() => { }); } };
+  d.requestFullscreen?.().catch(() => { });
+}
+function importFile(e) {
+  X.pickFile('.json,application/json', async f => {
+    try {
+      const j = JSON.parse(await f.text());
+      if (j.probe !== 'abgabe' || j.code !== e.code) throw new Error('Diese Datei gehört nicht zu dieser Prüfung.');
+      const who = await X.K.open(X.S.priv, j.identity_enc);
+      if (!confirm(`Abgabe von ${who.v} ${who.n} (gesichert ${new Date(j.at).toLocaleString('de-DE')}) übernehmen? Sie ersetzt den bisher gespeicherten Stand.`)) return;
+      await X.api('exam_import', { id: e.id, pid: j.pid || 0, identity_enc: j.identity_enc, answers_enc: j.answers_enc });
+      X.toast('✓ Abgabe übernommen');
+    } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); }
+  });
+}
+
+/* ---------- Auswertung ---------- */
+let S2 = null; // geladene Auswertung: { e, key, people, g, comments, M, saveT }
+const G0 = skala => ({ v: 1, gkey: skala === 'punkte' ? null : null, manual: {}, override: {}, feedback: {}, accept: {}, drop: [], days: 14 });
+export async function viewEval(e, helpers) {
+  X = helpers; stopLive();
+  const { esc, main, K, S } = X;
+  main.innerHTML = '<p class="help">Auswertung wird entschlüsselt …</p>';
+  const M = await import('../vendor/pathfinder/core/pfsplit.js');
+  let r; try { r = await X.api('exam_results', { id: e.id }); } catch (er) { main.innerHTML = `<p class="err">${esc(er.message)}</p>`; return; }
+  const key = await K.open(S.priv, r.key_enc);
+  const g = r.grading_enc ? await K.open(S.priv, r.grading_enc) : G0(e.skala);
+  g.gkey = g.gkey || (e.skala === 'punkte' ? M.POINTS_KEY.slice() : M.GRADE_KEY.slice());
+  const people = [];
+  for (const p of r.participants) {
+    let who = { v: '?', n: '(unlesbar)', rc: '' }, ans = {};
+    try { who = await K.open(S.priv, p.identity_enc); } catch (er) { }
+    try { if (p.answers_enc) ans = (await K.open(S.priv, p.answers_enc)).answers || {}; } catch (er) { }
+    people.push({ id: p.id, v: who.v, n: who.n, rc: who.rc, ans, status: p.status, imported: +p.imported, fokus: +p.fokus, rid: who.rc ? (await K.reportKeys(who.rc)).rid : '' });
+  }
+  people.sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
+  const comments = [];
+  for (const c of r.comments) { try { comments.push({ ...c, ...(await K.open(S.priv, c.comment_enc)), who: people.find(p => p.rid === c.rid) }); } catch (er) { } }
+  S2 = { e: { ...e, ...r.exam }, key, people, g, comments, M };
+  drawEval();
+}
+const gradeOf = (pct, g, skala, M) => skala === 'punkte' ? M.pointsFor(pct, g.gkey) : M.gradeFor(pct, g.gkey);
+function results() {
+  const { key, people, g, M, e } = S2;
+  return people.map(p => {
+    const R = M.gradeExam(key, p.ans, { manual: g.manual[p.id], override: g.override[p.id], accept: g.accept, drop: g.drop });
+    return { p, R, note: gradeOf(R.pct, g, e.skala, M) };
+  });
+}
+function saveGrading() {
+  clearTimeout(S2.saveT);
+  S2.saveT = setTimeout(async () => { try { await X.api('exam_grading', { id: S2.e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, S2.g) }); } catch (er) { X.toast('⚠ Bewertung nicht gespeichert: ' + X.esc(er.message), 5000); } }, 600);
+}
+function drawEval() {
+  const { esc, main, fmtPts } = X, { e, key, g, comments } = S2, RS = results(), pts = e.skala === 'punkte';
+  const max = RS[0]?.R.max ?? key.tasks.reduce((s, t) => s + (g.drop.includes(t.id) ? 0 : t.pts), 0), pending = RS.reduce((s, x) => s + x.R.pending, 0);
+  const unread = comments.filter(c => !+c.gelesen).length;
+  const pub = e.status === 'veroeffentlicht';
+  main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
+    <h1>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}</h1><p class="sub">${esc(e.titel)} · ${esc(X.fmtDate(e.datum))} · ${RS.length} Teilnehmer · ${fmtPts(max)} Punkte</p>
+    <section class="card"><div class="bar" style="margin:0"><h2 style="margin:0">${pub ? `✓ Veröffentlicht bis ${new Date(e.expires * 1000).toLocaleDateString('de-DE')}` : 'Auswertung'}</h2><span class="sp"></span>
+      ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
+      ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
+      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="csv">⇩ Notenliste (CSV)</button></div>
+      <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
+    <div class="grid2" style="margin-top:16px"><section class="card"><h2>Notenschlüssel</h2><div id="key"></div></section><section class="card"><h2>Verteilung</h2><div id="dist"></div></section></div>
+    <section class="card" style="margin-top:16px"><h2>Ergebnisse</h2><div class="scroll-x"><table class="t" id="res"></table></div><p class="help">Zeile antippen: Aufgaben einzeln ansehen, Punkte ändern, Rückmeldung schreiben.</p></section>
+    <section class="card" style="margin-top:16px"><h2>Aufgaben</h2><div class="scroll-x"><table class="t" id="tasks"></table></div></section>
+    ${comments.length ? `<section class="card" style="margin-top:16px"><h2>Kommentare der Schüler</h2>${comments.slice().reverse().map(c => `<div class="cmt${+c.gelesen ? '' : ' new'}"><b>${esc(c.who ? c.who.n + ', ' + c.who.v : c.name)}</b> · ${esc(c.title)} · <span class="help">${new Date(c.created * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</span><p>${esc(c.text)}</p>${+c.gelesen ? '' : `<button class="btn sm" data-read="${c.id}">✓ gelesen</button>`} ${c.who ? `<button class="btn sm" data-person="${c.who.id}">Bewertung öffnen</button>` : ''}</div>`).join('')}</section>` : ''}`;
+  drawKey(); drawTables();
+  $('#pub').onclick = publish;
+  $('#unpub') && ($('#unpub').onclick = async () => { if (!confirm('Ergebnisseiten der Schüler sofort sperren?')) return; await X.api('exam_state', { id: e.id, to: 'beendet' }); S2.e.status = 'beendet'; drawEval(); });
+  $('#csv').onclick = () => {
+    const rows = [['Nachname', 'Vorname', 'Punkte', 'Max', 'Prozent', pts ? 'Notenpunkte' : 'Note'], ...results().map(x => [x.p.n, x.p.v, fmtPts(x.R.total), fmtPts(x.R.max), Math.round(x.R.pct), x.note])];
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n')], { type: 'text/csv' }));
+    a.download = `Noten_${e.klasse}_${e.fach}_${e.datum}.csv`.replace(/[^\wäöüÄÖÜß.-]+/g, '_'); a.click();
+  };
+  main.onclick = async ev => {
+    const t = ev.target.closest('[data-person],[data-task],[data-acc],[data-drop],[data-read]'); if (!t) return;
+    if (t.dataset.person) personDialog(+t.dataset.person);
+    if (t.dataset.task) essayDialog(t.dataset.task);
+    if (t.dataset.acc) acceptDialog(t.dataset.acc);
+    if (t.dataset.drop) { const id = t.dataset.drop, d = S2.g.drop; if (d.includes(id)) d.splice(d.indexOf(id), 1); else if (confirm('Diese Aufgabe für alle aus der Wertung nehmen?')) d.push(id); saveGrading(); drawEval(); }
+    if (t.dataset.read) { await X.api('comment_read', { id: e.id, cid: +t.dataset.read }); const c = S2.comments.find(x => x.id === +t.dataset.read); if (c) c.gelesen = 1; drawEval(); }
+  };
+}
+function drawKey() {
+  const { esc, fmtPts } = X, { e, g, M } = S2, pts = e.skala === 'punkte', max = results()[0]?.R.max ?? 0;
+  const labels = pts ? Array.from({ length: 15 }, (_, i) => `${i + 1} P.`) : ['Note 5', 'Note 4', 'Note 3', 'Note 2', 'Note 1'];
+  const box = $('#key');
+  box.innerHTML = `<div class="keys">${g.gkey.map((v, i) => `<label class="kr"><span>${labels[i]} ab</span><input type="range" min="0" max="100" step="1" value="${v}" data-k="${i}"><b data-kv="${i}">${v} %</b><span class="help" data-kp="${i}">ab ${fmtPts(Math.ceil(max * v / 100 * 2) / 2)} P.</span></label>`).join('')}</div>
+    <div class="btns"><button class="btn sm" id="abi">Abiturschlüssel</button><span class="help">${pts ? 'Abitur-Tabelle: ab 20 % 1 Punkt … ab 95 % 15 Punkte.' : 'Standard: ab 20 % Note 5, ab 40 % Note 4, ab 55 % Note 3, ab 70 % Note 2, ab 85 % Note 1.'}</span></div>`;
+  box.oninput = ev => {
+    const i = ev.target.dataset.k; if (i == null) return;
+    const k = g.gkey; k[+i] = +ev.target.value;
+    for (let j = +i + 1; j < k.length; j++) if (k[j] < k[j - 1]) k[j] = k[j - 1]; // aufsteigend halten
+    for (let j = +i - 1; j >= 0; j--) if (k[j] > k[j + 1]) k[j] = k[j + 1];
+    k.forEach((v, j) => { $(`[data-k="${j}"]`, box).value = v; $(`[data-kv="${j}"]`, box).textContent = v + ' %'; $(`[data-kp="${j}"]`, box).textContent = `ab ${fmtPts(Math.ceil(max * v / 100 * 2) / 2)} P.`; });
+    drawTables(); saveGrading();
+  };
+  $('#abi').onclick = () => { g.gkey = (pts ? M.POINTS_KEY : M.GRADE_KEY).slice(); drawKey(); drawTables(); saveGrading(); };
+}
+function drawTables() {
+  const { esc, fmtPts } = X, { e, key, g } = S2, RS = results(), pts = e.skala === 'punkte';
+  // Verteilung
+  const grades = pts ? Array.from({ length: 16 }, (_, i) => 15 - i) : [1, 2, 3, 4, 5, 6];
+  const cnt = Object.fromEntries(grades.map(n => [n, RS.filter(x => x.note === n).length])), top = Math.max(1, ...Object.values(cnt));
+  const avg = RS.length ? RS.reduce((s, x) => s + x.note, 0) / RS.length : 0;
+  const col = n => pts ? (n >= 10 ? '#2f8a5b' : n >= 5 ? '#e8961e' : '#c0392b') : ({ 1: '#2f8a5b', 2: '#5aa66f', 3: '#a3b83b', 4: '#e8b21e', 5: '#e57a2b', 6: '#c0392b' })[n];
+  $('#dist').innerHTML = `<div class="dist${pts ? ' pts' : ''}">${grades.map(n => `<div class="db"><span class="dc">${cnt[n] || ''}</span><i style="height:${Math.round(100 * cnt[n] / top)}%;background:${col(n)}"></i><span class="dl">${n}</span></div>`).join('')}</div>
+    <p><b>Durchschnitt: ${RS.length ? avg.toFixed(2).replace('.', ',') : '–'}</b>${pts ? ' Punkte' : ''} · ${RS.length} Teilnehmer${pts ? '' : ` · Note 5 und 6: ${(cnt[5] || 0) + (cnt[6] || 0)}`}</p>`;
+  // Ergebnisse je Schüler
+  const unread = new Set(S2.comments.filter(c => !+c.gelesen && c.who).map(c => c.who.id));
+  $('#res').innerHTML = `<tr><th>Name</th><th>Punkte</th><th>%</th><th>${pts ? 'Punkte (0–15)' : 'Note'}</th><th></th></tr>` + RS.map(x => `<tr data-person="${x.p.id}" style="cursor:pointer"><td><b>${esc(x.p.n)}</b>, ${esc(x.p.v)}${x.p.imported ? ' <span class="chip">Datei</span>' : ''}${x.p.fokus ? ` <span class="chip warn" title="hat den Browser verlassen">${x.p.fokus}× Fokus</span>` : ''}</td>
+    <td>${fmtPts(x.R.total)} / ${fmtPts(x.R.max)}</td><td>${Math.round(x.R.pct)}</td><td><b>${x.note}</b></td><td>${x.R.pending ? `<span class="chip warn">${x.R.pending} offen</span>` : ''}${unread.has(x.p.id) ? ' <span class="chip bad">💬</span>' : ''}</td></tr>`).join('');
+  // Aufgaben
+  $('#tasks').innerHTML = `<tr><th>Aufgabe</th><th>Ø Punkte</th><th></th></tr>` + key.tasks.map((t, i) => {
+    const its = RS.map(x => x.R.items[i]), drop = g.drop.includes(t.id), open = its.filter(x => x.open).length;
+    const avg = its.length ? its.reduce((s, x) => s + (x.pts || 0), 0) / its.length : 0;
+    const free = t.type === 'essay' || (t.type === 'task' && !t.short), acc = t.type === 'gap' || (t.type === 'task' && t.short);
+    return `<tr${drop ? ' style="opacity:.5"' : ''}><td><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${({ quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', essay: 'Freitext' })[t.type] || (t.short ? 'kurze Antwort' : 'freie Antwort')}</span></td>
+      <td>${drop ? 'gestrichen' : `${fmtPts(Math.round(avg * 10) / 10)} / ${fmtPts(t.pts)}`}${open ? ` <span class="chip warn">${open} offen</span>` : ''}</td>
+      <td class="act">${free ? `<button class="btn sm${open ? ' pri' : ''}" data-task="${t.id}">Bewerten</button> ` : ''}${acc ? `<button class="btn sm" data-acc="${t.id}">Antworten</button> ` : ''}<button class="btn sm ghost" data-drop="${t.id}">${drop ? 'wieder werten' : 'streichen'}</button></td></tr>`;
+  }).join('');
+}
+/** einen Schüler bewerten: alle Aufgaben, Punkte überschreiben, Rückmeldung */
+function personDialog(pid) {
+  const { esc, fmtPts } = X, { key, g } = S2, x = results().find(y => y.p.id === pid); if (!x) return;
+  const fbk = g.feedback[pid] || {};
+  const top = x.p.rc ? `<div class="help">Ergebniscode <b>${esc(x.p.rc)}</b>${S2.e.status === 'veroeffentlicht' ? ` · <a href="${esc(resultLink(x.p.rc))}" target="_blank" rel="noopener">Ergebnisseite ansehen (Vorschau)</a>` : ' · die Ergebnisseite gibt es nach dem Veröffentlichen'}</div>` : '';
+  const d = X.dialog(`${esc(x.p.v)} ${esc(x.p.n)} · ${fmtPts(x.R.total)} / ${fmtPts(x.R.max)} P. · ${S2.e.skala === 'punkte' ? '' : 'Note '}${x.note}`, top + key.tasks.map((t, i) => {
+    const it = x.R.items[i], free = !it.auto;
+    return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(t.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `<input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-pp="${t.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.`}</div>
+      ${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
+      ${free ? `<div class="ans">${esc(it.text || '– keine Antwort –')}</div>${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : t.solution ? `<div class="help">Musterlösung: ${esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>` : ''}` : ''}
+      ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}
+      <textarea data-fb="${t.id}" rows="2" placeholder="Rückmeldung zu dieser Aufgabe (sieht der Schüler)">${esc(fbk[t.id] || '')}</textarea></div>`;
+  }).join('') + '<button class="btn pri" data-save>Speichern</button>', { wide: true });
+  d.el.onclick = ev => {
+    if (!ev.target.closest('[data-save]')) return;
+    const man = g.manual[pid] = g.manual[pid] || {}, ov = g.override[pid] = g.override[pid] || {}, fb = g.feedback[pid] = {};
+    for (const inp of $$('[data-pp]', d.el)) {
+      const t = key.tasks.find(y => y.id === inp.dataset.pp), it = x.R.items[key.tasks.indexOf(t)], v = inp.value.trim();
+      if (!it.auto) { if (v === '') delete man[t.id]; else man[t.id] = Math.min(t.pts, Math.max(0, +v.replace(',', '.'))); }
+      else { const auto = S2.M.gradeExam(S2.key, x.p.ans, { accept: g.accept, drop: g.drop }).items[key.tasks.indexOf(t)].pts; if (v === '' || +v === auto) delete ov[t.id]; else ov[t.id] = Math.min(t.pts, Math.max(0, +v.replace(',', '.'))); }
+    }
+    for (const ta of $$('[data-fb]', d.el)) if (ta.value.trim()) fb[ta.dataset.fb] = ta.value.trim();
+    saveGrading(); d.close(); drawEval();
+  };
+}
+/** eine Freitext-Aufgabe für alle bewerten */
+function essayDialog(tid) {
+  const { esc, fmtPts } = X, { key, g } = S2, i = key.tasks.findIndex(t => t.id === tid), t = key.tasks[i], RS = results();
+  const d = X.dialog(`${esc(t.title)} – für alle bewerten`, `${t.rubric?.length ? `<div class="help"><b>Erwartungshorizont:</b> ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)} P.)`).join(' · ')}</div>` : t.solution ? `<div class="help"><b>Musterlösung:</b> ${esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>` : ''}
+    ${RS.map(x => { const it = x.R.items[i]; return `<div class="pt"><div class="bar" style="margin:0"><b>${esc(x.p.n)}, ${esc(x.p.v)}</b><span class="sp"></span><input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-ep="${x.p.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.</div><div class="ans">${esc(it.text || '– keine Antwort –')}</div><textarea data-ef="${x.p.id}" rows="1" placeholder="Rückmeldung (optional)">${esc(g.feedback[x.p.id]?.[t.id] || '')}</textarea></div>`; }).join('')}
+    <button class="btn pri" data-save>Speichern</button>`, { wide: true });
+  d.el.onclick = ev => {
+    if (!ev.target.closest('[data-save]')) return;
+    for (const inp of $$('[data-ep]', d.el)) { const pid = +inp.dataset.ep, m = g.manual[pid] = g.manual[pid] || {}; if (inp.value.trim() === '') delete m[t.id]; else m[t.id] = Math.min(t.pts, Math.max(0, +inp.value.replace(',', '.'))); }
+    for (const ta of $$('[data-ef]', d.el)) { const pid = +ta.dataset.ef, f = g.feedback[pid] = g.feedback[pid] || {}; if (ta.value.trim()) f[t.id] = ta.value.trim(); else delete f[t.id]; }
+    saveGrading(); d.close(); drawEval();
+  };
+}
+/** Lückentext / kurze Antwort: falsche Antworten zusätzlich als richtig akzeptieren (gilt für alle) */
+function acceptDialog(tid) {
+  const { esc } = X, { key, g, people } = S2, t = key.tasks.find(x => x.id === tid);
+  const slots = t.type === 'gap' ? t.gaps.map((alts, i) => ({ i, label: `Lücke ${i + 1}`, exp: alts.join(' oder ') })) : [{ i: 0, label: 'Antwort', exp: String(t.answer).split('|').join(' oder ') }];
+  const acc = g.accept[tid] = g.accept[tid] || {};
+  const html = slots.map(s => {
+    const given = {}; for (const p of people) { const v = t.type === 'gap' ? p.ans?.[tid]?.[s.i] : p.ans?.[tid]; if (v == null || String(v).trim() === '') continue; const k = String(v).trim(); given[k] = (given[k] || 0) + 1; }
+    const wrong = Object.entries(given).filter(([v]) => !(t.type === 'gap' ? (t.bank ? t.gaps[s.i].some(x => S2.M.normAns(x) === S2.M.normAns(v)) : S2.M.isAnswer(t.gaps[s.i].join('|'), v)) : S2.M.isAnswer(t.answer, v)));
+    return `<div class="pt"><b>${esc(s.label)}</b> <span class="help">richtig: ${esc(s.exp)}</span>${wrong.length ? wrong.map(([v, n]) => `<label class="ck"><input type="checkbox" data-a="${s.i}" value="${esc(v)}"${(acc[s.i] || []).includes(v) ? ' checked' : ''}>„${esc(v)}“ <span class="help">${n}×</span></label>`).join('') : '<div class="help">keine abweichenden Antworten</div>'}</div>`;
+  }).join('');
+  const d = X.dialog(`${esc(t.title)} – Antworten`, `<p class="help">Angekreuzte Antworten gelten für alle Schüler als richtig.</p>${html}<button class="btn pri" data-save>Speichern</button>`, { wide: true });
+  d.el.onclick = ev => {
+    if (!ev.target.closest('[data-save]')) return;
+    const n = {}; for (const c of $$('[data-a]', d.el)) if (c.checked) (n[c.dataset.a] = n[c.dataset.a] || []).push(c.value);
+    g.accept[tid] = n; saveGrading(); d.close(); drawEval();
+  };
+}
+/** Quittieren: für jeden Schüler einen Bericht, verschlüsselt mit seinem Ergebniscode */
+async function publish() {
+  const { esc } = X, { e, key, g } = S2, RS = results(), pend = RS.reduce((s, x) => s + x.R.pending, 0);
+  const days = prompt(`${pend ? `Achtung: ${pend} Freitext-Antwort${pend === 1 ? ' ist' : 'en sind'} noch nicht bewertet (zählen mit 0 Punkten).\n\n` : ''}Wie viele Tage sollen die Schüler ihre Ergebnisseite abrufen können?`, String(g.days || 14));
+  if (days == null) return; g.days = Math.max(1, Math.min(90, parseInt(days) || 14));
+  try {
+    await X.withBusy('Ergebnisseiten werden verschlüsselt …', async () => {
+      const reports = [];
+      for (const x of RS) {
+        if (!x.p.rc) continue;
+        const fb = g.feedback[x.p.id] || {};
+        const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
+          punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
+          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, text: it.auto ? undefined : (it.text || ''), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
+        const { rid, key: k } = await X.K.reportKeys(x.p.rc);
+        reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });
+      }
+      const r = await X.api('exam_publish', { id: e.id, reports, days: g.days });
+      S2.e = { ...S2.e, ...r.exam };
+      await X.api('exam_grading', { id: e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, g) });
+    });
+    X.toast(`✓ ${RS.filter(x => x.p.rc).length} Ergebnisseiten veröffentlicht`); drawEval();
+  } catch (er) { X.toast('⚠ ' + esc(er.message), 5000); }
+}
+/** Vorschau: Ergebnisseite eines Schülers öffnen (nur nach dem Veröffentlichen) */
+export const resultLink = rc => new URL('e.html', location.href).href.replace(/[?#].*$/, '') + '#' + rc;

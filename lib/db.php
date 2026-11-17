@@ -99,4 +99,31 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 2;
         SQL);
     }
+    if ($v < 3) { // Durchführung und Auswertung
+        $pdo->exec(<<<SQL
+        ALTER TABLE exams ADD COLUMN code TEXT;
+        ALTER TABLE exams ADD COLUMN pin TEXT NOT NULL DEFAULT '';
+        ALTER TABLE exams ADD COLUMN join_open INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE exams ADD COLUMN opened INTEGER;
+        ALTER TABLE exams ADD COLUMN closed INTEGER;
+        ALTER TABLE exams ADD COLUMN ended INTEGER;
+        ALTER TABLE exams ADD COLUMN grading_enc TEXT;
+        ALTER TABLE exams ADD COLUMN published INTEGER;
+        ALTER TABLE exams ADD COLUMN expires INTEGER;
+        CREATE UNIQUE INDEX exams_code ON exams(code);
+        CREATE TABLE participants (
+            id INTEGER PRIMARY KEY, exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+            token_hash TEXT NOT NULL UNIQUE, identity_enc TEXT NOT NULL,     -- Name und Ergebniscode, verschlüsselt für die Lehrkraft
+            status TEXT NOT NULL DEFAULT 'aktiv',                            -- aktiv | abgegeben
+            joined INTEGER NOT NULL, last_seen INTEGER NOT NULL, saved INTEGER, n_saves INTEGER NOT NULL DEFAULT 0,
+            zuschlag INTEGER NOT NULL DEFAULT 0, fokus INTEGER NOT NULL DEFAULT 0, imported INTEGER NOT NULL DEFAULT 0,
+            answers_enc TEXT                                                 -- letzter Stand der Antworten, verschlüsselt für die Lehrkraft
+        );
+        CREATE INDEX participants_exam ON participants(exam_id);
+        CREATE TABLE reports (rid TEXT PRIMARY KEY, exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE, report_enc TEXT NOT NULL, expires INTEGER NOT NULL);
+        CREATE TABLE report_comments (id INTEGER PRIMARY KEY, exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE, rid TEXT NOT NULL, comment_enc TEXT NOT NULL, created INTEGER NOT NULL, gelesen INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE join_fails (k TEXT NOT NULL, ip TEXT NOT NULL, t INTEGER NOT NULL);
+        PRAGMA user_version = 3;
+        SQL);
+    }
 }
