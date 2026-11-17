@@ -51,6 +51,11 @@ git push origin main:live     # freigeben
 Repository-Secrets: `FTP_SERVER`, `FTP_USERNAME`, `FTP_PASSWORD`, `FTP_DIR`, `FTP_DIR_TEST` (optional Variable `FTP_PROTOCOL`).
 `data/` und `config.local.php` auf dem Webspace werden nie überschrieben.
 
+Von Hand: `python3 tools/paket.py /tmp/probe-out --zip Webspace.zip` baut dasselbe Paket als Zip zum Entpacken im
+Wurzelordner. Das Skript hängt an alle Skript- und Style-Verweise `?v=<Commit>` an, damit Safari nach einem Update keine
+alten Dateien aus dem Zwischenspeicher verwendet; `.htaccess` setzt dazu `Cache-Control: no-cache`.
+Deshalb nie den Repo-Ordner direkt hochladen, sondern immer das Paket.
+
 ## Lokal ausprobieren
 
 ```

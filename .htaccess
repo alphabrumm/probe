@@ -9,3 +9,14 @@ RedirectMatch 404 ^/(.*/)?(data|lib|tools|\.github)/
   Header always set Referrer-Policy "same-origin"
   Header always set X-Frame-Options "SAMEORIGIN"
 </IfModule>
+# Seiten, Skripte und Styles immer beim Server nachfragen (kurze 304-Antwort, wenn unverändert).
+# Sonst mischt Safari nach einem Update alte und neue Dateien.
+<FilesMatch "\.(html|js|css|json|webmanifest|php)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache"
+    Header unset Expires
+  </IfModule>
+  <IfModule mod_expires.c>
+    ExpiresActive Off
+  </IfModule>
+</FilesMatch>
