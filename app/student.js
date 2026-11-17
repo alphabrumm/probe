@@ -9,7 +9,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const code = (new URLSearchParams(location.search).get('c') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const SK = 'probe.s.' + code;
 const screen = $('#screen');
-let st = load(), info = null, ctx = null, skew = 0, deadline = null, dirty = false, timer = null, sending = false, finished = false, lastOk = 0;
+let st = load(), info = null, ctx = null, skew = 0, deadline = null, auto = true, dirty = false, timer = null, sending = false, finished = false, lastOk = 0;
 
 function load() { try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch (e) { return {}; } }
 function keep() { try { localStorage.setItem(SK, JSON.stringify(st)); } catch (e) { } }
@@ -38,7 +38,7 @@ async function boot() {
     info = await api('p_info');
     joinForm();
   } catch (e) {
-    if (e instanceof Offline && st.token && st.doc) return run({ doc: st.doc, pub_key: st.pub, deadline: st.deadline, now: Math.round(Date.now() / 1000), exam_status: 'offen', status: 'aktiv' }, true);
+    if (e instanceof Offline && st.token && st.doc) return run({ doc: st.doc, pub_key: st.pub, deadline: st.deadline, auto: st.auto !== false, now: Math.round(Date.now() / 1000), exam_status: 'offen', status: 'aktiv' }, true);
     show(`<img class="ic" src="app/icon.svg" alt=""><h2>Prüfung nicht erreichbar</h2><p class="err">${esc(e.message)}</p><button class="btn alt" onclick="location.reload()">Nochmal versuchen</button>`);
   }
 }
@@ -58,7 +58,7 @@ function joinForm() {
     try {
       const rc = K.resultCode(), identity_enc = await K.seal(info.pub_key, { v, n, rc });
       const r = await api('p_join', { pin: $('#pin')?.value || '', identity_enc });
-      st = { token: r.token, pid: r.pid, rc, v, n, pub: r.pub_key, identity_enc, answers: {}, fokus: 0, doc: r.doc, deadline: r.deadline };
+      st = { token: r.token, pid: r.pid, rc, v, n, pub: r.pub_key, identity_enc, answers: {}, fokus: 0, doc: r.doc, deadline: r.deadline, auto: r.auto !== false };
       keep(); run(r);
     } catch (e) { $('#err').textContent = e.message; b.disabled = false; }
   };
@@ -68,7 +68,7 @@ function joinForm() {
 function run(r, offline = false) {
   st.doc = r.doc; st.pub = r.pub_key; keep();
   skew = (r.now || Date.now() / 1000) - Date.now() / 1000;
-  setDeadline(r.deadline);
+  setDeadline(r.deadline, r.auto);
   screen.hidden = true; $('#app').hidden = false; $('#sbar').hidden = false;
   const D = r.doc; $('#sbT').textContent = [D.kicker, D.title].filter(Boolean).map(s => s.replace(/<[^>]*>/g, '')).join(' · ') || 'Prüfung';
   ctx = startPathFinder({
@@ -80,7 +80,8 @@ function run(r, offline = false) {
     }
   });
   if (offline) saveLabel(true);
-  setInterval(() => { if (dirty) send(false); else ping(); }, 20000);
+  // alle 20 s speichern bzw. nachfragen; in den letzten 2 Minuten alle 5 s, damit eine Verlängerung rechtzeitig ankommt
+  let n = 0; setInterval(() => { n++; const near = deadline && deadline - (Date.now() / 1000 + skew) < 120; if (n % 4 && !near) return; if (dirty) send(false); else ping(); }, 5000);
   setInterval(tick, 1000); tick();
   fullscreenScroll();
   status(r);
@@ -103,19 +104,37 @@ async function ping() {
   try { const r = await api('p_ping', { token: st.token, fokus: st.fokus || 0 }); lastOk = Date.now(); saveLabel(); status(r); } catch (e) { if (e instanceof Offline) saveLabel(true); }
 }
 function status(r, final = false) {
-  if (r.deadline !== undefined) setDeadline(r.deadline);
+  if (r.deadline !== undefined) setDeadline(r.deadline, r.auto);
   if (r.now) skew = r.now - Date.now() / 1000;
   if (final && r.saved || r.status === 'abgegeben' || ['beendet', 'veroeffentlicht'].includes(r.exam_status)) { st.done = true; st.pendingFinal = false; keep(); done(r.late ? 'Die Zeit war abgelaufen – dein letzter gespeicherter Stand wurde abgegeben.' : ''); return; }
   if (r.exam_status === 'geschlossen') { screen.hidden = false; screen.className = 'screen over'; screen.innerHTML = '<div class="card"><h2>⏸ Prüfung angehalten</h2><p>Deine Lehrkraft hat die Prüfung kurz geschlossen. Deine Antworten sind gespeichert. Bitte warte.</p></div>'; }
   else if (!finished && !screen.innerHTML.includes('offline')) screen.hidden = true;
 }
-function setDeadline(d) { deadline = d || null; $('#sbTime').hidden = !deadline; }
+function setDeadline(d, a) {
+  const old = deadline; deadline = d || null; $('#sbTime').hidden = !deadline;
+  if (a !== undefined) { auto = a !== false; if (st.auto !== auto || st.deadline !== deadline) { st.auto = auto; st.deadline = deadline; keep(); } }
+  if (old && deadline && deadline - old >= 60 && !finished) note(`⏱ Die Zeit wurde um ${Math.round((deadline - old) / 60)} min verlängert.`);
+}
+let checking = false;
 function tick() {
   if (!deadline || finished) return;
   const left = Math.round(deadline - (Date.now() / 1000 + skew)), t = $('#sbTime');
   t.textContent = left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : '0:00';
   t.classList.toggle('warn', left <= 300);
-  if (left <= 0 && !st.autoDone) { st.autoDone = true; keep(); send(true); }
+  t.title = auto ? 'Bei 0:00 wird automatisch abgegeben.' : 'Bei 0:00 arbeitest du weiter, bis deine Lehrkraft die Prüfung beendet.';
+  if (left > 0 || st.autoDone || checking) return;
+  if (!auto) { if (!st.zeroNoted) { st.zeroNoted = true; keep(); if (dirty) send(false); note('⏰ Die Zeit ist um. Arbeite weiter, bis deine Lehrkraft die Prüfung beendet.', 8000); } return; }
+  // vor der automatischen Abgabe kurz nachfragen: Vielleicht wurde gerade verlängert oder die automatische Abgabe ausgeschaltet
+  checking = true;
+  api('p_ping', { token: st.token, fokus: st.fokus || 0 }).then(r => { lastOk = Date.now(); status(r); }).catch(() => { }).finally(() => {
+    checking = false;
+    if (finished || !auto || Math.round(deadline - (Date.now() / 1000 + skew)) > 0) return;
+    st.autoDone = true; keep(); send(true);
+  });
+}
+function note(msg, ms = 6000) {
+  let el = $('#sNote'); if (!el) { el = document.createElement('div'); el.id = 'sNote'; el.className = 's-note'; document.body.appendChild(el); }
+  el.textContent = msg; el.hidden = false; clearTimeout(note.t); note.t = setTimeout(() => { el.hidden = true; }, ms);
 }
 function saveLabel(off = false, msg = '') {
   const el = $('#sbSave');

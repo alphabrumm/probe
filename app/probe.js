@@ -270,7 +270,7 @@ async function viewExam(id) {
   main.innerHTML = '<p class="help">lädt …</p>';
   stopLive();
   let e; try { e = await loadExam(id); } catch (er) { main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a><p class="err">${esc(er.message)}</p>`; return; }
-  const H = { S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam };
+  const H = { S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') };
   if (['offen', 'geschlossen'].includes(e.status)) return viewLive(e, H);
   if (['beendet', 'veroeffentlicht'].includes(e.status)) return viewEval(e, H);
   const R = e.roster || [];
@@ -357,17 +357,22 @@ async function saveDraft(id, d, fertig = false) {
   }
   return api('exam_draft', data);
 }
-function openEditor(e, doc) {
+/** PathFinder im Overlay. ro: schreibgeschützt ansehen (nach dem Start der Prüfung) – nichts wird gespeichert */
+function openEditor(e, doc, ro = false) {
   const wrap = document.createElement('div'); wrap.className = 'editor';
   // Vorgaben für den KI-Dialog in PathFinder: Fach, Jahrgangsstufe (aus der Klasse), Umfang (Bearbeitungszeit), Kopfzeile
   const q = new URLSearchParams({ fach: e.fach, klasse: e.klasse, kopf: `${e.fach} · ${e.klasse} · ${e.art}` }); if (e.dauer) q.set('min', e.dauer);
-  wrap.innerHTML = `<iframe src="editor.html?${esc(q.toString())}" title="Prüfung bearbeiten"></iframe>`;
+  wrap.innerHTML = `<iframe src="editor.html?${esc(q.toString())}" title="${ro ? 'Prüfung ansehen' : 'Prüfung bearbeiten'}"></iframe>`;
   document.body.appendChild(wrap); document.body.style.overflow = 'hidden';
   const fr = $('iframe', wrap);
   let timer = null, pending = null, saving = Promise.resolve();
   const flush = () => { clearTimeout(timer); timer = null; if (!pending) return saving; const d = pending; pending = null; saving = saving.then(() => saveDraft(e.id, d)).catch(er => toast('⚠ Speichern fehlgeschlagen: ' + esc(er.message), 5000)); return saving; };
   const close = () => { wrap.remove(); document.body.style.overflow = ''; cleanLocal(); viewExam(e.id); };
   const start = () => {
+    if (ro) return fr.contentWindow.probeEdit({
+      doc, readOnly: true, readOnlyLabel: 'Nur ansehen – die Prüfung ist gestartet',
+      host: { done: () => { wrap.remove(); document.body.style.overflow = ''; cleanLocal(); }, doneLabel: 'Schließen', doneTitle: 'Zurück zur Prüfung' },
+    });
     fr.contentWindow.probeEdit({
       // Startdialog auch, wenn bisher nur eine leere Prüfung gespeichert ist (z. B. Dialog abgebrochen)
       doc: doc || undefined, startDialog: !doc || (!countTasks(doc).aufgaben && !String(doc.title || '').trim()),

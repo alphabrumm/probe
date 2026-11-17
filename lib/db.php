@@ -126,4 +126,12 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 3;
         SQL);
     }
+    if ($v < 4) { // Zeit für alle verlängern, automatische Abgabe abschaltbar
+        $pdo->exec(<<<SQL
+        ALTER TABLE exams ADD COLUMN verlaengert INTEGER NOT NULL DEFAULT 0;   -- Minuten für alle
+        ALTER TABLE exams ADD COLUMN auto_abgabe INTEGER NOT NULL DEFAULT 1;   -- bei 0:00 automatisch abgeben
+        ALTER TABLE exams ADD COLUMN auto_set INTEGER;                         -- wann die automatische Abgabe zuletzt eingeschaltet wurde
+        PRAGMA user_version = 4;
+        SQL);
+    }
 }

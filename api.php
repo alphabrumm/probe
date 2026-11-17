@@ -89,6 +89,7 @@ function exam_meta(array $e): array {
         'fertig' => (bool)$e['fertig'], 'has_draft' => (bool)$e['draft_enc'], 'updated' => (int)$e['updated'],
         'code' => $e['code'], 'pin' => $e['pin'], 'join_open' => (bool)$e['join_open'], 'opened' => $e['opened'] ? (int)$e['opened'] : null,
         'ended' => $e['ended'] ? (int)$e['ended'] : null, 'expires' => $e['expires'] ? (int)$e['expires'] : null,
+        'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'],
         'teilnehmer' => (int)(db()->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn())];
 }
 const STATES = ['entwurf', 'offen', 'geschlossen', 'beendet', 'veroeffentlicht'];
@@ -108,7 +109,12 @@ function participant(array $e, string $token): array {
     $st = db()->prepare('SELECT * FROM participants WHERE exam_id = ? AND token_hash = ?'); $st->execute([$e['id'], hash('sha256', $token)]);
     return $st->fetch() ?: fail('Diese Anmeldung gilt nicht mehr. Bitte melde dich bei deiner Lehrkraft.', 403);
 }
-function deadline(array $e, array $p): ?int { return (int)$e['dauer'] > 0 && $e['opened'] ? (int)$e['opened'] + ((int)$e['dauer'] + (int)$p['zuschlag']) * 60 : null; }
+function deadline(array $e, array $p): ?int { return (int)$e['dauer'] > 0 && $e['opened'] ? (int)$e['opened'] + ((int)$e['dauer'] + (int)$e['verlaengert'] + (int)$p['zuschlag']) * 60 : null; }
+/** Nach dieser Zeit nimmt der Server nichts mehr an (2 Minuten Kulanz). Ohne automatische Abgabe: erst, wenn die Lehrkraft schließt oder beendet. */
+function cutoff(array $e, array $p): ?int {
+    $dl = deadline($e, $p); if (!$dl || !$e['auto_abgabe']) return null;
+    return max($dl, (int)$e['auto_set']) + 120; // wird die automatische Abgabe nach Ablauf wieder eingeschaltet, zählt der Zeitpunkt des Einschaltens
+}
 function owner_pub(array $e): string { $st = db()->prepare('SELECT pub_key FROM users WHERE id = ?'); $st->execute([$e['owner_id']]); return (string)$st->fetchColumn(); }
 function throttle(string $k, int $max, int $win = 600): void {
     $pdo = db(); $pdo->prepare('DELETE FROM join_fails WHERE t < ?')->execute([time() - $win]);
@@ -117,7 +123,7 @@ function throttle(string $k, int $max, int $win = 600): void {
 }
 function throttle_fail(string $k): void { db()->prepare('INSERT INTO join_fails (k, ip, t) VALUES (?,?,?)')->execute([$k, ip(), time()]); }
 function student_state(array $e, array $p): array {
-    return ['pid' => (int)$p['id'], 'status' => $p['status'], 'exam_status' => $e['status'], 'deadline' => deadline($e, $p), 'now' => time()];
+    return ['pid' => (int)$p['id'], 'status' => $p['status'], 'exam_status' => $e['status'], 'deadline' => deadline($e, $p), 'auto' => (bool)$e['auto_abgabe'], 'now' => time()];
 }
 
 /* ---------- Anmeldung und Schlüssel ---------- */
@@ -362,8 +368,8 @@ case 'p_save': { // Zwischenstand oder Abgabe (Antworten verschlüsselt für die
     $final = !empty($in['final']); $ans = blob($in, 'answers_enc', 5_000_000);
     if ($p['status'] === 'abgegeben') fail('Schon abgegeben', 409);
     if ($e['status'] !== 'offen') { out(['saved' => false] + student_state($e, $p)); }
-    $dl = deadline($e, $p);
-    if ($dl && time() > $dl + 120) { db()->prepare("UPDATE participants SET status = 'abgegeben', last_seen = ? WHERE id = ?")->execute([time(), $p['id']]); $p = participant($e, (string)$in['token']); out(['saved' => false, 'late' => true] + student_state($e, $p)); }
+    $co = cutoff($e, $p);
+    if ($co && time() > $co) { db()->prepare("UPDATE participants SET status = 'abgegeben', last_seen = ? WHERE id = ?")->execute([time(), $p['id']]); $p = participant($e, (string)$in['token']); out(['saved' => false, 'late' => true] + student_state($e, $p)); }
     db()->prepare('UPDATE participants SET answers_enc = COALESCE(?, answers_enc), saved = ?, last_seen = ?, n_saves = n_saves + 1, fokus = MAX(fokus, ?), status = ? WHERE id = ?')
         ->execute([$ans, time(), time(), max(0, (int)($in['fokus'] ?? 0)), $final ? 'abgegeben' : 'aktiv', $p['id']]);
     $p = participant($e, (string)$in['token']);
@@ -404,7 +410,7 @@ case 'exam_state': {
         default => fail("Von „{$from}“ nach „{$to}“ geht nicht."),
     };
     if ($to === 'offen' && $from === 'entwurf') {
-        $pdo->prepare('UPDATE exams SET status = ?, code = COALESCE(code, ?), pin = ?, join_open = 1, opened = ?, closed = NULL, ended = NULL WHERE id = ?')
+        $pdo->prepare('UPDATE exams SET status = ?, code = COALESCE(code, ?), pin = ?, join_open = 1, opened = ?, closed = NULL, ended = NULL, verlaengert = 0 WHERE id = ?')
             ->execute(['offen', new_code(), $e['pin_on'] ? str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT) : '', time(), $e['id']]);
     } elseif ($to === 'entwurf') {
         $pdo->prepare("UPDATE exams SET status = 'entwurf', opened = NULL WHERE id = ?")->execute([$e['id']]);
@@ -425,6 +431,18 @@ case 'exam_live': {
     out(['exam' => exam_meta($e), 'now' => time(), 'participants' => $st->fetchAll()]);
 }
 case 'exam_join_open': { $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); db()->prepare('UPDATE exams SET join_open = ? WHERE id = ?')->execute([!empty($in['open']) ? 1 : 0, $e['id']]); out([]); }
+case 'exam_verlaengern': { // Zeit für alle verlängern (delta) oder zurücksetzen (set)
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    if (!in_array($e['status'], ['offen', 'geschlossen'], true)) fail('Die Prüfung läuft nicht.');
+    $m = isset($in['set']) ? (int)$in['set'] : (int)$e['verlaengert'] + (int)($in['delta'] ?? 0);
+    db()->prepare('UPDATE exams SET verlaengert = ? WHERE id = ?')->execute([max(0, min(240, $m)), $e['id']]);
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
+case 'exam_auto': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); $on = !empty($in['on']);
+    db()->prepare('UPDATE exams SET auto_abgabe = ?, auto_set = ? WHERE id = ?')->execute([$on ? 1 : 0, $on ? time() : $e['auto_set'], $e['id']]);
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
 case 'exam_zuschlag': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
     db()->prepare('UPDATE participants SET zuschlag = ? WHERE id = ? AND exam_id = ?')->execute([max(0, min(240, (int)($in['minutes'] ?? 0))), (int)($in['pid'] ?? 0), $e['id']]); out([]);

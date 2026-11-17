@@ -5,8 +5,8 @@ import { qrSvg } from './qr.js';
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-let liveTimer = null, liveRedraw = () => { };
-export const stopLive = () => { clearInterval(liveTimer); liveTimer = null; };
+let liveTimer = null, clockTimer = null, liveRedraw = () => { };
+export const stopLive = () => { clearInterval(liveTimer); clearInterval(clockTimer); liveTimer = clockTimer = null; };
 addEventListener('hashchange', stopLive);
 
 /* ---------- Namen abgleichen (Klassenliste ↔ Anmeldungen) ---------- */
@@ -29,7 +29,10 @@ export async function viewLive(e, helpers) {
   const link = new URL('s.html', location.href).href.replace(/[?#].*$/, '') + '?c=' + e.code;
   const decrypt = async p => { if (!ids.has(p.id)) { try { ids.set(p.id, await X.K.open(X.S.priv, p.identity_enc)); } catch (er) { ids.set(p.id, { v: '?', n: '(unlesbar)' }); } } return { ...p, ...ids.get(p.id) }; };
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
-    <h1>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}</h1><p class="sub">${esc(e.titel)} · ${esc(X.fmtDate(e.datum))}</p>
+    <h1>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}</h1><p class="sub">${esc(e.titel)} · ${esc(X.fmtDate(e.datum))} <button class="btn sm ghost" id="ansehen">👁 Prüfung ansehen</button></p>
+    ${e.dauer ? `<section class="card zeit" id="zeit"><div class="zt"><span class="help">Restzeit für alle</span><div class="big" id="zLeft">–</div><span class="help" id="zEnd"></span></div>
+      <div class="stack"><div class="btns"><span class="help">Verlängern für alle:</span>${[1, 2, 5, 10, 15].map(m => `<button class="btn sm" data-plus="${m}">+${m} min</button>`).join('')}<span id="zSum"></span></div>
+      <label class="check"><input type="checkbox" id="zAuto"> Automatisch abgeben, wenn die Zeit abgelaufen ist</label><p class="help" id="zHint"></p></div></section>` : ''}
     <div class="grid2"><section class="card live-qr"><div class="qrbox">${qrSvg(link, { title: 'QR-Code zur Prüfung' })}</div>
       <div class="stack"><div><span class="help">Code</span><div class="big">${esc(e.code)}</div></div>${e.pin_on ? `<div><span class="help">PIN</span><div class="big pin">${esc(e.pin)}</div></div>` : ''}
       <div class="help link">${esc(link)}</div><button class="btn" id="beamer">⛶ Für den Beamer</button></div></section>
@@ -37,6 +40,7 @@ export async function viewLive(e, helpers) {
     <section class="card" style="margin-top:16px"><div class="bar"><h2 style="margin:0">Teilnehmer</h2><span class="sp"></span><button class="btn sm" id="imp">⤒ Abgabe aus Datei</button></div><div class="scroll-x"><table class="t" id="tab"></table></div></section>`;
   $('#beamer').onclick = () => beamer(e, link);
   $('#imp').onclick = () => importFile(e);
+  $('#ansehen').onclick = ev => { ev.stopPropagation(); X.view(e); };
   const draw = async () => {
     let r; try { r = await X.api('exam_live', { id: e.id }); } catch (er) { $('#hint').textContent = '⚠ ' + er.message; return; }
     e = { ...e, ...r.exam }; const now = r.now;
@@ -45,15 +49,15 @@ export async function viewLive(e, helpers) {
     const M = e.roster?.length ? matchRoster(e.roster, P) : null;
     const abg = P.filter(p => p.status === 'abgegeben').length, soll = e.erwartet || e.roster?.length || 0;
     $('#state').innerHTML = e.status === 'offen' ? '🟢 Prüfung läuft' : '⏸ Geschlossen – keine Abgaben';
-    const end = e.dauer && e.opened ? e.opened + e.dauer * 60 : null, left = end ? end - now : null;
-    $('#stat').innerHTML = `<div><b>${P.length}${soll ? ` / ${soll}` : ''}</b><span>angemeldet</span></div><div><b>${abg}</b><span>abgegeben</span></div>${end ? `<div><b>${left > 0 ? Math.ceil(left / 60) + ' min' : 'abgelaufen'}</b><span>Restzeit (ohne Zuschlag)</span></div>` : ''}${M ? `<div><b>${M.missing.length}</b><span>fehlen</span></div>` : ''}`;
+    skew = now - Date.now() / 1000; clock();
+    $('#stat').innerHTML = `<div><b>${P.length}${soll ? ` / ${soll}` : ''}</b><span>angemeldet</span></div><div><b>${abg}</b><span>abgegeben</span></div>${M ? `<div><b>${M.missing.length}</b><span>fehlen</span></div>` : ''}`;
     $('#acts').innerHTML = (e.status === 'offen' ? `<button class="btn" data-st="geschlossen">⏸ Schließen</button>` : `<button class="btn pri" data-st="offen">▶ Wieder öffnen</button>`)
       + `<button class="btn" data-join>${e.join_open ? '🔒 Einlass sperren' : '🔓 Einlass öffnen'}</button><button class="btn danger" data-st="beendet">■ Beenden und auswerten</button>`;
     $('#hint').textContent = e.status === 'offen' ? (e.join_open ? 'Schüler scannen den QR-Code und melden sich mit Namen' + (e.pin_on ? ' und PIN' : '') + ' an.' : 'Einlass gesperrt: Neue Anmeldungen sind nicht möglich, angemeldete Schüler arbeiten weiter.')
       : 'Solange geschlossen ist, kann niemand speichern oder abgeben. Wieder öffnen setzt die Prüfung fort; Beenden ist endgültig.';
     const rows = P.map(p => ({ ...p, m: M?.byPerson.get(p.id) })).sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
     const ago = t => !t ? '–' : now - t < 60 ? 'gerade' : `vor ${Math.round((now - t) / 60)} min`;
-    $('#tab').innerHTML = `<tr><th>Name</th><th>Status</th><th>gespeichert</th><th>Fokus verlassen</th><th>Zuschlag</th><th></th></tr>`
+    $('#tab').innerHTML = `<tr><th>Name</th><th>Status</th><th>gespeichert</th><th>Fokus verlassen</th><th>${e.dauer ? 'Zuschlag (nur für diesen Schüler)' : 'Zuschlag'}</th><th></th></tr>`
       + rows.map(p => `<tr><td><b>${esc(p.n)}</b>, ${esc(p.v)}${M ? (p.m ? (p.m.exact ? '' : ' <span class="chip warn" title="ähnlicher Name in der Klassenliste">≈ Liste</span>') : ' <span class="chip warn">nicht in Liste</span>') : ''}</td>
         <td>${p.status === 'abgegeben' ? `<span class="chip good">✓ abgegeben${+p.imported ? ' (Datei)' : ''}</span>` : now - p.last_seen > 75 ? `<span class="chip bad">offline ${ago(p.last_seen)}</span>` : '<span class="chip">arbeitet</span>'}</td>
         <td>${ago(p.saved)}</td><td>${+p.fokus ? `<span class="chip ${+p.fokus > 2 ? 'bad' : 'warn'}">${p.fokus}×</span>` : '–'}</td>
@@ -63,9 +67,27 @@ export async function viewLive(e, helpers) {
       + (!rows.length && !M ? '<tr><td colspan="6" class="help">Noch niemand angemeldet.</td></tr>' : '');
     const bm = $('#bm'); if (bm) bm.querySelector('.cnt').textContent = `${P.length}${soll ? ' / ' + soll : ''} angemeldet · ${abg} abgegeben`;
   };
+  /* Restzeit sekundengenau; Verlängerung für alle und automatische Abgabe */
+  let skew = 0;
+  const clock = () => {
+    if (!e.dauer || !e.opened || !$('#zeit')) return;
+    const end = e.opened + (e.dauer + (e.verlaengert || 0)) * 60, left = Math.round(end - (Date.now() / 1000 + skew));
+    $('#zLeft').textContent = left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : '0:00';
+    $('#zLeft').classList.toggle('warn', left <= 300);
+    $('#zEnd').textContent = 'Ende ' + new Date(end * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+    $('#zSum').innerHTML = e.verlaengert ? `<span class="chip warn">insgesamt +${e.verlaengert} min <button class="x" data-unplus title="Verlängerung zurücknehmen">✕</button></span>` : '';
+    if (document.activeElement !== $('#zAuto')) $('#zAuto').checked = e.auto_abgabe !== false;
+    $('#zHint').textContent = e.auto_abgabe === false
+      ? (left > 0 ? 'Die Schüler sehen die Zeit ablaufen, arbeiten bei 0:00 aber weiter. Abgegeben wird, wenn du schließt bzw. beendest – oder wenn ein Schüler selbst abgibt.' : '⏰ Die Zeit ist abgelaufen. Die Schüler arbeiten weiter, bis du die Prüfung schließt oder beendest.')
+      : 'Bei 0:00 wird automatisch abgegeben (einzelne Zuschläge unten zählen zusätzlich).';
+  };
+  const setExam = r => { if (r?.exam) { e = { ...e, ...r.exam }; clock(); } };
+  clockTimer = setInterval(clock, 1000);
   main.onclick = async ev => {
     const t = ev.target.closest('button'); if (!t) return;
     try {
+      if (t.dataset.plus) { setExam(await X.api('exam_verlaengern', { id: e.id, delta: +t.dataset.plus })); X.toast(`⏱ +${t.dataset.plus} min für alle`); return; }
+      if (t.dataset.unplus != null) { if (confirm(`Die Verlängerung um ${e.verlaengert} min für alle zurücknehmen?`)) setExam(await X.api('exam_verlaengern', { id: e.id, set: 0 })); return; }
       if (t.dataset.st) {
         const to = t.dataset.st;
         if (to === 'beendet' && !confirm('Prüfung endgültig beenden? Danach kann niemand mehr abgeben; offene Arbeiten zählen mit ihrem letzten gespeicherten Stand. Weiter geht es mit der Auswertung.')) return;
@@ -76,7 +98,14 @@ export async function viewLive(e, helpers) {
       draw();
     } catch (er) { X.toast('⚠ ' + esc(er.message)); }
   };
-  main.onchange = async ev => { const s = ev.target.closest('[data-zu]'); if (s) { await X.api('exam_zuschlag', { id: e.id, pid: +s.dataset.zu, minutes: +s.value }); X.toast('Zuschlag gespeichert'); } };
+  main.onchange = async ev => {
+    if (ev.target.id === 'zAuto') {
+      const on = ev.target.checked;
+      if (!on && !confirm('Automatische Abgabe ausschalten? Die Schüler sehen weiter die Zeit, arbeiten bei 0:00 aber weiter, bis du die Prüfung schließt oder beendest.')) { ev.target.checked = true; return; }
+      try { setExam(await X.api('exam_auto', { id: e.id, on })); X.toast(on ? 'Automatische Abgabe ist an' : 'Automatische Abgabe ist aus'); } catch (er) { ev.target.checked = !on; X.toast('⚠ ' + esc(er.message)); }
+      return;
+    }
+    const s = ev.target.closest('[data-zu]'); if (s) { await X.api('exam_zuschlag', { id: e.id, pid: +s.dataset.zu, minutes: +s.value }); X.toast('Zuschlag gespeichert'); } };
   liveRedraw = draw;
   await draw();
   liveTimer = setInterval(draw, 4000);
@@ -148,7 +177,7 @@ function drawEval() {
     <section class="card"><div class="bar" style="margin:0"><h2 style="margin:0">${pub ? `✓ Veröffentlicht bis ${new Date(e.expires * 1000).toLocaleDateString('de-DE')}` : 'Auswertung'}</h2><span class="sp"></span>
       ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
-      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="csv">⇩ Notenliste (CSV)</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button></div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     <div class="grid2" style="margin-top:16px"><section class="card"><h2>Notenschlüssel</h2><div id="key"></div></section><section class="card"><h2>Verteilung</h2><div id="dist"></div></section></div>
     <section class="card" style="margin-top:16px"><h2>Ergebnisse</h2><div class="scroll-x"><table class="t" id="res"></table></div><p class="help">Zeile antippen: Aufgaben einzeln ansehen, Punkte ändern, Rückmeldung schreiben.</p></section>
@@ -156,6 +185,7 @@ function drawEval() {
     ${comments.length ? `<section class="card" style="margin-top:16px"><h2>Kommentare der Schüler</h2>${comments.slice().reverse().map(c => `<div class="cmt${+c.gelesen ? '' : ' new'}"><b>${esc(c.who ? c.who.n + ', ' + c.who.v : c.name)}</b> · ${esc(c.title)} · <span class="help">${new Date(c.created * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</span><p>${esc(c.text)}</p>${+c.gelesen ? '' : `<button class="btn sm" data-read="${c.id}">✓ gelesen</button>`} ${c.who ? `<button class="btn sm" data-person="${c.who.id}">Bewertung öffnen</button>` : ''}</div>`).join('')}</section>` : ''}`;
   drawKey(); drawTables();
   $('#pub').onclick = publish;
+  $('#ansehen').onclick = () => X.view(e);
   $('#unpub') && ($('#unpub').onclick = async () => { if (!confirm('Ergebnisseiten der Schüler sofort sperren?')) return; await X.api('exam_state', { id: e.id, to: 'beendet' }); S2.e.status = 'beendet'; drawEval(); });
   $('#csv').onclick = () => {
     const rows = [['Nachname', 'Vorname', 'Punkte', 'Max', 'Prozent', pts ? 'Notenpunkte' : 'Note'], ...results().map(x => [x.p.n, x.p.v, fmtPts(x.R.total), fmtPts(x.R.max), Math.round(x.R.pct), x.note])];

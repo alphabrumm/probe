@@ -148,3 +148,13 @@ table.t td.act { text-align: right; white-space: nowrap; }
 .ex-part { margin-left: 4px; } .ex-part.ok { color: var(--good); } .ex-part.no { color: var(--bad); }
 .cmt { border-top: 1px solid var(--line); padding: 10px 0; } .cmt.new { background: var(--a2s); border-radius: 10px; padding: 10px 12px; }
 .cmt p { margin: 4px 0 8px; white-space: pre-wrap; }
+/* Zeitleiste der Live-Ansicht */
+.zeit { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.zeit .zt { min-width: 150px; }
+.zeit .big { font-size: 40px; letter-spacing: .02em; }
+.zeit .big.warn { color: #c46a00; }
+.zeit .stack { flex: 1; min-width: 260px; gap: 8px; }
+.zeit .btns { align-items: center; }
+.zeit .check { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.zeit .check input { width: 22px; height: 22px; }
+.chip .x { border: 0; background: none; cursor: pointer; font: inherit; color: inherit; padding: 0 0 0 4px; }
