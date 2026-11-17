@@ -118,6 +118,8 @@ table.t td.act { text-align: right; white-space: nowrap; }
   .printme, .printme * { visibility: visible; }
   .printme { position: absolute; left: 0; top: 0; width: 100%; padding: 30px; color: #000; }
   .printme .codebox { background: #fff; border-color: #000; color: #000; }
+  .resp-view { padding: 0; } .resp-view .back, .resp-view .btns, .resp-view .noprint { display: none; }
+  .resp-view .card { box-shadow: none; break-inside: avoid; } .resp-view * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
 /* Durchführung */

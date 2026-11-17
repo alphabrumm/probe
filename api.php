@@ -300,6 +300,7 @@ case 'purge_exams': { // Schuljahresende: alle Prüfungen löschen (Konten, Fach
     $sj = str($in, 'schuljahr', 9);
     $st = $sj ? db()->prepare('DELETE FROM exams WHERE schuljahr = ?') : db()->prepare('DELETE FROM exams');
     $st->execute($sj ? [$sj] : []); $n = $st->rowCount();
+    ($sj ? db()->prepare('DELETE FROM respizienz WHERE schuljahr = ?') : db()->prepare('DELETE FROM respizienz'))->execute($sj ? [$sj] : []); // Respizienz-Kopien gehören dazu
     db()->exec('VACUUM');
     out(['deleted' => $n]);
 }
@@ -357,6 +358,55 @@ case 'demo_seed': { // Beispielprüfungen: „7d“ geschrieben und zur Korrektu
     }
     $pdo->commit();
     out(['exams' => $res]);
+}
+/* ---------- Respizienz: Lehrkraft reicht ein, Fachleitung sieht durch und zeichnet ab ---------- */
+case 'resp_targets': { // Fachschaft und Fachleitung(en) zum Fach der Prüfung
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); $pdo = db();
+    if ($u['is_demo']) out(['demo' => true, 'fachschaft' => null, 'to' => [], 'last' => null]); // Demo-Prüfungen gehen nie an echte Fachleitungen
+    $st = $pdo->prepare('SELECT s.id, s.name FROM faecher f JOIN fachschaften s ON s.id = f.fachschaft_id WHERE f.id = ? OR (? IS NULL AND f.name = ? COLLATE NOCASE) LIMIT 1');
+    $st->execute([$e['fach_id'], $e['fach_id'], $e['fach']]); $fs = $st->fetch();
+    $to = [];
+    if ($fs) { $st = $pdo->prepare('SELECT u.id, u.kuerzel, u.name, u.pub_key FROM fachleitungen l JOIN users u ON u.id = l.user_id WHERE l.fachschaft_id = ? AND u.id <> ? AND u.pub_key IS NOT NULL AND u.must_setup = 0 AND u.is_demo = 0 ORDER BY u.kuerzel');
+        $st->execute([$fs['id'], $u['id']]); $to = $st->fetchAll(); }
+    $r = $pdo->prepare('SELECT id, created, status, seen, signed, signer, note_enc FROM respizienz WHERE exam_id = ? ORDER BY id DESC LIMIT 1'); $r->execute([$e['id']]);
+    out(['fachschaft' => $fs ?: null, 'to' => $to, 'last' => $r->fetch() ?: null]);
+}
+case 'resp_submit': {
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); $pdo = db();
+    if (!in_array($e['status'], ['beendet', 'veroeffentlicht'], true)) fail('Erst die Prüfung beenden und korrigieren.');
+    if ($u['is_demo']) fail('Im Demo-Modus geht keine Prüfung an die Fachleitung.');
+    $fsid = (int)($in['fachschaft_id'] ?? 0); $items = $in['items'] ?? null; if (!is_array($items) || !$items) fail('Keine Fachleitung als Empfänger');
+    $ok = $pdo->prepare('SELECT 1 FROM fachleitungen l JOIN users u ON u.id = l.user_id WHERE l.fachschaft_id = ? AND l.user_id = ? AND u.pub_key IS NOT NULL');
+    foreach ($items as $it) { $ok->execute([$fsid, (int)($it['user_id'] ?? 0)]); if (!$ok->fetchColumn()) fail('Empfänger ist keine Fachleitung dieser Fachschaft'); }
+    $pdo->beginTransaction();
+    $pdo->prepare('DELETE FROM respizienz WHERE exam_id = ?')->execute([$e['id']]); // neu einreichen ersetzt die alte Fassung
+    $pdo->prepare('INSERT INTO respizienz (exam_id, owner_id, lehrkraft, fachschaft_id, schuljahr, klasse, fach, art, datum, titel, teilnehmer, created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$e['id'], $u['id'], trim(($u['name'] ? $u['name'] . ' ' : '') . '(' . $u['kuerzel'] . ')'), $fsid, $e['schuljahr'], $e['klasse'], $e['fach'], $e['art'], $e['datum'], $e['titel'], max(0, (int)($in['teilnehmer'] ?? 0)), time()]);
+    $rid = (int)$pdo->lastInsertId(); $ins = $pdo->prepare('INSERT INTO respizienz_keys (resp_id, user_id, data_enc) VALUES (?,?,?)');
+    foreach ($items as $it) $ins->execute([$rid, (int)$it['user_id'], str($it, 'data_enc', 20_000_000, true)]);
+    $pdo->commit(); out(['id' => $rid]);
+}
+case 'resp_list': { // Fachleitung: alle eingereichten Prüfungen ihrer Fachschaften
+    $u = teacher();
+    $st = db()->prepare('SELECT r.id, r.lehrkraft, r.schuljahr, r.klasse, r.fach, r.art, r.datum, r.titel, r.teilnehmer, r.created, r.status, r.signed, r.signer, s.name AS fachschaft
+        FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ? LEFT JOIN fachschaften s ON s.id = r.fachschaft_id ORDER BY r.created DESC');
+    $st->execute([$u['id']]); out(['items' => $st->fetchAll()]);
+}
+case 'resp_get': {
+    $u = teacher(); $pdo = db();
+    $st = $pdo->prepare('SELECT r.*, k.data_enc, s.name AS fachschaft, o.pub_key AS owner_pub FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ?
+        LEFT JOIN fachschaften s ON s.id = r.fachschaft_id LEFT JOIN users o ON o.id = r.owner_id WHERE r.id = ?');
+    $st->execute([$u['id'], (int)($in['rid'] ?? 0)]); $r = $st->fetch(); if (!$r) fail('Nicht gefunden', 404);
+    if ($r['status'] === 'eingereicht') { $pdo->prepare("UPDATE respizienz SET status = 'gesehen', seen = ? WHERE id = ?")->execute([time(), $r['id']]); $r['status'] = 'gesehen'; }
+    out(['item' => $r]);
+}
+case 'resp_sign': { // abzeichnen, optional mit Bemerkung (verschlüsselt für die Lehrkraft)
+    $u = teacher(); $pdo = db();
+    $st = $pdo->prepare('SELECT r.id FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ? WHERE r.id = ?'); $st->execute([$u['id'], (int)($in['rid'] ?? 0)]);
+    $id = (int)$st->fetchColumn(); if (!$id) fail('Nicht gefunden', 404);
+    $pdo->prepare("UPDATE respizienz SET status = 'abgezeichnet', signed = ?, signer_id = ?, signer = ?, note_enc = ? WHERE id = ?")
+        ->execute([time(), $u['id'], trim(($u['name'] ? $u['name'] . ' ' : '') . '(' . $u['kuerzel'] . ')'), blob($in, 'note_enc', 200_000), $id]);
+    out([]);
 }
 case 'exam_get': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));

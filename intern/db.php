@@ -146,4 +146,20 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 6;
         SQL);
     }
+    if ($v < 7) { // Respizienz: korrigierte Prüfung mit Klarnamen an die Fachleitung (verschlüsselt je Empfänger)
+        $pdo->exec(<<<SQL
+        CREATE TABLE respizienz (
+            id INTEGER PRIMARY KEY, exam_id INTEGER REFERENCES exams(id) ON DELETE SET NULL, owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            lehrkraft TEXT NOT NULL DEFAULT '', fachschaft_id INTEGER REFERENCES fachschaften(id) ON DELETE SET NULL,
+            schuljahr TEXT NOT NULL, klasse TEXT NOT NULL, fach TEXT NOT NULL, art TEXT NOT NULL, datum TEXT NOT NULL, titel TEXT NOT NULL DEFAULT '', teilnehmer INTEGER NOT NULL DEFAULT 0,
+            created INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'eingereicht',   -- eingereicht | gesehen | abgezeichnet
+            seen INTEGER, signed INTEGER, signer_id INTEGER REFERENCES users(id) ON DELETE SET NULL, signer TEXT NOT NULL DEFAULT '',
+            note_enc TEXT                                                      -- Bemerkung der Fachleitung, verschlüsselt für die Lehrkraft
+        );
+        CREATE INDEX respizienz_exam ON respizienz(exam_id);
+        CREATE TABLE respizienz_keys (resp_id INTEGER NOT NULL REFERENCES respizienz(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            data_enc TEXT NOT NULL, PRIMARY KEY (resp_id, user_id));
+        PRAGMA user_version = 7;
+        SQL);
+    }
 }

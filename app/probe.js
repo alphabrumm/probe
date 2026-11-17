@@ -2,6 +2,7 @@
 // Alles Persönliche (Schülernamen, Inhalte mit Lösungen) wird hier im Browser verschlüsselt, bevor es zum Server geht.
 import * as K from './crypto.js';
 import { viewLive, viewEval, stopLive } from './run.js';
+import { viewRespList, viewResp } from './resp.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -55,7 +56,7 @@ async function boot() {
 function drawWho() {
   const w = $('#who');
   if (!S.user || !S.priv) { w.innerHTML = ''; return; }
-  w.innerHTML = `<span class="btns">${S.user.is_demo ? '<span class="chip warn" title="Alles wird nach ein paar Stunden gelöscht">Demo</span><button class="btn sm" id="bDemoEnd">Demo beenden</button>' : ''}${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
+  w.innerHTML = `<span class="btns">${S.user.is_demo ? '<span class="chip warn" title="Alles wird nach ein paar Stunden gelöscht">Demo</span><button class="btn sm" id="bDemoEnd">Demo beenden</button>' : ''}${S.user.fachleitung?.length ? '<a class="btn sm ghost" href="#/resp">Respizienz</a>' : ''}${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
   $('#bDemoEnd') && ($('#bDemoEnd').onclick = endDemo);
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
@@ -75,9 +76,13 @@ function route() {
   let m;
   if (h === '/admin' && S.user.is_admin) return viewAdmin();
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
+  if (S.user.fachleitung?.length && h === '/resp') { stopLive(); return viewRespList(helpers()); }
+  if (S.user.fachleitung?.length && (m = h.match(/^\/resp\/(\d+)$/))) { stopLive(); return viewResp(+m[1], helpers()); }
   if (!S.user.demo && !S.demoTried) return demos(false).then(viewDashboard);
   return viewDashboard();
 }
+/** Hilfen für die Ansichten in run.js und resp.js */
+function helpers() { return { S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
 /** Beispielprüfungen anlegen: beim ersten Mal von selbst, später über das Konto-Menü */
 async function demos(force) {
   S.demoTried = true;
@@ -309,7 +314,7 @@ async function viewExam(id) {
   main.innerHTML = '<p class="help">lädt …</p>';
   stopLive();
   let e; try { e = await loadExam(id); } catch (er) { main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a><p class="err">${esc(er.message)}</p>`; return; }
-  const H = { S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') };
+  const H = helpers();
   if (['offen', 'geschlossen'].includes(e.status)) return viewLive(e, H);
   if (['beendet', 'veroeffentlicht'].includes(e.status)) return viewEval(e, H);
   const R = e.roster || [];

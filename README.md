@@ -6,7 +6,7 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
 
 > Der Name: Eine *probe* ist eine Raumsonde – und in Bayern heißt der Leistungsnachweis „Probe“.
 
-## Stand: Phase 2 (Grundgerüst)
+## Stand: Phase 1–5
 
 * **Einrichtung:** Beim allerersten Aufruf legst du das Admin-Konto an.
 * **Admin:** Lehrkräfte (Kürzel = Login, Startpasswort, Admin, Fachleitung), Fachschaften mit ihren Fächern, Fächerliste
@@ -15,7 +15,15 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   Schuljahr → Klassen → Prüfungen. Neue Prüfung mit Klasse, Fach, Datum, Art (Schulaufgabe, Kurzarbeit, AKL, Übungsprüfung),
   Bearbeitungszeit, Teilnehmerzahl, Einlass-PIN, Notenskala. Inhalt mit dem eingebetteten PathFinder (aus einem Lernpfad,
   mit KI oder leer) oder als Prüfungsdatei. Klassenliste als CSV oder zum Einfügen.
-* Phase 3 (Durchführung mit QR-Code) und Phase 4 (Auswertung) folgen.
+* **Durchführung:** QR-Code und PIN (auch für den Beamer), Live-Liste mit Klassenliste, Zeit für alle oder einzelne verlängern,
+  automatische Abgabe abschaltbar, Schließen/Beenden, Notfall-Abgabe per Datei.
+* **Auswertung:** Notenschlüssel per Regler, Freitext bewerten, Antworten akzeptieren, Aufgaben streichen, Ergebnisseiten
+  mit Ergebniscode veröffentlichen, Kommentare der Schüler.
+* **Respizienz:** Die Lehrkraft reicht die korrigierte Prüfung bei der Fachleitung ihrer Fachschaft ein (nur wenn es dort eine
+  Fachleitung mit eingerichtetem Konto gibt). Das Paket – Prüfung mit Lösungen, Antworten, Bewertung, Klarnamen – wird für jede
+  Fachleitung einzeln verschlüsselt. Die Fachleitung sieht unter „Respizienz“ Verteilung, Notenschlüssel, Ergebnisse und jede
+  Antwort, kann die Prüfung ansehen, drucken und abzeichnen; ihre Bemerkung ist nur für die Lehrkraft lesbar.
+* **Beispielprüfungen** für jede Lehrkraft und ein **Demo-Modus** ohne Konto (nach 4 Stunden gelöscht).
 
 ## Verschlüsselung
 

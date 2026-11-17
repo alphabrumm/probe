@@ -1,6 +1,7 @@
 // Probe – Durchführung (Live-Ansicht mit QR-Code) und Auswertung (Notenschlüssel, Korrektur, Veröffentlichen).
 // Namen, Antworten, Lösungsschlüssel und Bewertung werden hier im Browser der Lehrkraft entschlüsselt.
 import { qrSvg } from './qr.js';
+import { respState, respHtml, respSubmit } from './resp.js';
 
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
@@ -152,7 +153,8 @@ export async function viewEval(e, helpers) {
   people.sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
   const comments = [];
   for (const c of r.comments) { try { comments.push({ ...c, ...(await K.open(S.priv, c.comment_enc)), who: people.find(p => p.rid === c.rid) }); } catch (er) { } }
-  S2 = { e: { ...e, ...r.exam }, key, people, g, comments, M };
+  S2 = { e: { ...e, ...r.exam }, key, people, g, comments, M, resp: null };
+  try { S2.resp = await respState(S2.e, X); } catch (er) { }
   drawEval();
 }
 const gradeOf = (pct, g, skala, M) => skala === 'punkte' ? M.pointsFor(pct, g.gkey) : M.gradeFor(pct, g.gkey);
@@ -179,12 +181,14 @@ function drawEval() {
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
       <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button></div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
+    ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
     <div class="grid2" style="margin-top:16px"><section class="card"><h2>Notenschlüssel</h2><div id="key"></div></section><section class="card"><h2>Verteilung</h2><div id="dist"></div></section></div>
     <section class="card" style="margin-top:16px"><h2>Ergebnisse</h2><div class="scroll-x"><table class="t" id="res"></table></div><p class="help">Zeile antippen: Aufgaben einzeln ansehen, Punkte ändern, Rückmeldung schreiben.</p></section>
     <section class="card" style="margin-top:16px"><h2>Aufgaben</h2><div class="scroll-x"><table class="t" id="tasks"></table></div></section>
     ${comments.length ? `<section class="card" style="margin-top:16px"><h2>Kommentare der Schüler</h2>${comments.slice().reverse().map(c => `<div class="cmt${+c.gelesen ? '' : ' new'}"><b>${esc(c.who ? c.who.n + ', ' + c.who.v : c.name)}</b> · ${esc(c.title)} · <span class="help">${new Date(c.created * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</span><p>${esc(c.text)}</p>${+c.gelesen ? '' : `<button class="btn sm" data-read="${c.id}">✓ gelesen</button>`} ${c.who ? `<button class="btn sm" data-person="${c.who.id}">Bewertung öffnen</button>` : ''}</div>`).join('')}</section>` : ''}`;
   drawKey(); drawTables();
   $('#pub').onclick = publish;
+  $('#resp') && ($('#resp').onclick = async () => { try { if (await respSubmit(S2, S2.resp)) { S2.resp = await respState(S2.e, X); drawEval(); } } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); } });
   $('#ansehen').onclick = () => X.view(e);
   $('#unpub') && ($('#unpub').onclick = async () => { if (!confirm('Ergebnisseiten der Schüler sofort sperren?')) return; await X.api('exam_state', { id: e.id, to: 'beendet' }); S2.e.status = 'beendet'; drawEval(); });
   $('#csv').onclick = () => {
