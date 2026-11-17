@@ -27,7 +27,7 @@ jobs:
           set net:max-retries 2
           set ftp:passive-mode true
           $SSL
-          debug 0
+          set cache:enable false
           cd "$D"
           echo "== Startordner (pwd):"
           pwd
@@ -38,7 +38,11 @@ jobs:
           echo "== app/ (Anzahl Einträge):"
           cls -1 app/ | wc -l
           echo "== lib anlegen:"
-          mkdir -f lib
+          mkdir lib
           cls -la lib/
+          echo "== Test: anderer Name"
+          mkdir probe-test-ordner
+          cls -la probe-test-ordner/
+          rmdir probe-test-ordner
           bye
           EOT
