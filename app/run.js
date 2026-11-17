@@ -5,7 +5,7 @@ import { qrSvg } from './qr.js';
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-let liveTimer = null;
+let liveTimer = null, liveRedraw = () => { };
 export const stopLive = () => { clearInterval(liveTimer); liveTimer = null; };
 addEventListener('hashchange', stopLive);
 
@@ -77,6 +77,7 @@ export async function viewLive(e, helpers) {
     } catch (er) { X.toast('⚠ ' + esc(er.message)); }
   };
   main.onchange = async ev => { const s = ev.target.closest('[data-zu]'); if (s) { await X.api('exam_zuschlag', { id: e.id, pid: +s.dataset.zu, minutes: +s.value }); X.toast('Zuschlag gespeichert'); } };
+  liveRedraw = draw;
   await draw();
   liveTimer = setInterval(draw, 4000);
 }
@@ -95,7 +96,7 @@ function importFile(e) {
       const who = await X.K.open(X.S.priv, j.identity_enc);
       if (!confirm(`Abgabe von ${who.v} ${who.n} (gesichert ${new Date(j.at).toLocaleString('de-DE')}) übernehmen? Sie ersetzt den bisher gespeicherten Stand.`)) return;
       await X.api('exam_import', { id: e.id, pid: j.pid || 0, identity_enc: j.identity_enc, answers_enc: j.answers_enc });
-      X.toast('✓ Abgabe übernommen');
+      X.toast('✓ Abgabe übernommen'); liveRedraw();
     } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); }
   });
 }
