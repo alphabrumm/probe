@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Probe · Prüfung bearbeiten</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="vendor/pathfinder/core/pathfinder.css">
+</head>
+<body>
+<!-- PathFinder, eingebettet in Probe: wird von der Probe-Seite gestartet (window.probeEdit) -->
+<div class="app" id="app">
+  <section class="lpwrap" aria-label="Prüfung">
+    <div class="ed-bar" id="edBar">
+      <span class="pf-brand"><img src="app/icon.svg" alt="" title="Probe"></span>
+      <button class="ed-btn ed-ki" id="bKI" title="KI-Tools"><svg class="ki-ico" viewBox="0 0 24 24" width="1.1em" height="1.1em" aria-hidden="true"><path fill="currentColor" d="M10 2.5l1.7 5.3a3 3 0 0 0 1.9 1.9l5.3 1.7-5.3 1.7a3 3 0 0 0-1.9 1.9L10 20.3l-1.7-5.3a3 3 0 0 0-1.9-1.9L1.1 11.4l5.3-1.7a3 3 0 0 0 1.9-1.9zM19 2l.8 2.2L22 5l-2.2.8L19 8l-.8-2.2L16 5l2.2-.8z"/></svg><span class="t"> KI-Tools</span></button>
+      <span class="ed-sep"></span>
+      <span class="ed-seg" id="modeSeg"><button data-mode="edit" aria-pressed="true">✎ Bearbeiten</button><button data-mode="preview">▶ Vorschau</button></span>
+      <span class="ed-seg" id="viewSeg" title="Alle Stationen untereinander zeigen oder nur die aktuelle"><button data-view="all" aria-pressed="true">Alle<span class="t"> Teile</span></button><button data-view="one" aria-pressed="false">Ein<span class="t">en Teil</span></button></span>
+      <button class="ed-btn ed-lbl" id="bDesign" title="Einstellungen: Aussehen, Kopf">⚙<span class="t"> Einstellungen</span></button>
+      <span class="ed-sep"></span>
+      <button class="ed-btn" id="bUndo" title="Rückgängig (⌘Z)" aria-label="Rückgängig">↶</button>
+      <button class="ed-btn" id="bRedo" title="Wiederholen (⇧⌘Z)" aria-label="Wiederholen">↷</button>
+      <span class="sp"></span>
+      <span class="ed-saved" id="saved"></span>
+      <button class="ed-btn" id="bOpen" title="Dokumente">📂<span class="t"> Dokumente</span></button>
+      <button class="ed-btn" id="bMore" title="Mehr">⋯</button>
+    </div>
+    <div class="lp-scroll" id="scroll"><div class="lp" id="lp"></div></div>
+  </section>
+</div>
+<script type="module">
+import { startPathFinder } from './vendor/pathfinder/core/pathfinder.js';
+window.probeEdit = opts => startPathFinder({ appName: 'Probe', logo: 'app/icon.svg', storage: 'probe', forms: ['pruefung'], lernpfadStorage: 'pathfinder', ...opts });
+window.dispatchEvent(new Event('probe-editor-ready'));
+parent.postMessage({ probeEditor: 'ready' }, location.origin);
+</script>
+</body></html>

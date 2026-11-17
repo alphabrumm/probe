@@ -1,0 +1,65 @@
+name: Probe auf den Webspace (FTP)
+# Push auf den Zweig „test“ → Test-Ordner (FTP_DIR_TEST), Push auf „live“ oder Tag „live-…“ → echter Ordner (FTP_DIR).
+# Ablauf: git push origin main:test → auf dem Webspace testen → git push origin main:live
+# Benötigt die Repository-Secrets FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_DIR, FTP_DIR_TEST (optional Variable FTP_PROTOCOL, Standard ftps).
+# Der Datenordner data/ und config.local.php auf dem Webspace werden nie überschrieben oder gelöscht.
+on:
+  workflow_dispatch:
+    inputs:
+      ziel: { description: 'test oder live', required: true, default: 'test' }
+  push:
+    branches: [test, live]
+    tags: ['live-*']
+permissions:
+  contents: read
+concurrency:
+  group: webspace-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  webspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - name: Ziel bestimmen
+        id: ziel
+        env:
+          REF: ${{ github.ref_name }}
+          IN: ${{ github.event.inputs.ziel }}
+          D_LIVE: ${{ secrets.FTP_DIR }}
+          D_TEST: ${{ secrets.FTP_DIR_TEST }}
+        run: |
+          Z="test"; if [ "$REF" = "live" ] || [[ "$REF" == live-* ]] || [ "$IN" = "live" ]; then Z="live"; fi
+          D="$D_TEST"; [ "$Z" = "live" ] && D="$D_LIVE"
+          if [ -z "$D" ]; then echo "::error::Secret für den Ordner fehlt (FTP_DIR bzw. FTP_DIR_TEST)."; exit 1; fi
+          echo "ziel=$Z" >> "$GITHUB_OUTPUT"; echo "### Ziel: $Z" >> "$GITHUB_STEP_SUMMARY"
+          echo "dir=$D" >> "$GITHUB_OUTPUT"
+      - name: Paket zusammenstellen
+        run: |
+          mkdir -p out/vendor/pathfinder
+          cp -r index.html editor.html api.php manifest.webmanifest .htaccess app lib out/
+          cp -r vendor/pathfinder/core vendor/pathfinder/fonts out/vendor/pathfinder/
+          php -l out/api.php && php -l out/lib/db.php
+          echo "Version: ${GITHUB_SHA::7}" > out/app/version.txt
+      - name: lftp installieren
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+      - name: Per FTP(S) übertragen
+        env:
+          S: ${{ secrets.FTP_SERVER }}
+          U: ${{ secrets.FTP_USERNAME }}
+          P: ${{ secrets.FTP_PASSWORD }}
+          D: ${{ steps.ziel.outputs.dir }}
+          PROTO: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+        run: |
+          HOST="${S#ftp://}"; HOST="${HOST#ftps://}"; HOST="${HOST%/}"
+          if [ "$PROTO" = "ftp" ]; then SSL="set ftp:ssl-allow false;"; else SSL="set ftp:ssl-force true; set ftp:ssl-protect-data true;"; fi
+          lftp -u "$U","$P" "$HOST" <<EOT
+          set cmd:fail-exit true
+          set net:timeout 30
+          set net:max-retries 3
+          set ftp:passive-mode true
+          $SSL
+          mirror --reverse --only-newer --no-perms --parallel=3 --verbose=1 --exclude-glob data/ --exclude-glob config.local.php ./out/ "$D"
+          bye
+          EOT
+          echo "Übertragung abgeschlossen." >> "$GITHUB_STEP_SUMMARY"
