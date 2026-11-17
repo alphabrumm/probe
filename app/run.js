@@ -288,8 +288,13 @@ function acceptDialog(tid) {
   const slots = t.type === 'gap' ? t.gaps.map((alts, i) => ({ i, label: `Lücke ${i + 1}`, exp: alts.join(' oder ') })) : [{ i: 0, label: 'Antwort', exp: String(t.answer).split('|').join(' oder ') }];
   const acc = g.accept[tid] = g.accept[tid] || {};
   const html = slots.map(s => {
-    const given = {}; for (const p of people) { const v = t.type === 'gap' ? p.ans?.[tid]?.[s.i] : p.ans?.[tid]; if (v == null || String(v).trim() === '') continue; const k = String(v).trim(); given[k] = (given[k] || 0) + 1; }
-    const wrong = Object.entries(given).filter(([v]) => !(t.type === 'gap' ? (t.bank ? t.gaps[s.i].some(x => S2.M.normAns(x) === S2.M.normAns(v)) : S2.M.isAnswer(t.gaps[s.i].join('|'), v)) : S2.M.isAnswer(t.answer, v)));
+    const okGap = (i, v) => v != null && String(v).trim() !== '' && (t.bank ? t.gaps[i].some(x => S2.M.normAns(x) === S2.M.normAns(v)) : S2.M.isAnswer(t.gaps[i].join('|'), v));
+    const given = {}; for (const p of people) {
+      const a = p.ans?.[tid], v = t.type === 'gap' ? a?.[s.i] : a; if (v == null || String(v).trim() === '') continue;
+      if (t.type === 'gap' ? (S2.M.gapOks ? S2.M.gapOks(t.html, t.gaps.length, a, okGap)[s.i] : okGap(s.i, v)) : S2.M.isAnswer(t.answer, v)) continue; // richtig (auch „9 = 3x“ statt „3x = 9“)
+      const k = String(v).trim(); given[k] = (given[k] || 0) + 1;
+    }
+    const wrong = Object.entries(given);
     return `<div class="pt"><b>${esc(s.label)}</b> <span class="help">richtig: ${esc(s.exp)}</span>${wrong.length ? wrong.map(([v, n]) => `<label class="ck"><input type="checkbox" data-a="${s.i}" value="${esc(v)}"${(acc[s.i] || []).includes(v) ? ' checked' : ''}>„${esc(v)}“ <span class="help">${n}×</span></label>`).join('') : '<div class="help">keine abweichenden Antworten</div>'}</div>`;
   }).join('');
   const d = X.dialog(`${esc(t.title)} – Antworten`, `<p class="help">Angekreuzte Antworten gelten für alle Schüler als richtig.</p>${html}<button class="btn pri" data-save>Speichern</button>`, { wide: true });
