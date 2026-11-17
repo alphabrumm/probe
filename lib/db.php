@@ -134,4 +134,10 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 4;
         SQL);
     }
+    if ($v < 5) { // Beispielprüfungen je Lehrkraft (einmalig angelegt)
+        $pdo->exec(<<<SQL
+        ALTER TABLE users ADD COLUMN demo INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version = 5;
+        SQL);
+    }
 }

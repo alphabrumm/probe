@@ -58,11 +58,12 @@ function drawWho() {
   w.innerHTML = `<span class="btns">${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
-      <div class="btns"><button class="btn" data-fa>Meine Fächer</button><button class="btn" data-pw>Passwort ändern</button><button class="btn" data-out>Abmelden</button></div>`);
+      <div class="btns"><button class="btn" data-fa>Meine Fächer</button><button class="btn" data-pw>Passwort ändern</button><button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
     d.el.onclick = async e => {
       if (e.target.closest('[data-out]')) { await api('logout').catch(() => { }); S.user = null; S.priv = null; S.csrf = ''; d.close(); location.hash = '#/'; boot(); }
       if (e.target.closest('[data-pw]')) { d.close(); changePassword(); }
       if (e.target.closest('[data-fa]')) { d.close(); myFaecher(); }
+      if (e.target.closest('[data-demo]')) { d.close(); if (!confirm('Die Beispielprüfungen 7d und 7p noch einmal anlegen? Vorhandene bleiben, bis du sie löschst.')) return; await demos(true); location.hash = '#/'; route(); }
     };
   };
 }
@@ -73,7 +74,18 @@ function route() {
   let m;
   if (h === '/admin' && S.user.is_admin) return viewAdmin();
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
+  if (!S.user.demo && !S.demoTried) return demos(false).then(viewDashboard);
   return viewDashboard();
+}
+/** Beispielprüfungen anlegen: beim ersten Mal von selbst, später über das Konto-Menü */
+async function demos(force) {
+  S.demoTried = true;
+  try {
+    const { seedDemos } = await import('./demo.js');
+    const made = await withBusy('Beispielprüfungen werden angelegt …', () => seedDemos({ api, K, S }, force));
+    S.user.demo = true;
+    if (made) toast(force ? '✓ Beispielprüfungen 7d und 7p neu angelegt' : '👋 Zum Ausprobieren: zwei Beispielprüfungen (7d schon geschrieben, 7p vorbereitet)', 6000);
+  } catch (er) { toast('⚠ Beispielprüfungen: ' + esc(er.message), 5000); }
 }
 
 /* ---------- Einrichtung, Anmeldung, Schlüssel ---------- */

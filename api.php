@@ -60,7 +60,7 @@ function ufields(array $u): array {
     $fl = db()->prepare('SELECT f.id, f.name FROM fachleitungen l JOIN fachschaften f ON f.id = l.fachschaft_id WHERE l.user_id = ? ORDER BY f.name');
     $fl->execute([$u['id']]);
     return ['id' => (int)$u['id'], 'kuerzel' => $u['kuerzel'], 'name' => $u['name'], 'is_admin' => (bool)$u['is_admin'], 'must_setup' => (bool)$u['must_setup'],
-        'has_keys' => (bool)$u['pub_key'], 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id'])];
+        'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id'])];
 }
 function user_faecher(int $id): array {
     $st = db()->prepare('SELECT fach_id FROM user_faecher WHERE user_id = ?'); $st->execute([$id]);
@@ -185,7 +185,7 @@ case 'setup_keys': { // erstes Anmelden mit Startpasswort: eigenes Passwort und 
     } else {
         foreach (['pub_key', 'rec_salt', 'priv_rec'] as $f) if (!b64ok(str($in, $f, 4000, true))) fail('Schlüssel ungültig');
         $pdo = db(); $pdo->beginTransaction();
-        if ($u['pub_key']) $pdo->prepare('DELETE FROM exams WHERE owner_id = ?')->execute([$u['id']]); // alte Daten sind ohne Schlüssel unlesbar
+        if ($u['pub_key']) { $pdo->prepare('DELETE FROM exams WHERE owner_id = ?')->execute([$u['id']]); $pdo->prepare('UPDATE users SET demo = 0 WHERE id = ?')->execute([$u['id']]); } // alte Daten sind ohne Schlüssel unlesbar; Beispiele neu anlegen
         $pdo->prepare('UPDATE users SET salt = ?, login_hash = ?, pub_key = ?, priv_pw = ?, rec_salt = ?, priv_rec = ?, must_setup = 0 WHERE id = ?')
             ->execute([$salt, password_hash($auth, PASSWORD_DEFAULT), $in['pub_key'], $in['priv_pw'], $in['rec_salt'], $in['priv_rec'], $u['id']]);
         $pdo->commit();
@@ -299,6 +299,38 @@ case 'exam_list': {
     $u = teacher(); $st = db()->prepare('SELECT * FROM exams WHERE owner_id = ? AND schuljahr = ? ORDER BY klasse COLLATE NOCASE, datum, id');
     $st->execute([$u['id'], str($in, 'schuljahr', 9) ?: schuljahr()]);
     out(['exams' => array_map('exam_meta', $st->fetchAll())]);
+}
+case 'demo_seed': { // Beispielprüfungen: „7d“ geschrieben und zur Korrektur bereit, „7p“ fertig vorbereitet (Inhalte im Browser verschlüsselt)
+    $u = teacher(); $pdo = db();
+    $X = $in['exams'] ?? null; if (!is_array($X) || count($X) !== 2) fail('Ungültige Beispieldaten');
+    $pdo->beginTransaction();
+    $st = $pdo->prepare('UPDATE users SET demo = 1 WHERE id = ?' . (empty($in['force']) ? ' AND demo = 0' : '')); $st->execute([$u['id']]);
+    if (!$st->rowCount()) { $pdo->rollBack(); out(['skipped' => true]); }
+    $f = $pdo->query("SELECT id, name FROM faecher WHERE name = 'Physik' COLLATE NOCASE")->fetch();
+    $sj = schuljahr(); $day = fn(int $d) => schuljahr(date('Y-m-d', time() + $d * 86400)) === $sj ? date('Y-m-d', time() + $d * 86400) : date('Y-m-d');
+    $res = [];
+    foreach ($X as $x) {
+        $done = !empty($x['done']); $datum = $day($done ? -7 : 7); $now = time();
+        $opened = strtotime($datum . ' 08:05'); if ($opened > $now) $opened = $now - 3600;
+        $parts = $done ? (array)($x['participants'] ?? []) : []; if (count($parts) > 40) fail('Zu viele Teilnehmer');
+        $pdo->prepare("INSERT INTO exams (owner_id, schuljahr, klasse, fach_id, fach, datum, art, titel, erwartet, dauer, pin_on, skala, status, draft_enc, key_enc, student_doc, roster_enc, roster_n,
+            aufgaben, punkte, fertig, created, updated, code, pin, join_open, opened, ended) VALUES (?,?,?,?,?,?,?,?,?,?,1,'noten',?,?,?,?,?,?,?,?,1,?,?,?,?,0,?,?)")
+            ->execute([$u['id'], schuljahr($datum), str($x, 'klasse', 20, true), $f ? (int)$f['id'] : null, $f ? $f['name'] : 'Physik', $datum, 'Kurzarbeit', str($x, 'titel', 200),
+                max(0, min(200, (int)($x['roster_n'] ?? 0))), max(0, min(600, (int)($x['dauer'] ?? 20))), $done ? 'beendet' : 'entwurf',
+                str($x, 'draft_enc', 2_000_000, true), str($x, 'key_enc', 2_000_000, true), str($x, 'student_doc', 2_000_000, true), blob($x, 'roster_enc', 2_000_000), max(0, min(500, (int)($x['roster_n'] ?? 0))),
+                max(0, (int)($x['aufgaben'] ?? 0)), max(0, (float)($x['punkte'] ?? 0)), $now, $now, $done ? new_code() : null, $done ? str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT) : '',
+                $done ? $opened : null, $done ? $opened + 20 * 60 : null]);
+        $eid = (int)$pdo->lastInsertId(); $pids = [];
+        $ins = $pdo->prepare("INSERT INTO participants (exam_id, token_hash, identity_enc, status, joined, last_seen, saved, n_saves, fokus, answers_enc) VALUES (?,?,?,'abgegeben',?,?,?,?,?,?)");
+        foreach ($parts as $p) {
+            $t = $opened + max(1, min(20, (int)($p['minute'] ?? 15))) * 60;
+            $ins->execute([$eid, hash('sha256', random_bytes(32)), str($p, 'identity_enc', 4000, true), $opened + 30, $t, $t, 6, max(0, (int)($p['fokus'] ?? 0)), str($p, 'answers_enc', 200_000, true)]);
+            $pids[] = (int)$pdo->lastInsertId();
+        }
+        $res[] = ['klasse' => $x['klasse'], 'id' => $eid, 'pids' => $pids];
+    }
+    $pdo->commit();
+    out(['exams' => $res]);
 }
 case 'exam_get': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
