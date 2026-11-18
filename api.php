@@ -109,6 +109,7 @@ function exam_meta(array $e): array {
         'code' => $e['code'], 'pin' => $e['pin'], 'join_open' => (bool)$e['join_open'], 'opened' => $e['opened'] ? (int)$e['opened'] : null,
         'ended' => $e['ended'] ? (int)$e['ended'] : null, 'expires' => $e['expires'] ? (int)$e['expires'] : null,
         'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'],
+        'resp' => db()->query('SELECT status FROM respizienz WHERE exam_id = ' . (int)$e['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn() ?: null,
         'teilnehmer' => (int)(db()->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn())];
 }
 const STATES = ['entwurf', 'offen', 'geschlossen', 'beendet', 'veroeffentlicht'];
@@ -134,6 +135,22 @@ function cutoff(array $e, array $p): ?int {
     $dl = deadline($e, $p); if (!$dl || !$e['auto_abgabe']) return null;
     return max($dl, (int)$e['auto_set']) + 120; // wird die automatische Abgabe nach Ablauf wieder eingeschaltet, zählt der Zeitpunkt des Einschaltens
 }
+/** Respizienz-Eintrag, auf den diese Fachleitung Zugriff hat (mit ihrem verschlüsselten Paket) */
+function resp_for(array $u, int $rid): array {
+    $st = db()->prepare('SELECT r.*, k.data_enc, s.name AS fachschaft, o.pub_key AS owner_pub FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ?
+        LEFT JOIN fachschaften s ON s.id = r.fachschaft_id LEFT JOIN users o ON o.id = r.owner_id WHERE r.id = ?');
+    $st->execute([$u['id'], $rid]); $r = $st->fetch(); if (!$r) fail('Nicht gefunden', 404); return $r;
+}
+/** Notizen zu einem Respizienz-Eintrag, je mit dem für $uid verschlüsselten Text (Lehrkraft: nur die für sie bestimmten) */
+function resp_notes(int $rid, int $uid, bool $teacher): array {
+    $st = db()->prepare('SELECT id, author_id, author, created, for_teacher, kind, enc FROM respizienz_notes WHERE resp_id = ? ORDER BY created, id'); $st->execute([$rid]); $out = [];
+    foreach ($st->fetchAll() as $n) {
+        if ($teacher && !(int)$n['for_teacher']) continue;
+        $enc = json_decode($n['enc'], true); if (!isset($enc[(string)$uid])) continue;
+        $out[] = ['id' => (int)$n['id'], 'author_id' => $n['author_id'] ? (int)$n['author_id'] : null, 'author' => $n['author'], 'created' => (int)$n['created'], 'for_teacher' => (bool)$n['for_teacher'], 'kind' => $n['kind'], 'enc' => $enc[(string)$uid]];
+    }
+    return $out;
+}
 function owner_pub(array $e): string { $st = db()->prepare('SELECT pub_key FROM users WHERE id = ?'); $st->execute([$e['owner_id']]); return (string)$st->fetchColumn(); }
 function throttle(string $k, int $max, int $win = 600): void {
     $pdo = db(); $pdo->prepare('DELETE FROM join_fails WHERE t < ?')->execute([time() - $win]);
@@ -153,7 +170,8 @@ case 'status': {
     demo_cleanup(); $n = (int)db()->query('SELECT COUNT(*) FROM users WHERE is_demo = 0')->fetchColumn();
     $u = $uid ? user($uid) : null;
     if ($u && empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
-    out(['setup' => $n === 0, 'user' => $u ? ufields($u) : null, 'csrf' => $u ? $_SESSION['csrf'] : null, 'keys' => $u ? keys($u) : null,
+    $ro = 0; if ($u) { $q = db()->prepare("SELECT COUNT(*) FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ? WHERE r.status = 'eingereicht'"); $q->execute([$u['id']]); $ro = (int)$q->fetchColumn(); }
+    out(['resp_open' => $ro, 'setup' => $n === 0, 'user' => $u ? ufields($u) : null, 'csrf' => $u ? $_SESSION['csrf'] : null, 'keys' => $u ? keys($u) : null,
         'https' => $GLOBALS['https']]);
 }
 case 'setup_admin': { // allererster Start: das erste Konto ist Admin, mit eigenem Passwort und Schlüsseln
@@ -403,53 +421,87 @@ case 'demo_seed': { // Beispielprüfungen: „7d“ geschrieben und zur Korrektu
     out(['exams' => $res]);
 }
 /* ---------- Respizienz: Lehrkraft reicht ein, Fachleitung sieht durch und zeichnet ab ---------- */
-case 'resp_targets': { // Fachschaft und Fachleitung(en) zum Fach der Prüfung
+case 'resp_targets': { // Lehrkraft: Fachschaft, Fachleitung(en) und Stand der Respizienz dieser Prüfung (mit den Notizen für sie)
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); $pdo = db();
-    if ($u['is_demo']) out(['demo' => true, 'fachschaft' => null, 'to' => [], 'last' => null]); // Demo-Prüfungen gehen nie an echte Fachleitungen
+    if ($u['is_demo']) out(['demo' => true, 'fachschaft' => null, 'to' => [], 'last' => null, 'notes' => []]); // Demo-Prüfungen gehen nie an echte Fachleitungen
     $st = $pdo->prepare('SELECT s.id, s.name FROM faecher f JOIN fachschaften s ON s.id = f.fachschaft_id WHERE f.id = ? OR (? IS NULL AND f.name = ? COLLATE NOCASE) LIMIT 1');
     $st->execute([$e['fach_id'], $e['fach_id'], $e['fach']]); $fs = $st->fetch();
     $to = [];
     if ($fs) { $st = $pdo->prepare('SELECT u.id, u.kuerzel, u.name, u.pub_key FROM fachleitungen l JOIN users u ON u.id = l.user_id WHERE l.fachschaft_id = ? AND u.id <> ? AND u.pub_key IS NOT NULL AND u.must_setup = 0 AND u.is_demo = 0 ORDER BY u.kuerzel');
         $st->execute([$fs['id'], $u['id']]); $to = $st->fetchAll(); }
-    $r = $pdo->prepare('SELECT id, created, status, seen, signed, signer, note_enc FROM respizienz WHERE exam_id = ? ORDER BY id DESC LIMIT 1'); $r->execute([$e['id']]);
-    out(['fachschaft' => $fs ?: null, 'to' => $to, 'last' => $r->fetch() ?: null]);
+    $r = $pdo->prepare('SELECT id, created, updated, status, seen, signed, signer, rueck, note_enc FROM respizienz WHERE exam_id = ? ORDER BY id DESC LIMIT 1'); $r->execute([$e['id']]);
+    $last = $r->fetch() ?: null;
+    out(['fachschaft' => $fs ?: null, 'to' => $to, 'last' => $last, 'notes' => $last ? resp_notes((int)$last['id'], (int)$u['id'], true) : []]);
 }
-case 'resp_submit': {
+case 'resp_submit': { // einreichen; erneutes Einreichen ersetzt die Fassung, behält aber Notizen und Verlauf
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0)); $pdo = db();
     if (!in_array($e['status'], ['beendet', 'veroeffentlicht'], true)) fail('Erst die Prüfung beenden und korrigieren.');
     if ($u['is_demo']) fail('Im Demo-Modus geht keine Prüfung an die Fachleitung.');
     $fsid = (int)($in['fachschaft_id'] ?? 0); $items = $in['items'] ?? null; if (!is_array($items) || !$items) fail('Keine Fachleitung als Empfänger');
     $ok = $pdo->prepare('SELECT 1 FROM fachleitungen l JOIN users u ON u.id = l.user_id WHERE l.fachschaft_id = ? AND l.user_id = ? AND u.pub_key IS NOT NULL');
     foreach ($items as $it) { $ok->execute([$fsid, (int)($it['user_id'] ?? 0)]); if (!$ok->fetchColumn()) fail('Empfänger ist keine Fachleitung dieser Fachschaft'); }
+    $who = trim(($u['name'] ? $u['name'] . ' ' : '') . '(' . $u['kuerzel'] . ')'); $n = max(0, (int)($in['teilnehmer'] ?? 0)); $now = time();
     $pdo->beginTransaction();
-    $pdo->prepare('DELETE FROM respizienz WHERE exam_id = ?')->execute([$e['id']]); // neu einreichen ersetzt die alte Fassung
-    $pdo->prepare('INSERT INTO respizienz (exam_id, owner_id, lehrkraft, fachschaft_id, schuljahr, klasse, fach, art, datum, titel, teilnehmer, created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-        ->execute([$e['id'], $u['id'], trim(($u['name'] ? $u['name'] . ' ' : '') . '(' . $u['kuerzel'] . ')'), $fsid, $e['schuljahr'], $e['klasse'], $e['fach'], $e['art'], $e['datum'], $e['titel'], max(0, (int)($in['teilnehmer'] ?? 0)), time()]);
-    $rid = (int)$pdo->lastInsertId(); $ins = $pdo->prepare('INSERT INTO respizienz_keys (resp_id, user_id, data_enc) VALUES (?,?,?)');
+    $st = $pdo->prepare('SELECT id FROM respizienz WHERE exam_id = ? ORDER BY id DESC LIMIT 1'); $st->execute([$e['id']]); $rid = (int)$st->fetchColumn();
+    if ($rid) {
+        $pdo->prepare("UPDATE respizienz SET owner_id = ?, lehrkraft = ?, fachschaft_id = ?, schuljahr = ?, klasse = ?, fach = ?, art = ?, datum = ?, titel = ?, teilnehmer = ?, updated = ?,
+            status = 'eingereicht', seen = NULL, signed = NULL, signer_id = NULL, signer = '' WHERE id = ?")
+            ->execute([$u['id'], $who, $fsid, $e['schuljahr'], $e['klasse'], $e['fach'], $e['art'], $e['datum'], $e['titel'], $n, $now, $rid]);
+        $pdo->prepare('DELETE FROM respizienz_keys WHERE resp_id = ?')->execute([$rid]);
+    } else {
+        $pdo->prepare('INSERT INTO respizienz (exam_id, owner_id, lehrkraft, fachschaft_id, schuljahr, klasse, fach, art, datum, titel, teilnehmer, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$e['id'], $u['id'], $who, $fsid, $e['schuljahr'], $e['klasse'], $e['fach'], $e['art'], $e['datum'], $e['titel'], $n, $now, $now]);
+        $rid = (int)$pdo->lastInsertId();
+    }
+    $ins = $pdo->prepare('INSERT INTO respizienz_keys (resp_id, user_id, data_enc) VALUES (?,?,?)');
     foreach ($items as $it) $ins->execute([$rid, (int)$it['user_id'], str($it, 'data_enc', 20_000_000, true)]);
     $pdo->commit(); out(['id' => $rid]);
 }
 case 'resp_list': { // Fachleitung: alle eingereichten Prüfungen ihrer Fachschaften
     $u = teacher();
-    $st = db()->prepare('SELECT r.id, r.lehrkraft, r.schuljahr, r.klasse, r.fach, r.art, r.datum, r.titel, r.teilnehmer, r.created, r.status, r.signed, r.signer, s.name AS fachschaft
-        FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ? LEFT JOIN fachschaften s ON s.id = r.fachschaft_id ORDER BY r.created DESC');
+    $st = db()->prepare('SELECT r.id, r.lehrkraft, r.schuljahr, r.klasse, r.fach, r.art, r.datum, r.titel, r.teilnehmer, r.created, r.updated, r.status, r.seen, r.signed, r.signer, r.rueck, s.name AS fachschaft,
+        (SELECT COUNT(*) FROM respizienz_notes n WHERE n.resp_id = r.id) AS notes
+        FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ? LEFT JOIN fachschaften s ON s.id = r.fachschaft_id ORDER BY COALESCE(r.updated, r.created) DESC');
     $st->execute([$u['id']]); out(['items' => $st->fetchAll()]);
 }
-case 'resp_get': {
-    $u = teacher(); $pdo = db();
-    $st = $pdo->prepare('SELECT r.*, k.data_enc, s.name AS fachschaft, o.pub_key AS owner_pub FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ?
-        LEFT JOIN fachschaften s ON s.id = r.fachschaft_id LEFT JOIN users o ON o.id = r.owner_id WHERE r.id = ?');
-    $st->execute([$u['id'], (int)($in['rid'] ?? 0)]); $r = $st->fetch(); if (!$r) fail('Nicht gefunden', 404);
-    if ($r['status'] === 'eingereicht') { $pdo->prepare("UPDATE respizienz SET status = 'gesehen', seen = ? WHERE id = ?")->execute([time(), $r['id']]); $r['status'] = 'gesehen'; }
-    out(['item' => $r]);
+case 'resp_get': { // Fachleitung: Paket, Notizen, Empfänger für neue Notizen; peek = ohne „gesehen“ zu setzen (Archiv-Export)
+    $u = teacher(); $pdo = db(); $r = resp_for($u, (int)($in['rid'] ?? 0));
+    if ($r['status'] === 'eingereicht' && empty($in['peek'])) { $pdo->prepare("UPDATE respizienz SET status = 'gesehen', seen = ? WHERE id = ?")->execute([time(), $r['id']]); $r['status'] = 'gesehen'; $r['seen'] = time(); }
+    $st = $pdo->prepare('SELECT u.id, u.kuerzel, u.name, u.pub_key FROM respizienz_keys k JOIN users u ON u.id = k.user_id WHERE k.resp_id = ? AND u.pub_key IS NOT NULL'); $st->execute([$r['id']]);
+    $q = $pdo->prepare("SELECT COUNT(*) FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ? WHERE r.status = 'eingereicht'"); $q->execute([$u['id']]);
+    out(['item' => $r, 'notes' => resp_notes((int)$r['id'], (int)$u['id'], false), 'fl' => $st->fetchAll(), 'open' => (int)$q->fetchColumn()]);
 }
-case 'resp_sign': { // abzeichnen, optional mit Bemerkung (verschlüsselt für die Lehrkraft)
-    $u = teacher(); $pdo = db();
-    $st = $pdo->prepare('SELECT r.id FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ? WHERE r.id = ?'); $st->execute([$u['id'], (int)($in['rid'] ?? 0)]);
-    $id = (int)$st->fetchColumn(); if (!$id) fail('Nicht gefunden', 404);
-    $pdo->prepare("UPDATE respizienz SET status = 'abgezeichnet', signed = ?, signer_id = ?, signer = ?, note_enc = ? WHERE id = ?")
-        ->execute([time(), $u['id'], trim(($u['name'] ? $u['name'] . ' ' : '') . '(' . $u['kuerzel'] . ')'), blob($in, 'note_enc', 200_000), $id]);
-    out([]);
+case 'resp_note': { // Fachleitung: Notiz (intern oder für die Lehrkraft), optional zugleich Rückfrage oder Abzeichnen
+    $u = teacher(); $pdo = db(); $r = resp_for($u, (int)($in['rid'] ?? 0));
+    $kind = in_array($in['kind'] ?? '', ['notiz', 'rueckfrage', 'abgezeichnet'], true) ? $in['kind'] : 'notiz';
+    $forT = $kind === 'rueckfrage' ? 1 : (!empty($in['for_teacher']) ? 1 : 0);
+    $enc = $in['enc'] ?? null;
+    if ($enc !== null) { // Empfänger: Fachleitungen dieser Prüfung, bei „für die Lehrkraft“ zusätzlich die Lehrkraft
+        if (!is_array($enc) || !$enc) fail('Notiz fehlt');
+        $st = $pdo->prepare('SELECT user_id FROM respizienz_keys WHERE resp_id = ?'); $st->execute([$r['id']]); $allowed = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        if ($forT && $r['owner_id']) $allowed[] = (int)$r['owner_id'];
+        foreach ($enc as $uid => $v) { if (!in_array((int)$uid, $allowed, true) || !is_string($v) || strlen($v) > 200_000) fail('Ungültiger Empfänger'); }
+        if (!isset($enc[(string)$u['id']]) && !isset($enc[(int)$u['id']])) fail('Die Notiz muss auch für dich verschlüsselt sein');
+    } elseif ($kind === 'rueckfrage') fail('Bitte schreib der Lehrkraft, was zu ändern ist.');
+    $who = trim(($u['name'] ? $u['name'] . ' ' : '') . '(' . $u['kuerzel'] . ')'); $now = time();
+    $pdo->beginTransaction();
+    if ($enc !== null) $pdo->prepare('INSERT INTO respizienz_notes (resp_id, author_id, author, created, for_teacher, kind, enc) VALUES (?,?,?,?,?,?,?)')
+        ->execute([$r['id'], $u['id'], $who, $now, $forT, $kind, json_encode($enc)]);
+    if ($kind === 'rueckfrage') $pdo->prepare("UPDATE respizienz SET status = 'rueckfrage', rueck = ?, signed = NULL, signer_id = NULL, signer = '' WHERE id = ?")->execute([$now, $r['id']]);
+    if ($kind === 'abgezeichnet') $pdo->prepare("UPDATE respizienz SET status = 'abgezeichnet', signed = ?, signer_id = ?, signer = ? WHERE id = ?")->execute([$now, $u['id'], $who, $r['id']]);
+    $pdo->commit(); out([]);
+}
+case 'resp_note_delete': { // eigene Notiz löschen (Rückfragen und Abzeichnungen bleiben als Verlauf)
+    $u = teacher(); $r = resp_for($u, (int)($in['rid'] ?? 0));
+    db()->prepare("DELETE FROM respizienz_notes WHERE id = ? AND resp_id = ? AND author_id = ? AND kind = 'notiz'")->execute([(int)($in['nid'] ?? 0), $r['id'], $u['id']]); out([]);
+}
+case 'resp_reopen': { // Abzeichnung zurücknehmen
+    $u = teacher(); $r = resp_for($u, (int)($in['rid'] ?? 0));
+    db()->prepare("UPDATE respizienz SET status = 'gesehen', signed = NULL, signer_id = NULL, signer = '' WHERE id = ?")->execute([$r['id']]); out([]);
+}
+case 'archive_recipients': { // öffentliche Schlüssel der Admins: Archive lassen sich auch mit dem Admin-Schlüssel öffnen
+    teacher();
+    out(['admins' => db()->query('SELECT id, kuerzel, name, pub_key FROM users WHERE is_admin = 1 AND is_demo = 0 AND must_setup = 0 AND pub_key IS NOT NULL ORDER BY kuerzel')->fetchAll()]);
 }
 case 'exam_get': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));

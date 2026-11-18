@@ -22,7 +22,13 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
 * **Respizienz:** Die Lehrkraft reicht die korrigierte Prüfung bei der Fachleitung ihrer Fachschaft ein (nur wenn es dort eine
   Fachleitung mit eingerichtetem Konto gibt). Das Paket – Prüfung mit Lösungen, Antworten, Bewertung, Klarnamen – wird für jede
   Fachleitung einzeln verschlüsselt. Die Fachleitung sieht unter „Respizienz“ Verteilung, Notenschlüssel, Ergebnisse und jede
-  Antwort, kann die Prüfung ansehen, drucken und abzeichnen; ihre Bemerkung ist nur für die Lehrkraft lesbar.
+  Antwort, kann die Prüfung ansehen, drucken, als Prüfungsprotokoll (PDF) ausgeben und **Notizen** ergänzen (intern oder für die
+  Lehrkraft, je Empfänger verschlüsselt). Ablauf: eingereicht → *Rückfrage an die Lehrkraft* ⇄ erneut eingereicht → *abgezeichnet*.
+  Auf den Kacheln der Lehrkraft steht „In Respizienz“, „Rückfrage der Fachleitung“ oder „✓ respiziert“.
+* **Respizienz-Archiv:** Die Fachleitung exportiert eingereichte Prüfungen (Schuljahr, optional nur abgezeichnete) als Datei.
+  Inhalt AES-256-GCM mit zufälligem Archivschlüssel; diesen gibt es verschlüsselt für die Fachleitung, für jeden Admin
+  (Rückfallweg) und optional mit einer Archiv-Passphrase (z. B. für die Nachfolge). „📂 Archiv öffnen“ (Respizienz bzw.
+  Admin → Schuljahresende) entschlüsselt nur im Browser – das Archiv wird nicht auf den Server geladen.
 * **Beispielprüfungen** für jede Lehrkraft und ein **Demo-Modus** ohne Konto (nach 4 Stunden gelöscht).
 
 ## Verschlüsselung

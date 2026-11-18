@@ -84,3 +84,24 @@ export function startPassword() {
   let s = ''; for (let i = 0; i < 12; i++) s += A[r[i] % A.length];
   return s.slice(0, 4) + '-' + s.slice(4, 8) + '-' + s.slice(8);
 }
+
+/* ---------- Archive (Respizienz) ----------
+   Inhalt mit einem zufälligen Archivschlüssel (AES-256-GCM) verschlüsselt. Den Archivschlüssel gibt es mehrfach:
+   für die Fachleitung (ihr Schlüsselpaar), für jeden Admin (Rückfallweg) und optional mit einer Passphrase (z. B. für die Nachfolge). */
+export async function archiveSeal(data, { users = [], passphrase = '', info = {} } = {}) {
+  const raw = crypto.getRandomValues(new Uint8Array(32));
+  const body = await aesSeal(await aesKey(raw), te.encode(JSON.stringify(data)));
+  const rec = [];
+  for (const u of users) rec.push({ t: 'key', role: u.role, kuerzel: u.kuerzel, name: u.name || '', pub: u.pub_key, k: await seal(u.pub_key, { k: b64(raw) }) });
+  if (passphrase) { const salt = randomSalt(); rec.push({ t: 'pass', salt, rounds: PBKDF2_ROUNDS, k: await aesSeal(await aesKey(await pbkdf2(passphrase, salt, PBKDF2_ROUNDS, 256)), raw) }); }
+  return { probe: 'archiv', v: 1, created: Date.now(), info, rec, body };
+}
+/** öffnet ein Archiv mit dem eigenen Schlüssel (priv + pub) oder der Passphrase; null, wenn keins passt */
+export async function archiveOpen(A, { priv, pub, passphrase } = {}) {
+  if (A?.probe !== 'archiv' || !Array.isArray(A.rec)) throw new Error('Das ist kein Probe-Archiv.');
+  let raw = null;
+  if (priv && pub) for (const r of A.rec.filter(r => r.t === 'key' && r.pub === pub)) { try { raw = unb64((await open(priv, r.k)).k); break; } catch (e) { } }
+  if (!raw && passphrase) for (const r of A.rec.filter(r => r.t === 'pass')) { try { raw = await aesOpen(await aesKey(await pbkdf2(passphrase, r.salt, r.rounds, 256)), r.k); break; } catch (e) { } }
+  if (!raw) return null;
+  return JSON.parse(td.decode(await aesOpen(await aesKey(raw), A.body)));
+}

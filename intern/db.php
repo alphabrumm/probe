@@ -162,4 +162,18 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 7;
         SQL);
     }
+    if ($v < 8) { // Respizienz: Rückfrage an die Lehrkraft, Notizen der Fachleitung (je Empfänger verschlüsselt), erneutes Einreichen behält den Verlauf
+        $pdo->exec(<<<SQL
+        ALTER TABLE respizienz ADD COLUMN updated INTEGER;                  -- zuletzt (erneut) eingereicht
+        ALTER TABLE respizienz ADD COLUMN rueck INTEGER;                    -- Rückfrage an die Lehrkraft gestellt
+        CREATE TABLE respizienz_notes (
+            id INTEGER PRIMARY KEY, resp_id INTEGER NOT NULL REFERENCES respizienz(id) ON DELETE CASCADE,
+            author_id INTEGER REFERENCES users(id) ON DELETE SET NULL, author TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL,
+            for_teacher INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'notiz', -- notiz | rueckfrage | abgezeichnet
+            enc TEXT NOT NULL                                                   -- JSON { user_id: verschlüsselter Text } – nur die Empfänger können lesen
+        );
+        CREATE INDEX respizienz_notes_resp ON respizienz_notes(resp_id);
+        PRAGMA user_version = 8;
+        SQL);
+    }
 }

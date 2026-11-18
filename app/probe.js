@@ -2,7 +2,7 @@
 // Alles Persönliche (Schülernamen, Inhalte mit Lösungen) wird hier im Browser verschlüsselt, bevor es zum Server geht.
 import * as K from './crypto.js';
 import { viewLive, viewEval, stopLive } from './run.js';
-import { viewRespList, viewResp } from './resp.js';
+import { viewRespList, viewResp, viewArchiv, importArchive, respChip } from './resp.js';
 import { zugangText, zugangPdf } from './zugaenge.js';
 import { showPdf } from './pdf.js';
 
@@ -47,7 +47,7 @@ function pwRules(p1, p2) { if (p1.length < 10) return 'Das Passwort braucht mind
 async function boot() {
   let st;
   try { st = await api('status'); } catch (e) { main.innerHTML = `<div class="center"><div class="card narrow"><h2>Probe ist nicht erreichbar</h2><p class="err">${esc(e.message)}</p></div></div>`; return; }
-  S.csrf = st.csrf || ''; S.user = st.user; S.keys = st.keys;
+  S.csrf = st.csrf || ''; S.user = st.user; S.keys = st.keys; S.respOpen = st.resp_open || 0;
   drawWho();
   if (st.setup) return viewSetup();
   if (!S.user) return viewLogin();
@@ -58,7 +58,7 @@ async function boot() {
 function drawWho() {
   const w = $('#who');
   if (!S.user || !S.priv) { w.innerHTML = ''; return; }
-  w.innerHTML = `<span class="btns">${S.user.is_demo ? '<span class="chip warn" title="Alles wird nach ein paar Stunden gelöscht">Demo</span><button class="btn sm" id="bDemoEnd">Demo beenden</button>' : ''}${S.user.fachleitung?.length ? '<a class="btn sm ghost" href="#/resp">Respizienz</a>' : ''}${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
+  w.innerHTML = `<span class="btns">${S.user.is_demo ? '<span class="chip warn" title="Alles wird nach ein paar Stunden gelöscht">Demo</span><button class="btn sm" id="bDemoEnd">Demo beenden</button>' : ''}${S.user.fachleitung?.length ? `<a class="btn sm ghost" href="#/resp">Respizienz${S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : ''}</a>` : ''}${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
   $('#bDemoEnd') && ($('#bDemoEnd').onclick = endDemo);
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
@@ -78,13 +78,14 @@ function route() {
   let m;
   if (h === '/admin' && S.user.is_admin) return viewAdmin();
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
+  if (h === '/archiv' || (m = h.match(/^\/archiv\/(\d+)$/))) { stopLive(); return viewArchiv(m ? +m[1] : null, helpers()); }
   if (S.user.fachleitung?.length && h === '/resp') { stopLive(); return viewRespList(helpers()); }
   if (S.user.fachleitung?.length && (m = h.match(/^\/resp\/(\d+)$/))) { stopLive(); return viewResp(+m[1], helpers()); }
   if (!S.user.demo && !S.demoTried) return demos(false).then(viewDashboard);
   return viewDashboard();
 }
 /** Hilfen für die Ansichten in run.js und resp.js */
-function helpers() { return { S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
+function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
 /** Beispielprüfungen anlegen: beim ersten Mal von selbst, später über das Konto-Menü */
 async function demos(force) {
   S.demoTried = true;
@@ -273,7 +274,7 @@ async function viewDashboard() {
   const klassen = Object.keys(by).sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
   main.innerHTML = `<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
     <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
-    ${klassen.length ? klassen.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${by[k].length} Prüfung${by[k].length === 1 ? '' : 'en'}</span></div><div class="tiles">${by[k].map(e => `<a class="tile" href="#/p/${e.id}"><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}</span></a>`).join('')}</div>`).join('')
+    ${klassen.length ? klassen.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${by[k].length} Prüfung${by[k].length === 1 ? '' : 'en'}</span></div><div class="tiles">${by[k].map(e => `<a class="tile" href="#/p/${e.id}"><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`).join('')}</div>`).join('')
       : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch keine Prüfung in ${esc(S.sj)}</h2><p>Lege eine Prüfung an: Klasse, Fach, Datum, Art – den Inhalt baust du danach mit PathFinder.</p></div>`}`;
   $('#sj').onchange = e => { S.sj = e.target.value; viewDashboard(); };
   $('#neu').onclick = () => examForm(null);
@@ -457,6 +458,7 @@ async function viewAdmin() {
   if (adminTab === 'fa') h += `<div class="bar"><h2 style="margin:0">Fächer</h2><span class="sp"></span><button class="btn pri" data-faadd>＋ Fach</button></div><p class="help">Vorbelegt nach LehrplanPLUS Gymnasium Bayern. Ausgeblendete Fächer stehen beim Anlegen einer Prüfung nicht zur Wahl.</p>
     <table class="t"><tr><th>Fach</th><th>Fachschaft</th><th>angeboten</th><th></th></tr>${D.faecher.map(f => `<tr><td><b>${esc(f.name)}</b></td><td>${esc(FS[f.fachschaft_id]?.name || '–')}</td><td><label class="ck"><input type="checkbox" data-faakt="${f.id}"${+f.aktiv ? ' checked' : ''}></label></td><td class="act"><button class="btn sm" data-faren="${f.id}">Umbenennen</button></td></tr>`).join('')}</table>`;
   if (adminTab === 'je') h += `<h2>Schuljahresende</h2><p>Prüfungen werden nur ein Jahr aufbewahrt. Hier löschst du alle Prüfungen eines Schuljahres – oder alle. Konten, Fachschaften und Fächer bleiben.</p>
+    <p class="help">Die Respizienz-Einträge werden mitgelöscht. Fachleitungen sollten vorher unter „Respizienz“ ein <b>Archiv exportieren</b>. Archive lassen sich auch mit deinem Admin-Schlüssel öffnen: <button class="btn sm" data-arch>📂 Respizienz-Archiv öffnen</button></p>
     ${D.exams.length ? `<table class="t"><tr><th>Schuljahr</th><th>Prüfungen</th></tr>${D.exams.map(x => `<tr><td>${esc(x.schuljahr)}</td><td>${x.n}</td></tr>`).join('')}</table>` : '<p class="help">Es sind keine Prüfungen gespeichert.</p>'}
     <div class="row" style="margin-top:14px">${field('Löschen', `<select id="pj"><option value="">alle Prüfungen</option>${D.exams.map(x => `<option>${esc(x.schuljahr)}</option>`).join('')}</select>`)}${field('Zur Bestätigung LÖSCHEN eintippen', '<input type="text" id="pc" autocapitalize="characters" autocomplete="off">')}</div>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-purge>Endgültig löschen</button></div>`;
@@ -466,6 +468,7 @@ async function viewAdmin() {
     const t = ev.target.closest('button'); if (!t) return;
     const d = t.dataset;
     if (d.tab) { adminTab = d.tab; viewAdmin(); return; }
+    if (d.arch != null) return importArchive(helpers());
     if (d.uadd != null || d.uedit) return userForm(D, d.uedit ? D.users.find(u => u.id === +d.uedit) : null);
     if (d.umany != null) return resetMany(D, $$('[data-usel]').filter(x => x.checked).map(x => +x.dataset.usel));
     if (d.ureset) { const u = D.users.find(x => x.id === +d.ureset); if (!confirm(`Neues Startpasswort für ${u.kuerzel}? Das bisherige Passwort gilt dann nicht mehr. Ihre Prüfungen öffnet die Lehrkraft danach mit ihrem Wiederherstellungscode.`)) return; const pw = K.startPassword(), salt = K.randomSalt(), { auth } = await K.fromPassword(pw, salt); await api('user_reset', { id: u.id, salt, auth }); showStartPw(u.kuerzel, pw); viewAdmin(); return; }

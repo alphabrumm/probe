@@ -14,7 +14,7 @@ const INK = '#1F2340', GREY = '#6B7085', GOOD = '#2F8A5B', BAD = '#C0392B', ACC 
  */
 export function protokollPdf(S2, RS, X) {
   const { e, key, g } = S2, { fmtPts, fmtDate } = X, pts = e.skala === 'punkte';
-  const noteLabel = pts ? 'Punkte (0–15)' : 'Note', lk = [X.S.user?.name, X.S.user?.kuerzel && `(${X.S.user.kuerzel})`].filter(Boolean).join(' ');
+  const noteLabel = pts ? 'Punkte (0–15)' : 'Note', lk = S2.lehrkraft || [X.S.user?.name, X.S.user?.kuerzel && `(${X.S.user.kuerzel})`].filter(Boolean).join(' ');
   const max = RS[0]?.R.max ?? key.tasks.reduce((s, t) => s + (g.drop.includes(t.id) ? 0 : t.pts), 0);
   const head = `${e.klasse} · ${e.fach} · ${e.art} · ${fmtDate(e.datum)}`;
   const pdf = new Pdf(`Prüfungsprotokoll ${head}`);
@@ -40,6 +40,7 @@ export function protokollPdf(S2, RS, X) {
     F.y += 15;
     meta.slice(i, i + 2).forEach(([k, v], j) => { const x = F.M + j * (F.W / 2); pdf.text(k, x, F.y, 9, { col: GREY }); pdf.text(fit(v, 10, true, F.W / 2 - 100), x + 92, F.y, 10, { bold: true, col: k === 'Bewertung' && open ? BAD : INK }); });
   }
+  if (S2.respizienz) { F.y += 15; pdf.text('Respizienz', F.M, F.y, 9, { col: GREY }); pdf.text(fit(S2.respizienz, 10, true, F.W - 100), F.M + 92, F.y, 10, { bold: true, col: GOOD }); }
   F.gap(14);
 
   // Notenschlüssel und Verteilung
