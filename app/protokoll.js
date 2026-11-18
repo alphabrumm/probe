@@ -2,7 +2,7 @@
 // Entsteht im Browser der Lehrkraft aus der entschlüsselten Auswertung.
 import { Pdf, Flow, PAGE_H, PAGE_W, fit } from './pdf.js';
 
-const TYP = { quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', essay: 'Freitext' };
+const TYP = { quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', essay: 'Freitext', mark: 'Markieren', sort: 'Sortieren', order: 'Reihenfolge' };
 const plain = h => String(h ?? '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>\s*<p>/gi, '\n').replace(/<sup>(.*?)<\/sup>/gi, '^$1').replace(/<[^>]*>/g, '')
   .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
 const INK = '#1F2340', GREY = '#6B7085', GOOD = '#2F8A5B', BAD = '#C0392B', ACC = '#3B4FC4';
@@ -73,7 +73,7 @@ export function protokollPdf(S2, RS, X) {
   F.table([{ t: 'Nr.', w: tw[0], align: 'right' }, { t: 'Aufgabe', w: tw[1] }, { t: 'Typ', w: tw[2] }, { t: 'max. P.', w: tw[3], align: 'right' }, { t: 'Ø P.', w: tw[4], align: 'right' }],
     key.tasks.map((t, i) => {
       const drop = g.drop.includes(t.id), its = RS.map(x => x.R.items[i]), a = its.length ? its.reduce((s, x) => s + (x.pts || 0), 0) / its.length : 0;
-      return { cells: [String(i + 1), plain(t.title), TYP[t.type] || (t.short ? 'kurze Antwort' : 'freie Antwort'), fmtPts(t.pts), drop ? 'gestrichen' : fmtPts(Math.round(a * 10) / 10)], col: drop ? GREY : undefined };
+      return { cells: [String(i + 1), plain(t.title), (t.type === 'order' && t.words ? 'Satzpuzzle' : TYP[t.type]) || (t.short ? 'kurze Antwort' : 'freie Antwort'), fmtPts(t.pts), drop ? 'gestrichen' : fmtPts(Math.round(a * 10) / 10)], col: drop ? GREY : undefined };
     }));
 
   // Unterschrift
@@ -94,6 +94,7 @@ export function protokollPdf(S2, RS, X) {
       pdf.text(fit(`${i + 1}. ${plain(t.title)}`, 11, true, F.W - 110), F.M, F.y, 11, { bold: true, col: INK });
       pdf.text(it.dropped ? 'gestrichen' : it.pts == null ? `? / ${fmtPts(t.pts)} P.` : `${fmtPts(it.pts)} / ${fmtPts(t.pts)} P.`, PAGE_W - F.M, F.y, 11, { bold: true, col: it.dropped ? GREY : it.pts == null ? BAD : INK, align: 'right' });
       F.y += 5;
+      if (it.answer) F.para('Antwort: ' + it.answer, { size: 9.5, x: 6, col: INK, after: 2 });
       for (const p of it.parts || []) {
         const line = `${p.label}: ${p.given || '–'}${p.ok ? '' : `   (richtig: ${p.expected})`}`;
         F.need(14); pdf.text(p.ok ? 'richtig' : 'falsch', F.M + 6, F.y + 11, 8.5, { bold: true, col: p.ok ? GOOD : BAD });

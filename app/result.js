@@ -42,7 +42,7 @@ async function show() {
     <p><b>${fmt(R.punkte)} von ${fmt(R.max)} Punkten</b> (${Math.round(R.pct)} %)</p>
     <div class="btns no-print"><button class="btn" id="pr">🖨 Als PDF sichern</button><span class="help">Diese Seite ist nur bis ${new Date(R.expires * 1000).toLocaleDateString('de-DE')} abrufbar.</span></div>
     ${R.items.map((t, i) => `<section class="task"><h3><span>Aufgabe ${i + 1}: ${esc(t.title)}</span><span>${t.dropped ? 'nicht gewertet' : `${fmt(t.pts)} / ${fmt(t.max)} P.`}</span></h3>
-      ${t.parts.map(p => `<div class="part ${p.ok ? 'ok' : 'no'}">${esc(p.label)}${/[?:.!]$/.test(p.label) ? '' : ':'} <b>${esc(p.given || '–')}</b>${p.ok ? '' : ` <span class="exp">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
+      ${t.answer ? `<div class="ans">Deine Antwort: ${esc(t.answer)}</div>` : ''}${t.parts.map(p => `<div class="part ${p.ok ? 'ok' : 'no'}">${esc(p.label)}${/[?:.!]$/.test(p.label) ? '' : ':'} <b>${esc(p.given || '–')}</b>${p.ok ? '' : ` <span class="exp">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
       ${t.text != null ? `<div class="ans">${esc(t.text || '– keine Antwort –')}</div>` : ''}
       ${t.rubric?.length ? `<div class="help">Erwartet: ${t.rubric.map(r => `${esc(r.t)} (${fmt(r.p)} P.)`).join(' · ')}</div>` : ''}
       ${t.feedback ? `<div class="fb"><b>Rückmeldung:</b> ${esc(t.feedback)}</div>` : ''}

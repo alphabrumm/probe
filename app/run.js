@@ -245,7 +245,7 @@ function drawTables() {
     const its = RS.map(x => x.R.items[i]), drop = g.drop.includes(t.id), open = its.filter(x => x.open).length;
     const avg = its.length ? its.reduce((s, x) => s + (x.pts || 0), 0) / its.length : 0;
     const free = t.type === 'essay' || (t.type === 'task' && !t.short), acc = t.type === 'gap' || (t.type === 'task' && t.short);
-    return `<tr${drop ? ' style="opacity:.5"' : ''}><td><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${({ quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', essay: 'Freitext' })[t.type] || (t.short ? 'kurze Antwort' : 'freie Antwort')}</span></td>
+    return `<tr${drop ? ' style="opacity:.5"' : ''}><td><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${({ quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', mark: 'Markieren', sort: 'Sortieren', order: t.words ? 'Satzpuzzle' : 'Reihenfolge', essay: 'Freitext' })[t.type] || (t.short ? 'kurze Antwort' : 'freie Antwort')}</span></td>
       <td>${drop ? 'gestrichen' : `${fmtPts(Math.round(avg * 10) / 10)} / ${fmtPts(t.pts)}`}${open ? ` <span class="chip warn">${open} offen</span>` : ''}</td>
       <td class="act">${free ? `<button class="btn sm${open ? ' pri' : ''}" data-task="${t.id}">Bewerten</button> ` : ''}${acc ? `<button class="btn sm" data-acc="${t.id}">Antworten</button> ` : ''}<button class="btn sm ghost" data-drop="${t.id}">${drop ? 'wieder werten' : 'streichen'}</button></td></tr>`;
   }).join('');
@@ -258,7 +258,7 @@ function personDialog(pid) {
   const d = X.dialog(`${esc(x.p.v)} ${esc(x.p.n)} · ${fmtPts(x.R.total)} / ${fmtPts(x.R.max)} P. · ${S2.e.skala === 'punkte' ? '' : 'Note '}${x.note}`, top + key.tasks.map((t, i) => {
     const it = x.R.items[i], free = !it.auto;
     return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(t.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `<input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-pp="${t.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.`}</div>
-      ${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
+      ${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
       ${free ? `<div class="ans">${esc(it.text || '– keine Antwort –')}</div>${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : t.solution ? `<div class="help">Musterlösung: ${esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>` : ''}` : ''}
       ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}
       <textarea data-fb="${t.id}" rows="2" placeholder="Rückmeldung zu dieser Aufgabe (sieht der Schüler)">${esc(fbk[t.id] || '')}</textarea></div>`;
@@ -323,7 +323,7 @@ async function publish() {
         const fb = g.feedback[x.p.id] || {};
         const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
           punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
-          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, text: it.auto ? undefined : (it.text || ''), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
+          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), text: it.auto ? undefined : (it.text || ''), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
         const { rid, key: k } = await X.K.reportKeys(x.p.rc);
         reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });
       }
