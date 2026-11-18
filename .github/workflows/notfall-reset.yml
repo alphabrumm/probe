@@ -1,13 +1,13 @@
 name: Probe – Notfall-Reset (Passwort verloren)
 # Setzt ein Konto auf ein Startpasswort zurück und macht es zum Admin – z. B. wenn das einzige Admin-Passwort verloren ist.
 # Legt per FTP data/notfall.txt ab; Probe verarbeitet die Datei beim nächsten Aufruf und löscht sie.
-# Danach mit Kürzel + Startpasswort anmelden, neues Passwort festlegen und den Wiederherstellungscode eingeben,
+# Danach mit Nutzername + Startpasswort anmelden, neues Passwort festlegen und den Wiederherstellungscode eingeben,
 # dann bleiben alle Prüfungen lesbar. Ohne Code: „neu beginnen“ (die eigenen Prüfungen gehen verloren).
 on:
   workflow_dispatch:
     inputs:
       startpasswort: { description: 'Startpasswort (mind. 10 Zeichen, gilt nur bis zum ersten Anmelden)', required: true }
-      kuerzel: { description: 'Kürzel des Kontos – * = erstes Admin-Konto', required: true, default: '*' }
+      kuerzel: { description: 'Nutzername des Kontos – * = erstes Admin-Konto', required: true, default: '*' }
       ziel: { description: 'live oder test', required: true, default: 'live' }
       adresse: { description: 'Adresse von Probe (zum Auslösen), z. B. https://probe.pandapy.de', required: false, default: 'https://probe.pandapy.de' }
 permissions:

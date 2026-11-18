@@ -19,7 +19,7 @@ session_set_cookie_params(['lifetime' => 0, 'path' => rtrim(dirname($_SERVER['SC
 session_start();
 
 /* Notfall-Reset (z. B. Admin-Passwort verloren): Die Datei data/notfall.txt lässt sich nur per FTP anlegen
-   (Workflow „Probe: Notfall-Reset“). Inhalt: „Kürzel Salz Login-Wert“ – „*“ statt Kürzel = erstes Admin-Konto.
+   (Workflow „Probe: Notfall-Reset“). Inhalt: „Nutzername Salz Login-Wert“ – „*“ statt Nutzername = erstes Admin-Konto.
    Probe setzt das Konto beim nächsten Aufruf auf dieses Startpasswort zurück, macht es zum Admin und löscht die Datei.
    Schlüssel und Prüfungen bleiben; mit dem Wiederherstellungscode bleiben sie lesbar. */
 (function (): void {
@@ -177,7 +177,7 @@ case 'status': {
 case 'setup_admin': { // allererster Start: das erste Konto ist Admin, mit eigenem Passwort und Schlüsseln
     $pdo = db(); $pdo->beginTransaction();
     if ((int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_demo = 0')->fetchColumn() > 0) fail('Probe ist schon eingerichtet', 409);
-    $k = str($in, 'kuerzel', 20, true); if (!preg_match('~^[\p{L}0-9._-]{2,20}$~u', $k)) fail('Kürzel: 2–20 Buchstaben oder Ziffern');
+    $k = str($in, 'kuerzel', 20, true); if (!preg_match('~^[\p{L}0-9._-]{2,20}$~u', $k)) fail('Nutzername: 2–20 Buchstaben, Ziffern oder . _ -');
     $salt = str($in, 'salt', 64, true); $auth = str($in, 'auth', 64, true);
     foreach (['pub_key', 'priv_pw', 'rec_salt', 'priv_rec'] as $f) if (!b64ok(str($in, $f, 4000, true))) fail('Schlüssel ungültig');
     if (!b64ok($salt) || !hexok($auth)) fail('Ungültige Anmeldedaten');
@@ -200,7 +200,7 @@ case 'login': {
     $st = $pdo->prepare('SELECT * FROM users WHERE kuerzel = ?'); $st->execute([$k]); $u = $st->fetch();
     if (!$u || !password_verify($auth, $u['login_hash'])) {
         $pdo->prepare('INSERT INTO login_fails (ip, kuerzel, t) VALUES (?,?,?)')->execute([ip(), mb_strtolower($k), time()]);
-        usleep(300000); fail('Kürzel oder Passwort stimmt nicht', 401);
+        usleep(300000); fail('Nutzername oder Passwort stimmt nicht', 401);
     }
     $pdo->prepare('UPDATE users SET last_login = ? WHERE id = ?')->execute([time(), $u['id']]);
     session_regenerate_id(true); $_SESSION = ['uid' => (int)$u['id'], 'seen' => time(), 'csrf' => bin2hex(random_bytes(16))];
@@ -278,7 +278,7 @@ case 'admin_list': {
 case 'user_save': {
     admin(); $pdo = db();
     $id = (int)($in['id'] ?? 0); $k = str($in, 'kuerzel', 20, true); $name = str($in, 'name', 80);
-    if (!preg_match('~^[\p{L}0-9._-]{2,20}$~u', $k)) fail('Kürzel: 2–20 Buchstaben oder Ziffern');
+    if (!preg_match('~^[\p{L}0-9._-]{2,20}$~u', $k)) fail('Nutzername: 2–20 Buchstaben, Ziffern oder . _ -');
     $isAdmin = !empty($in['is_admin']) ? 1 : 0;
     $pdo->beginTransaction();
     try {
@@ -296,7 +296,7 @@ case 'user_save': {
         foreach ((array)($in['fachleitung'] ?? []) as $f) $st->execute([$id, (int)$f]);
         if (isset($in['faecher'])) set_user_faecher($id, (array)$in['faecher']);
         $pdo->commit();
-    } catch (PDOException $e) { $pdo->rollBack(); fail(str_contains($e->getMessage(), 'UNIQUE') ? 'Dieses Kürzel gibt es schon' : 'Speichern fehlgeschlagen'); }
+    } catch (PDOException $e) { $pdo->rollBack(); fail(str_contains($e->getMessage(), 'UNIQUE') ? 'Diesen Nutzernamen gibt es schon' : 'Speichern fehlgeschlagen'); }
     out(['id' => $id]);
 }
 case 'user_reset': { // Startpasswort neu setzen; die Lehrkraft braucht danach ihren Wiederherstellungscode

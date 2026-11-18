@@ -9,7 +9,7 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
 ## Stand: Phase 1–5
 
 * **Einrichtung:** Beim allerersten Aufruf legst du das Admin-Konto an.
-* **Admin:** Lehrkräfte (Kürzel = Login, Startpasswort, Admin, Fachleitung), Fachschaften mit ihren Fächern, Fächerliste
+* **Admin:** Lehrkräfte (Nutzername = Login, Startpasswort, Admin, Fachleitung), Fachschaften mit ihren Fächern, Fächerliste
   (vorbelegt nach LehrplanPLUS Gymnasium Bayern), Schuljahresende „Prüfungen löschen“, Sicherheitscheck.
 * **Lehrkraft:** erstes Anmelden mit Startpasswort → eigenes Passwort und Wiederherstellungscode. Übersicht
   Schuljahr → Klassen → Prüfungen. Neue Prüfung mit Klasse, Fach, Datum, Art (Schulaufgabe, Kurzarbeit, AKL, Übungsprüfung),
@@ -44,7 +44,7 @@ Alles wird im Browser verschlüsselt (WebCrypto), der Server speichert nur Chiff
 * Startpasswort vom Admin: rechnet ebenfalls der Browser um. Nach einem neuen Startpasswort öffnet nur der
   Wiederherstellungscode die alten Prüfungen wieder.
 * **Admin-Passwort verloren** (und kein zweiter Admin): GitHub → Actions → „Probe – Notfall-Reset“ mit einem Startpasswort starten.
-  Der Workflow legt per FTP `data/notfall.txt` ab (erzeugt mit `node tools/notfall.mjs [Kürzel|*] [Startpasswort]`); Probe setzt das
+  Der Workflow legt per FTP `data/notfall.txt` ab (erzeugt mit `node tools/notfall.mjs [Nutzername|*] [Startpasswort]`); Probe setzt das
   Konto beim nächsten Aufruf darauf zurück, macht es zum Admin und löscht die Datei (Protokoll in `data/notfall.log`).
   Wer FTP-Zugang hat, hat ohnehin die Kontrolle über den Server – über das Web lässt sich die Datei nicht anlegen.
 

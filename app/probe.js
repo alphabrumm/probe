@@ -101,14 +101,14 @@ async function demos(force) {
 function viewSetup() {
   main.innerHTML = `<div class="center"><div class="card narrow stack"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc">Probe einrichten</h1>
     <p class="help tc">Das erste Konto ist das Admin-Konto. Damit legst du danach Lehrkräfte, Fachschaften und Fächer an.</p>
-    ${field('Kürzel', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username">', 'Das Kürzel ist der Login.')}
+    ${field('Nutzername', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username">', 'Damit meldest du dich an, z. B. dein Lehrerkürzel.')}
     ${field('Name (optional)', '<input type="text" id="n" autocomplete="name">')}
     ${field('Passwort', '<input type="password" id="p1" autocomplete="new-password">', 'Mindestens 10 Zeichen.')}
     ${field('Passwort wiederholen', '<input type="password" id="p2" autocomplete="new-password">')}
     <div class="err" id="err"></div><button class="btn pri" id="go">Einrichten</button></div></div>`;
   $('#go').onclick = async () => {
     const k = $('#k').value.trim(), p1 = $('#p1').value, p2 = $('#p2').value, e = pwRules(p1, p2);
-    if (!k) { $('#err').textContent = 'Bitte ein Kürzel eintragen.'; return; }
+    if (!k) { $('#err').textContent = 'Bitte einen Nutzernamen eintragen.'; return; }
     if (e) { $('#err').textContent = e; return; }
     try {
       await withBusy('Schlüssel werden erzeugt …', async () => {
@@ -123,7 +123,7 @@ function viewSetup() {
 }
 function viewLogin() {
   main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc">Probe</h1><p class="help tc">Digitale Prüfungen – Anmeldung für Lehrkräfte</p>
-    ${field('Kürzel', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username" required>')}
+    ${field('Nutzername', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username" required>')}
     ${field('Passwort', '<input type="password" id="p" autocomplete="current-password" required>')}
     <div class="err" id="err"></div><button class="btn pri">Anmelden</button>
     <p class="help tc">Passwort vergessen? Der Admin setzt ein neues Startpasswort. Deine Prüfungen öffnest du danach mit deinem Wiederherstellungscode.</p></form>
@@ -288,7 +288,7 @@ async function examForm(e) {
   const v = e || { klasse: '', fach_id: F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'Schulaufgabe', erwartet: 0, dauer: 45, pin_on: true, skala: 'noten' };
   const d = dialog(e ? 'Rahmenbedingungen' : 'Neue Prüfung', `
     <div class="row">${field('Klasse', `<input type="text" id="kl" list="kll" value="${esc(v.klasse)}" placeholder="z. B. 8b" autocapitalize="off"><datalist id="kll">${klassen.map(k => `<option value="${esc(k)}">`).join('')}</datalist>`)}
-    ${field('Fach', `<select id="fa">${F.map(f => `<option value="${f.id}"${+f.id === +v.fach_id ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`, C.eigene ? 'Deine Fächer – weitere über dein Kürzel oben rechts → Meine Fächer.' : 'Lege über dein Kürzel oben rechts → Meine Fächer fest, welche Fächer du unterrichtest.')}</div>
+    ${field('Fach', `<select id="fa">${F.map(f => `<option value="${f.id}"${+f.id === +v.fach_id ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`, C.eigene ? 'Deine Fächer – weitere über deinen Namen oben rechts → Meine Fächer.' : 'Lege über deinen Namen oben rechts → Meine Fächer fest, welche Fächer du unterrichtest.')}</div>
     <div class="row">${field('Datum', `<input type="date" id="da" value="${esc(v.datum)}">`)}${field('Art', `<select id="ar">${Object.entries(ARTEN).map(([k, n]) => `<option value="${esc(k)}"${k === v.art ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`)}</div>
     <div class="row">${field('Bearbeitungszeit (Minuten)', `<input type="number" id="du" min="0" max="600" inputmode="numeric" value="${v.dauer || ''}" placeholder="45">`, 'Leer = ohne Countdown.')}
     ${field('Erwartete Teilnehmer', `<input type="number" id="er" min="0" max="200" inputmode="numeric" value="${v.erwartet || ''}" placeholder="z. B. 28">`, 'Mit Klassenliste automatisch.')}</div>
@@ -450,7 +450,7 @@ async function viewAdmin() {
   const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['si', 'Sicherheit']];
   let h = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Admin</h1><p class="sub">Lehrkräfte, Fachschaften und Fächer. Prüfungsinhalte und Schülernamen sieht der Admin nicht.</p>
     <div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" aria-pressed="${adminTab === k}">${n}</button>`).join('')}</div><section class="card">`;
-  if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn" data-umany id="umany" disabled>🔑 Passwörter zurücksetzen</button><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th style="width:2.2em"><input type="checkbox" id="uall" aria-label="alle auswählen" title="alle auswählen"></th><th>Kürzel</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
+  if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn" data-umany id="umany" disabled>🔑 Passwörter zurücksetzen</button><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th style="width:2.2em"><input type="checkbox" id="uall" aria-label="alle auswählen" title="alle auswählen"></th><th>Nutzername</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
     ${D.users.map(u => `<tr><td>${u.id === S.user.id ? '' : `<input type="checkbox" data-usel="${u.id}" aria-label="${esc(u.kuerzel)} auswählen">`}</td><td><b>${esc(u.kuerzel)}</b></td><td>${esc(u.name)}</td><td class="help">${D.faecher.filter(f => u.faecher.includes(+f.id)).map(f => esc(f.name)).join(', ') || '–'}</td><td><span class="fl">${+u.is_admin ? '<span class="chip">Admin</span>' : ''}${u.fachleitung.map(f => `<span class="chip">Fachleitung ${esc(FS[f]?.name)}</span>`).join('')}</span></td>
     <td>${+u.must_setup ? '<span class="chip warn">Startpasswort</span>' : '<span class="chip good">eingerichtet</span>'}</td><td class="act"><button class="btn sm" data-uedit="${u.id}">Bearbeiten</button> <button class="btn sm" data-ureset="${u.id}">Startpasswort</button> <button class="btn sm danger" data-udel="${u.id}" ${u.id === S.user.id ? 'disabled' : ''}>Löschen</button></td></tr>`).join('')}</table></div>`;
   if (adminTab === 'fs') h += `<div class="bar"><h2 style="margin:0">Fachschaften</h2><span class="sp"></span><button class="btn" data-fsauto>Fachschaften für gewählte Fächer anlegen</button><button class="btn pri" data-fsadd>＋ Fachschaft</button></div>
@@ -530,7 +530,7 @@ async function resetMany(D, ids) {
   viewAdmin();
   const d = dialog(`${list.length} neue Startpasswörter`, `<p>Nur jetzt sichtbar – bitte kopieren oder als PDF sichern, bevor du das Fenster schließt.</p>
     <textarea readonly rows="${Math.min(14, list.length + 6)}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:pre" id="zl">${esc(text)}</textarea>
-    <p class="help">Das PDF enthält für jede Lehrkraft einen Zettel zum Ausschneiden (vier je Seite) mit Adresse, QR-Code, Kürzel und Startpasswort.</p>
+    <p class="help">Das PDF enthält für jede Lehrkraft einen Zettel zum Ausschneiden (vier je Seite) mit Adresse, QR-Code, Nutzername und Startpasswort.</p>
     <div class="btns"><button class="btn" data-copy>📋 Liste kopieren</button><button class="btn" data-pdf>📄 PDF mit Zetteln</button><button class="btn pri" data-done>Fertig</button></div>`, { wide: true });
   $('[data-copy]', d.el).onclick = async () => { try { await navigator.clipboard.writeText(text); toast('✓ Liste kopiert'); } catch (e) { const ta = $('#zl', d.el); ta.focus(); ta.select(); toast('Text ist markiert – jetzt kopieren'); } };
   $('[data-pdf]', d.el).onclick = () => showPdf(zugangPdf(list, url), `Probe_Startpasswoerter_${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -544,7 +544,7 @@ function showStartPw(kuerzel, pw) {
 }
 function userForm(D, u) {
   const d = dialog(u ? `Lehrkraft ${esc(u.kuerzel)}` : 'Neue Lehrkraft', `
-    <div class="row">${field('Kürzel', `<input type="text" id="k" value="${esc(u?.kuerzel || '')}" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">`, 'Das Kürzel ist der Login.')}${field('Name', `<input type="text" id="n" value="${esc(u?.name || '')}" placeholder="optional">`)}</div>
+    <div class="row">${field('Nutzername', `<input type="text" id="k" value="${esc(u?.kuerzel || '')}" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">`, 'Damit meldet sich die Lehrkraft an, z. B. ihr Kürzel.')}${field('Name', `<input type="text" id="n" value="${esc(u?.name || '')}" placeholder="optional">`)}</div>
     <div><b>Unterrichtet</b><div class="row" style="gap:0 12px">${D.faecher.filter(f => +f.aktiv || u?.faecher.includes(+f.id)).map(f => `<label class="ck"><input type="checkbox" data-uf="${f.id}"${u?.faecher.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('')}</div><span class="help">Nur diese Fächer stehen der Lehrkraft beim Anlegen einer Prüfung zur Wahl; weitere kann sie selbst ergänzen.</span></div>
     <label class="ck"><input type="checkbox" id="ad"${+u?.is_admin ? ' checked' : ''}>Admin (verwaltet Lehrkräfte, Fachschaften und Fächer)</label>
     <div><b>Fachleitung für</b>${D.fachschaften.length ? D.fachschaften.map(f => `<label class="ck"><input type="checkbox" data-fl="${f.id}"${u?.fachleitung.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('') : '<p class="help">Noch keine Fachschaften angelegt.</p>'}</div>
