@@ -98,7 +98,7 @@ async function demos(force) {
 function viewSetup() {
   main.innerHTML = `<div class="center"><div class="card narrow stack"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc">Probe einrichten</h1>
     <p class="help tc">Das erste Konto ist das Admin-Konto. Damit legst du danach Lehrkräfte, Fachschaften und Fächer an.</p>
-    ${field('Kürzel', '<input type="text" id="k" autocapitalize="characters" autocomplete="username">', 'Das Kürzel ist der Login.')}
+    ${field('Kürzel', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username">', 'Das Kürzel ist der Login.')}
     ${field('Name (optional)', '<input type="text" id="n" autocomplete="name">')}
     ${field('Passwort', '<input type="password" id="p1" autocomplete="new-password">', 'Mindestens 10 Zeichen.')}
     ${field('Passwort wiederholen', '<input type="password" id="p2" autocomplete="new-password">')}
@@ -120,7 +120,7 @@ function viewSetup() {
 }
 function viewLogin() {
   main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc">Probe</h1><p class="help tc">Digitale Prüfungen – Anmeldung für Lehrkräfte</p>
-    ${field('Kürzel', '<input type="text" id="k" autocapitalize="characters" autocomplete="username" required>')}
+    ${field('Kürzel', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username" required>')}
     ${field('Passwort', '<input type="password" id="p" autocomplete="current-password" required>')}
     <div class="err" id="err"></div><button class="btn pri">Anmelden</button>
     <p class="help tc">Passwort vergessen? Der Admin setzt ein neues Startpasswort. Deine Prüfungen öffnest du danach mit deinem Wiederherstellungscode.</p></form>
@@ -499,7 +499,7 @@ function showStartPw(kuerzel, pw) {
 }
 function userForm(D, u) {
   const d = dialog(u ? `Lehrkraft ${esc(u.kuerzel)}` : 'Neue Lehrkraft', `
-    <div class="row">${field('Kürzel', `<input type="text" id="k" value="${esc(u?.kuerzel || '')}" autocapitalize="characters" autocomplete="off">`, 'Das Kürzel ist der Login.')}${field('Name', `<input type="text" id="n" value="${esc(u?.name || '')}" placeholder="optional">`)}</div>
+    <div class="row">${field('Kürzel', `<input type="text" id="k" value="${esc(u?.kuerzel || '')}" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">`, 'Das Kürzel ist der Login.')}${field('Name', `<input type="text" id="n" value="${esc(u?.name || '')}" placeholder="optional">`)}</div>
     <div><b>Unterrichtet</b><div class="row" style="gap:0 12px">${D.faecher.filter(f => +f.aktiv || u?.faecher.includes(+f.id)).map(f => `<label class="ck"><input type="checkbox" data-uf="${f.id}"${u?.faecher.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('')}</div><span class="help">Nur diese Fächer stehen der Lehrkraft beim Anlegen einer Prüfung zur Wahl; weitere kann sie selbst ergänzen.</span></div>
     <label class="ck"><input type="checkbox" id="ad"${+u?.is_admin ? ' checked' : ''}>Admin (verwaltet Lehrkräfte, Fachschaften und Fächer)</label>
     <div><b>Fachleitung für</b>${D.fachschaften.length ? D.fachschaften.map(f => `<label class="ck"><input type="checkbox" data-fl="${f.id}"${u?.fachleitung.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('') : '<p class="help">Noch keine Fachschaften angelegt.</p>'}</div>
