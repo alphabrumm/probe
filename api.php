@@ -305,6 +305,17 @@ case 'fachschaft_save': {
     } catch (PDOException $e) { $pdo->rollBack(); fail('Diese Fachschaft gibt es schon'); }
     out(['id' => $id]);
 }
+case 'fachschaften_auto': { // je angebotenem Fach ohne Fachschaft: Fachschaft gleichen Namens anlegen (oder vorhandene nutzen) und zuordnen
+    admin(); $pdo = db(); $created = 0; $assigned = 0;
+    $pdo->beginTransaction();
+    $find = $pdo->prepare('SELECT id FROM fachschaften WHERE name = ?'); $ins = $pdo->prepare('INSERT INTO fachschaften (name) VALUES (?)'); $set = $pdo->prepare('UPDATE faecher SET fachschaft_id = ? WHERE id = ?');
+    foreach ($pdo->query('SELECT id, name FROM faecher WHERE aktiv = 1 AND fachschaft_id IS NULL ORDER BY sort, name')->fetchAll() as $f) {
+        $find->execute([$f['name']]); $id = (int)$find->fetchColumn();
+        if (!$id) { $ins->execute([$f['name']]); $id = (int)$pdo->lastInsertId(); $created++; }
+        $set->execute([$id, $f['id']]); $assigned++;
+    }
+    $pdo->commit(); out(['created' => $created, 'assigned' => $assigned]);
+}
 case 'fachschaft_delete': { admin(); db()->prepare('DELETE FROM fachschaften WHERE id = ?')->execute([(int)($in['id'] ?? 0)]); out([]); }
 case 'fach_save': {
     admin(); $pdo = db(); $id = (int)($in['id'] ?? 0); $name = str($in, 'name', 60, true);

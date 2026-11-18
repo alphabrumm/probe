@@ -2,6 +2,8 @@
 // Namen, Antworten, Lösungsschlüssel und Bewertung werden hier im Browser der Lehrkraft entschlüsselt.
 import { qrSvg } from './qr.js';
 import { respState, respHtml, respSubmit } from './resp.js';
+import { protokollPdf } from './protokoll.js';
+import { showPdf } from './pdf.js';
 
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
@@ -179,7 +181,7 @@ function drawEval() {
     <section class="card"><div class="bar" style="margin:0"><h2 style="margin:0">${pub ? `✓ Veröffentlicht bis ${new Date(e.expires * 1000).toLocaleDateString('de-DE')}` : 'Auswertung'}</h2><span class="sp"></span>
       ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
-      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button></div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
     <div class="grid2" style="margin-top:16px"><section class="card"><h2>Notenschlüssel</h2><div id="key"></div></section><section class="card"><h2>Verteilung</h2><div id="dist"></div></section></div>
@@ -191,6 +193,10 @@ function drawEval() {
   $('#resp') && ($('#resp').onclick = async () => { try { if (await respSubmit(S2, S2.resp)) { S2.resp = await respState(S2.e, X); drawEval(); } } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); } });
   $('#ansehen').onclick = () => X.view(e);
   $('#unpub') && ($('#unpub').onclick = async () => { if (!confirm('Ergebnisseiten der Schüler sofort sperren?')) return; await X.api('exam_state', { id: e.id, to: 'beendet' }); S2.e.status = 'beendet'; drawEval(); });
+  $('#prot').onclick = () => { // Übersicht + je Prüfling eine Seite; entsteht hier im Browser
+    try { showPdf(protokollPdf(S2, results(), X), `Pruefungsprotokoll_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); }
+    catch (er) { console.error(er); X.toast('⚠ Protokoll konnte nicht erstellt werden: ' + X.esc(er.message), 5000); }
+  };
   $('#csv').onclick = () => {
     const rows = [['Nachname', 'Vorname', 'Punkte', 'Max', 'Prozent', pts ? 'Notenpunkte' : 'Note'], ...results().map(x => [x.p.n, x.p.v, fmtPts(x.R.total), fmtPts(x.R.max), Math.round(x.R.pct), x.note])];
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n')], { type: 'text/csv' }));
