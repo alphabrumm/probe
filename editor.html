@@ -43,7 +43,7 @@ if (q.get('fach')) ki.fach = q.get('fach');
 const jg = q.get('jg') || (q.get('klasse') || '').match(/\d{1,2}/)?.[0]; if (jg) ki.jg = +jg;
 if (+q.get('min') > 0) ki.min = +q.get('min');
 if (q.get('kopf')) ki.kopf = q.get('kopf');
-window.probeEdit = opts => startPathFinder({ appName: 'Probe', logo: 'app/icon.svg', storage: 'probe', forms: ['pruefung'], lernpfadStorage: 'pathfinder', ki, ...opts });
+window.probeEdit = opts => startPathFinder({ appName: 'Probe', logo: 'app/icon.svg', storage: 'probe', forms: ['pruefung'], lernpfadStorage: 'pathfinder', examFromLernpfad: false, ki, ...opts });
 window.dispatchEvent(new Event('probe-editor-ready'));
 parent.postMessage({ probeEditor: 'ready' }, location.origin);
 </script>
