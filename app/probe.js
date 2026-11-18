@@ -3,6 +3,8 @@
 import * as K from './crypto.js';
 import { viewLive, viewEval, stopLive } from './run.js';
 import { viewRespList, viewResp } from './resp.js';
+import { zugangText, zugangPdf } from './zugaenge.js';
+import { showPdf } from './pdf.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -447,8 +449,8 @@ async function viewAdmin() {
   const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['si', 'Sicherheit']];
   let h = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Admin</h1><p class="sub">Lehrkräfte, Fachschaften und Fächer. Prüfungsinhalte und Schülernamen sieht der Admin nicht.</p>
     <div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" aria-pressed="${adminTab === k}">${n}</button>`).join('')}</div><section class="card">`;
-  if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th>Kürzel</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
-    ${D.users.map(u => `<tr><td><b>${esc(u.kuerzel)}</b></td><td>${esc(u.name)}</td><td class="help">${D.faecher.filter(f => u.faecher.includes(+f.id)).map(f => esc(f.name)).join(', ') || '–'}</td><td><span class="fl">${+u.is_admin ? '<span class="chip">Admin</span>' : ''}${u.fachleitung.map(f => `<span class="chip">Fachleitung ${esc(FS[f]?.name)}</span>`).join('')}</span></td>
+  if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn" data-umany id="umany" disabled>🔑 Passwörter zurücksetzen</button><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th style="width:2.2em"><input type="checkbox" id="uall" aria-label="alle auswählen" title="alle auswählen"></th><th>Kürzel</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
+    ${D.users.map(u => `<tr><td>${u.id === S.user.id ? '' : `<input type="checkbox" data-usel="${u.id}" aria-label="${esc(u.kuerzel)} auswählen">`}</td><td><b>${esc(u.kuerzel)}</b></td><td>${esc(u.name)}</td><td class="help">${D.faecher.filter(f => u.faecher.includes(+f.id)).map(f => esc(f.name)).join(', ') || '–'}</td><td><span class="fl">${+u.is_admin ? '<span class="chip">Admin</span>' : ''}${u.fachleitung.map(f => `<span class="chip">Fachleitung ${esc(FS[f]?.name)}</span>`).join('')}</span></td>
     <td>${+u.must_setup ? '<span class="chip warn">Startpasswort</span>' : '<span class="chip good">eingerichtet</span>'}</td><td class="act"><button class="btn sm" data-uedit="${u.id}">Bearbeiten</button> <button class="btn sm" data-ureset="${u.id}">Startpasswort</button> <button class="btn sm danger" data-udel="${u.id}" ${u.id === S.user.id ? 'disabled' : ''}>Löschen</button></td></tr>`).join('')}</table></div>`;
   if (adminTab === 'fs') h += `<div class="bar"><h2 style="margin:0">Fachschaften</h2><span class="sp"></span><button class="btn" data-fsauto>Fachschaften für gewählte Fächer anlegen</button><button class="btn pri" data-fsadd>＋ Fachschaft</button></div>
     ${D.fachschaften.length ? `<table class="t"><tr><th>Fachschaft</th><th>Fächer</th><th>Fachleitung</th><th></th></tr>${D.fachschaften.map(f => `<tr><td><b>${esc(f.name)}</b></td><td><span class="fl">${D.faecher.filter(x => +x.fachschaft_id === +f.id).map(x => `<span class="chip">${esc(x.name)}</span>`).join('') || '<span class="help">keine</span>'}</span></td><td>${D.users.filter(u => u.fachleitung.includes(+f.id)).map(u => esc(u.kuerzel)).join(', ') || '<span class="help">keine</span>'}</td><td class="act"><button class="btn sm" data-fsedit="${f.id}">Bearbeiten</button> <button class="btn sm danger" data-fsdel="${f.id}">Löschen</button></td></tr>`).join('')}</table>` : '<p class="help">Noch keine Fachschaft. Eine Fachschaft (z. B. „Physik“ oder „Naturwissenschaften“) bündelt Fächer; ihre Fachleitung bekommt die Prüfungen zur Respizienz.</p>'}`;
@@ -465,6 +467,7 @@ async function viewAdmin() {
     const d = t.dataset;
     if (d.tab) { adminTab = d.tab; viewAdmin(); return; }
     if (d.uadd != null || d.uedit) return userForm(D, d.uedit ? D.users.find(u => u.id === +d.uedit) : null);
+    if (d.umany != null) return resetMany(D, $$('[data-usel]').filter(x => x.checked).map(x => +x.dataset.usel));
     if (d.ureset) { const u = D.users.find(x => x.id === +d.ureset); if (!confirm(`Neues Startpasswort für ${u.kuerzel}? Das bisherige Passwort gilt dann nicht mehr. Ihre Prüfungen öffnet die Lehrkraft danach mit ihrem Wiederherstellungscode.`)) return; const pw = K.startPassword(), salt = K.randomSalt(), { auth } = await K.fromPassword(pw, salt); await api('user_reset', { id: u.id, salt, auth }); showStartPw(u.kuerzel, pw); viewAdmin(); return; }
     if (d.udel) { const u = D.users.find(x => x.id === +d.udel); if (!confirm(`Konto ${u.kuerzel} mit allen Prüfungen löschen?`)) return; await api('user_delete', { id: u.id }).catch(e => toast('⚠ ' + esc(e.message))); viewAdmin(); return; }
     if (d.fsadd != null || d.fsedit) return fsForm(D, d.fsedit ? D.fachschaften.find(f => f.id === +d.fsedit) : null);
@@ -482,7 +485,14 @@ async function viewAdmin() {
       try { const r = await api('purge_exams', { confirm: $('#pc').value.trim(), schuljahr: sj }); toast(`✓ ${r.deleted} Prüfung${r.deleted === 1 ? '' : 'en'} gelöscht`); S.catalog = null; viewAdmin(); } catch (e) { toast('⚠ ' + esc(e.message)); }
     }
   };
-  main.onchange = async ev => { const t = ev.target; if (t.dataset.faakt) { const f = D.faecher.find(x => x.id === +t.dataset.faakt); await api('fach_save', { id: f.id, name: f.name, aktiv: t.checked ? 1 : 0 }); f.aktiv = t.checked ? 1 : 0; S.catalog = null; } };
+  main.onchange = async ev => { const t = ev.target;
+    if (t.id === 'uall' || t.dataset.usel) { // Auswahl für „Passwörter zurücksetzen“
+      if (t.id === 'uall') $$('[data-usel]').forEach(x => { x.checked = t.checked; });
+      const n = $$('[data-usel]').filter(x => x.checked).length, b = $('#umany');
+      b.disabled = !n; b.textContent = n ? `🔑 Passwörter zurücksetzen (${n})` : '🔑 Passwörter zurücksetzen';
+      $('#uall').checked = n && n === $$('[data-usel]').length; return;
+    }
+    if (t.dataset.faakt) { const f = D.faecher.find(x => x.id === +t.dataset.faakt); await api('fach_save', { id: f.id, name: f.name, aktiv: t.checked ? 1 : 0 }); f.aktiv = t.checked ? 1 : 0; S.catalog = null; } };
   if (adminTab === 'si') securityCheck();
 }
 async function securityCheck() {
@@ -497,6 +507,31 @@ async function securityCheck() {
     <tr><td>PHP</td><td>${esc(r.php)}</td></tr></table>
     ${!okDb ? '<p class="err">Der Webserver liefert die Datenbank aus. Lege den Datenordner außerhalb des Web-Verzeichnisses (config.local.php) oder sperre ihn in der Server-Konfiguration.</p>' : ''}
     ${r.inside_web ? '<p class="help">Besser: Datenordner außerhalb des Web-Verzeichnisses. Dazu auf dem Webspace eine Datei config.local.php neben api.php anlegen: <code>&lt;?php return [\'data\' =&gt; \'/pfad/ausserhalb/probe-daten\'];</code></p>' : ''}`;
+}
+/** mehrere Lehrkräfte: neue Startpasswörter (im Browser erzeugt), dann Liste zum Kopieren und PDF zum Ausschneiden */
+async function resetMany(D, ids) {
+  const us = D.users.filter(u => ids.includes(u.id) && u.id !== S.user.id);
+  if (!us.length) return;
+  if (!confirm(`Neue Startpasswörter für ${us.length} ${us.length === 1 ? 'Lehrkraft' : 'Lehrkräfte'}?\n\n${us.map(u => u.kuerzel).join(', ')}\n\nDie bisherigen Passwörter gelten dann nicht mehr. Wer schon eingerichtet war, öffnet seine Prüfungen danach mit seinem Wiederherstellungscode.`)) return;
+  const items = [];
+  try {
+    await withBusy(`Startpasswörter werden erzeugt … 0 / ${us.length}`, async () => {
+      for (const u of us) {
+        const pw = K.startPassword(), salt = K.randomSalt(), { auth } = await K.fromPassword(pw, salt);
+        items.push({ u, pw, salt, auth }); const b = $('.busy span'); if (b) b.textContent = `Startpasswörter werden erzeugt … ${items.length} / ${us.length}`;
+      }
+      await api('user_reset_many', { items: items.map(x => ({ id: x.u.id, salt: x.salt, auth: x.auth })) });
+    });
+  } catch (e) { toast('⚠ ' + esc(e.message), 5000); return; }
+  const url = location.origin + location.pathname, list = items.map(x => ({ kuerzel: x.u.kuerzel, name: x.u.name, pw: x.pw, had: !!+x.u.has_keys })), text = zugangText(list, url);
+  viewAdmin();
+  const d = dialog(`${list.length} neue Startpasswörter`, `<p>Nur jetzt sichtbar – bitte kopieren oder als PDF sichern, bevor du das Fenster schließt.</p>
+    <textarea readonly rows="${Math.min(14, list.length + 6)}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:pre" id="zl">${esc(text)}</textarea>
+    <p class="help">Das PDF enthält für jede Lehrkraft einen Zettel zum Ausschneiden (vier je Seite) mit Adresse, QR-Code, Kürzel und Startpasswort.</p>
+    <div class="btns"><button class="btn" data-copy>📋 Liste kopieren</button><button class="btn" data-pdf>📄 PDF mit Zetteln</button><button class="btn pri" data-done>Fertig</button></div>`, { wide: true });
+  $('[data-copy]', d.el).onclick = async () => { try { await navigator.clipboard.writeText(text); toast('✓ Liste kopiert'); } catch (e) { const ta = $('#zl', d.el); ta.focus(); ta.select(); toast('Text ist markiert – jetzt kopieren'); } };
+  $('[data-pdf]', d.el).onclick = () => showPdf(zugangPdf(list, url), `Probe_Startpasswoerter_${new Date().toISOString().slice(0, 10)}.pdf`);
+  $('[data-done]', d.el).onclick = () => { if (confirm('Fenster schließen? Die Startpasswörter lassen sich danach nicht mehr anzeigen.')) d.close(); };
 }
 function showStartPw(kuerzel, pw) {
   const d = dialog('Startpasswort', `<div class="printme stack"><p>Startpasswort für <b>${esc(kuerzel)}</b> – nur jetzt sichtbar:</p><div class="codebox">${esc(pw)}</div>

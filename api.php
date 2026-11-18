@@ -286,6 +286,19 @@ case 'user_reset': { // Startpasswort neu setzen; die Lehrkraft braucht danach i
     db()->prepare('UPDATE users SET salt = ?, login_hash = ?, must_setup = 1 WHERE id = ?')->execute([$salt, password_hash($auth, PASSWORD_DEFAULT), (int)($in['id'] ?? 0)]);
     out([]);
 }
+case 'user_reset_many': { // mehrere Startpasswörter auf einmal (der Browser hat sie erzeugt und umgerechnet); das eigene Konto bleibt
+    $me = admin(); $items = $in['items'] ?? null;
+    if (!is_array($items) || !$items || count($items) > 500) fail('Keine Lehrkräfte ausgewählt');
+    $pdo = db(); $pdo->beginTransaction(); $n = 0;
+    $st = $pdo->prepare('UPDATE users SET salt = ?, login_hash = ?, must_setup = 1 WHERE id = ? AND is_demo = 0');
+    foreach ($items as $it) {
+        $id = (int)($it['id'] ?? 0); $salt = (string)($it['salt'] ?? ''); $auth = (string)($it['auth'] ?? '');
+        if ($id === (int)$me['id']) continue;
+        if (!b64ok($salt) || !hexok($auth)) { $pdo->rollBack(); fail('Ungültiges Startpasswort'); }
+        $st->execute([$salt, password_hash($auth, PASSWORD_DEFAULT), $id]); $n += $st->rowCount();
+    }
+    $pdo->commit(); out(['reset' => $n]);
+}
 case 'user_delete': {
     $me = admin(); $id = (int)($in['id'] ?? 0); if ($id === (int)$me['id']) fail('Das eigene Konto kann man nicht löschen');
     db()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]); out([]);
