@@ -18,6 +18,25 @@ session_name('probe_sid');
 session_set_cookie_params(['lifetime' => 0, 'path' => rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/', 'secure' => $https, 'httponly' => true, 'samesite' => 'Strict']);
 session_start();
 
+/* Notfall-Reset (z. B. Admin-Passwort verloren): Die Datei data/notfall.txt lässt sich nur per FTP anlegen
+   (Workflow „Probe: Notfall-Reset“). Inhalt: „Kürzel Salz Login-Wert“ – „*“ statt Kürzel = erstes Admin-Konto.
+   Probe setzt das Konto beim nächsten Aufruf auf dieses Startpasswort zurück, macht es zum Admin und löscht die Datei.
+   Schlüssel und Prüfungen bleiben; mit dem Wiederherstellungscode bleiben sie lesbar. */
+(function (): void {
+    $d = data_dir(); $f = "$d/notfall.txt"; if (!is_file($f)) return;
+    $p = preg_split('~\s+~', trim((string)file_get_contents($f))); @unlink($f);
+    $log = fn(string $m) => file_put_contents("$d/notfall.log", date('Y-m-d H:i:s') . " $m\n", FILE_APPEND);
+    if (count($p) !== 3 || !b64ok($p[1]) || !hexok($p[2])) { $log('ungültige Datei'); return; }
+    $pdo = db();
+    $st = $p[0] === '*' ? $pdo->query('SELECT id, kuerzel FROM users WHERE is_admin = 1 AND is_demo = 0 ORDER BY id LIMIT 1')
+                        : $pdo->prepare('SELECT id, kuerzel FROM users WHERE kuerzel = ? AND is_demo = 0');
+    if ($p[0] !== '*') $st->execute([$p[0]]);
+    $u = $st->fetch(); if (!$u) { $log("Konto {$p[0]} nicht gefunden"); return; }
+    $pdo->prepare('UPDATE users SET salt = ?, login_hash = ?, must_setup = 1, is_admin = 1 WHERE id = ?')->execute([$p[1], password_hash($p[2], PASSWORD_DEFAULT), $u['id']]);
+    $pdo->prepare('DELETE FROM login_fails WHERE kuerzel = ?')->execute([mb_strtolower($u['kuerzel'])]);
+    $log("Konto {$u['kuerzel']} auf Startpasswort zurückgesetzt");
+})();
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') fail('Nur POST', 405);
 if (!str_starts_with($_SERVER['CONTENT_TYPE'] ?? '', 'application/json')) fail('JSON erwartet', 415);
 $in = json_decode((string)file_get_contents('php://input'), true);

@@ -37,6 +37,10 @@ Alles wird im Browser verschlüsselt (WebCrypto), der Server speichert nur Chiff
   Im Klartext stehen nur Klasse, Fach, Datum, Art, Titel, Anzahl Aufgaben/Punkte – und die Schülerfassung **ohne** Lösungen.
 * Startpasswort vom Admin: rechnet ebenfalls der Browser um. Nach einem neuen Startpasswort öffnet nur der
   Wiederherstellungscode die alten Prüfungen wieder.
+* **Admin-Passwort verloren** (und kein zweiter Admin): GitHub → Actions → „Probe – Notfall-Reset“ mit einem Startpasswort starten.
+  Der Workflow legt per FTP `data/notfall.txt` ab (erzeugt mit `node tools/notfall.mjs [Kürzel|*] [Startpasswort]`); Probe setzt das
+  Konto beim nächsten Aufruf darauf zurück, macht es zum Admin und löscht die Datei (Protokoll in `data/notfall.log`).
+  Wer FTP-Zugang hat, hat ohnehin die Kontrolle über den Server – über das Web lässt sich die Datei nicht anlegen.
 
 ## Installation auf dem Webspace
 

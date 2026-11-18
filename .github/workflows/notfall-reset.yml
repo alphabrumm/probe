@@ -1,0 +1,50 @@
+name: Probe – Notfall-Reset (Passwort verloren)
+# Setzt ein Konto auf ein Startpasswort zurück und macht es zum Admin – z. B. wenn das einzige Admin-Passwort verloren ist.
+# Legt per FTP data/notfall.txt ab; Probe verarbeitet die Datei beim nächsten Aufruf und löscht sie.
+# Danach mit Kürzel + Startpasswort anmelden, neues Passwort festlegen und den Wiederherstellungscode eingeben,
+# dann bleiben alle Prüfungen lesbar. Ohne Code: „neu beginnen“ (die eigenen Prüfungen gehen verloren).
+on:
+  workflow_dispatch:
+    inputs:
+      startpasswort: { description: 'Startpasswort (mind. 10 Zeichen, gilt nur bis zum ersten Anmelden)', required: true }
+      kuerzel: { description: 'Kürzel des Kontos – * = erstes Admin-Konto', required: true, default: '*' }
+      ziel: { description: 'live oder test', required: true, default: 'live' }
+      adresse: { description: 'Adresse von Probe (zum Auslösen), z. B. https://probe.pandapy.de', required: false, default: 'https://probe.pandapy.de' }
+permissions:
+  contents: read
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Notfall-Datei erzeugen
+        env:
+          PW: ${{ github.event.inputs.startpasswort }}
+          KZ: ${{ github.event.inputs.kuerzel }}
+        run: |
+          echo "::add-mask::$PW"
+          if [ ${#PW} -lt 10 ]; then echo "::error::Startpasswort: mindestens 10 Zeichen"; exit 1; fi
+          node tools/notfall.mjs "$KZ" "$PW" > notfall.txt
+      - name: lftp installieren
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+      - name: Per FTP ablegen, auslösen, prüfen
+        env:
+          S: ${{ secrets.FTP_SERVER }}
+          U: ${{ secrets.FTP_USERNAME }}
+          P: ${{ secrets.FTP_PASSWORD }}
+          D: ${{ github.event.inputs.ziel == 'test' && secrets.FTP_DIR_TEST || secrets.FTP_DIR }}
+          URL: ${{ github.event.inputs.adresse }}
+          PROTO: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+        run: |
+          HOST="${S#ftp://}"; HOST="${HOST#ftps://}"; HOST="${HOST%/}"
+          if [ "$PROTO" = "ftp" ]; then SSL="set ftp:ssl-allow false;"; else SSL="set ftp:ssl-force true; set ftp:ssl-protect-data true;"; fi
+          ftp() { lftp -u "$U","$P" "$HOST" -e "set net:timeout 30; set net:max-retries 3; set ftp:passive-mode true; $SSL set cache:enable false; cd \"$D\"; $1; bye"; }
+          ftp "put notfall.txt -o data/notfall.txt"
+          rm notfall.txt
+          if [ -n "$URL" ]; then curl -s -o /dev/null -w "Probe aufgerufen: %{http_code}\n" "${URL%/}/api.php" || true; sleep 3; fi
+          echo "== Protokoll (data/notfall.log):"
+          ftp "cat data/notfall.log" | tail -5 || true
+          echo "== Liegt die Datei noch da? (dann wurde Probe noch nicht aufgerufen – einfach Probe öffnen)"
+          ftp "cls data/notfall.txt" || echo "nein – erledigt"
