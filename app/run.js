@@ -438,7 +438,7 @@ function kiStats(x) {
     const k = kiOf(x.p.id, t.id), it = x.R.items[i]; if (!k || it.dropped) return; any++;
     if (k.st === 'neu' && k.pts !== it.pts) { open++; if (it.pts != null) diff++; }
   });
-  const html = !any ? '' : open ? ` <span class="chip ki" title="KI-Vorschläge, die du noch nicht übernommen oder abgelehnt hast">${KI} KI: ${diff ? `${diff} abweichend` : `${open} Vorschlag${open > 1 ? 'e' : ''}`}${diff && open > diff ? ` · ${open - diff} offen` : ''}</span>` : ' <span class="chip ki soft" title="KI-Vorschläge stimmen mit deiner Bewertung überein oder sind entschieden">${KI} KI ✓</span>';
+  const html = !any ? '' : open ? ` <span class="chip ki" title="KI-Vorschläge, die du noch nicht übernommen oder abgelehnt hast">${KI} KI: ${diff ? `${diff} abweichend` : `${open} Vorschlag${open > 1 ? 'e' : ''}`}${diff && open > diff ? ` · ${open - diff} offen` : ''}</span>` : ` <span class="chip ki soft" title="KI-Vorschläge stimmen mit deiner Bewertung überein oder sind entschieden">${KI} KI ✓</span>`;
   return { open, diff, any, html };
 }
 function kiSummary() {
