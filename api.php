@@ -546,9 +546,13 @@ case 'exam_roster': { // Klassenliste (Vor- und Nachnamen) – verschlüsselt
     db()->prepare('UPDATE exams SET roster_enc = ?, roster_n = ?, erwartet = CASE WHEN ? > 0 THEN ? ELSE erwartet END, updated = ? WHERE id = ?')->execute([$r, $r ? $n : 0, $n, $n, time(), $e['id']]);
     out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
 }
-case 'exam_delete': {
+case 'exam_delete': { // endgültig: Inhalt, Abgaben, Bewertung, Ergebnisseiten, Kommentare (Respizienz-Fassung der Fachleitung bleibt)
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
-    db()->prepare('DELETE FROM exams WHERE id = ?')->execute([$e['id']]); out([]);
+    if (in_array($e['status'], ['offen', 'geschlossen'], true)) fail('Die Prüfung läuft noch – bitte zuerst beenden.', 409);
+    $pdo = db(); $pdo->exec('PRAGMA secure_delete = ON'); // gelöschte Daten in der Datei mit Nullen überschreiben
+    $pdo->prepare('DELETE FROM exams WHERE id = ?')->execute([$e['id']]);
+    try { $pdo->exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (Throwable $x) { }
+    out([]);
 }
 /* ---------- Schüler: ohne Konto, mit Prüfungscode und Gerätetoken ---------- */
 case 'cfg': { // öffentliche Einstellungen für die Oberfläche

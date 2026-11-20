@@ -274,10 +274,25 @@ async function viewDashboard() {
   const klassen = Object.keys(by).sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
   main.innerHTML = `<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
     <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
-    ${klassen.length ? klassen.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${by[k].length} Prüfung${by[k].length === 1 ? '' : 'en'}</span></div><div class="tiles">${by[k].map(e => `<a class="tile" href="#/p/${e.id}"><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`).join('')}</div>`).join('')
+    ${klassen.length ? klassen.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${by[k].length} Prüfung${by[k].length === 1 ? '' : 'en'}</span></div><div class="tiles">${by[k].map(e => `<a class="tile" href="#/p/${e.id}"><button class="tdel" data-tdel="${e.id}" title="Prüfung löschen" aria-label="Prüfung löschen">🗑</button><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`).join('')}</div>`).join('')
       : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch keine Prüfung in ${esc(S.sj)}</h2><p>Lege eine Prüfung an: Klasse, Fach, Datum, Art – den Inhalt baust du danach mit PathFinder.</p></div>`}`;
   $('#sj').onchange = e => { S.sj = e.target.value; viewDashboard(); };
   $('#neu').onclick = () => examForm(null);
+  main.onclick = async ev => {
+    const b = ev.target.closest('[data-tdel]'); if (!b) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const e = L.find(x => x.id === +b.dataset.tdel);
+    if (e && await deleteExam(e)) viewDashboard();
+  };
+}
+/** Prüfung endgültig löschen – mit doppelter Nachfrage. Laufende Prüfungen erst beenden. */
+async function deleteExam(e) {
+  const name = `${e.klasse} · ${e.fach} · ${e.art} vom ${fmtDate(e.datum)}${e.titel ? ` („${e.titel}“)` : ''}`;
+  if (['offen', 'geschlossen'].includes(e.status)) { alert(`Die Prüfung ${name} läuft noch. Beende sie zuerst, dann kannst du sie löschen.`); return false; }
+  if (!confirm(`Prüfung ${name} löschen?`)) return false;
+  if (!confirm(`Bist du sicher?\n\nDie Prüfung wird endgültig vom Server gelöscht – mit Inhalt, Lösungen, Klassenliste, allen Abgaben und Bewertungen sowie den Ergebnisseiten der Schüler. Das lässt sich nicht rückgängig machen.${e.resp ? '\n\nDie bei der Fachleitung eingereichte Fassung (Respizienz) bleibt dort erhalten.' : ''}`)) return false;
+  try { await api('exam_delete', { id: e.id }); S.catalog = null; toast('🗑 Prüfung gelöscht'); return true; }
+  catch (er) { toast('⚠ ' + esc(er.message), 5000); return false; }
 }
 
 /* ---------- Prüfung anlegen und Rahmenbedingungen ---------- */
@@ -363,7 +378,7 @@ async function viewExam(id) {
     $('#go', d.el).onclick = () => { const L = parseNames($('#t', d.el).value); d.close(); saveRoster(e, L); };
   };
   $('#rdel') && ($('#rdel').onclick = async () => { if (!confirm('Klassenliste entfernen?')) return; await api('exam_roster', { id: e.id, roster_enc: null, roster_n: 0 }); viewExam(e.id); });
-  $('#del').onclick = async () => { if (!confirm(`Prüfung ${e.klasse} · ${e.fach} vom ${fmtDate(e.datum)} endgültig löschen?`)) return; await api('exam_delete', { id: e.id }); toast('Prüfung gelöscht'); location.hash = '#/'; };
+  $('#del').onclick = async () => { if (await deleteExam(e)) location.hash = '#/'; };
 }
 function pickFile(accept, fn) { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => i.files[0] && fn(i.files[0]); i.click(); }
 

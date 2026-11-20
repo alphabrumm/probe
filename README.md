@@ -29,6 +29,9 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   Inhalt AES-256-GCM mit zufälligem Archivschlüssel; diesen gibt es verschlüsselt für die Fachleitung, für jeden Admin
   (Rückfallweg) und optional mit einer Archiv-Passphrase (z. B. für die Nachfolge). „📂 Archiv öffnen“ (Respizienz bzw.
   Admin → Schuljahresende) entschlüsselt nur im Browser – das Archiv wird nicht auf den Server geladen.
+* **Löschen:** 🗑 auf der Kachel in der Übersicht, mit doppelter Nachfrage. Löscht die Prüfung endgültig vom Server (Inhalt, Lösungen,
+  Klassenliste, Abgaben, Bewertung, Ergebnisseiten, Kommentare; SQLite `secure_delete`). Laufende Prüfungen erst beenden.
+  Eine bei der Fachleitung eingereichte Fassung (Respizienz) bleibt dort erhalten.
 * **Beispielprüfungen** für jede Lehrkraft und ein **Demo-Modus** ohne Konto (nach 4 Stunden gelöscht).
 
 ## Prüfungsformat und Claude-Skill
