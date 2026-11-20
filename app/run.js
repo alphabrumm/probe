@@ -244,8 +244,8 @@ function drawTables() {
   $('#tasks').innerHTML = `<tr><th>Aufgabe</th><th>Ø Punkte</th><th></th></tr>` + key.tasks.map((t, i) => {
     const its = RS.map(x => x.R.items[i]), drop = g.drop.includes(t.id), open = its.filter(x => x.open).length;
     const avg = its.length ? its.reduce((s, x) => s + (x.pts || 0), 0) / its.length : 0;
-    const free = t.type === 'essay' || (t.type === 'task' && !t.short), acc = t.type === 'gap' || (t.type === 'task' && t.short);
-    return `<tr${drop ? ' style="opacity:.5"' : ''}><td><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${({ quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', mark: 'Markieren', sort: 'Sortieren', order: t.words ? 'Satzpuzzle' : 'Reihenfolge', essay: 'Freitext' })[t.type] || (t.short ? 'kurze Antwort' : 'freie Antwort')}</span></td>
+    const free = t.type === 'essay' || (t.type === 'task' && !t.short) || (t.type === 'app' && S2.M.appMode(t) !== 'auto'), acc = t.type === 'gap' || (t.type === 'task' && t.short);
+    return `<tr${drop ? ' style="opacity:.5"' : ''}><td><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${({ quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', mark: 'Markieren', sort: 'Sortieren', order: t.words ? 'Satzpuzzle' : 'Reihenfolge', essay: 'Freitext', app: S2.M.appName(t.app) + (S2.M.appMode(t) === 'auto' ? ' · automatisch' : ' · du bewertest') })[t.type] || (t.short ? 'kurze Antwort' : 'freie Antwort')}</span></td>
       <td>${drop ? 'gestrichen' : `${fmtPts(Math.round(avg * 10) / 10)} / ${fmtPts(t.pts)}`}${open ? ` <span class="chip warn">${open} offen</span>` : ''}</td>
       <td class="act">${free ? `<button class="btn sm${open ? ' pri' : ''}" data-task="${t.id}">Bewerten</button> ` : ''}${acc ? `<button class="btn sm" data-acc="${t.id}">Antworten</button> ` : ''}<button class="btn sm ghost" data-drop="${t.id}">${drop ? 'wieder werten' : 'streichen'}</button></td></tr>`;
   }).join('');
@@ -259,11 +259,12 @@ function personDialog(pid) {
     const it = x.R.items[i], free = !it.auto;
     return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(t.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `<input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-pp="${t.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.`}</div>
       ${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
-      ${free ? `<div class="ans">${esc(it.text || '– keine Antwort –')}</div>${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : t.solution ? `<div class="help">Musterlösung: ${esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>` : ''}` : ''}
+      ${free || it.text != null ? `${ansHtml(it)}${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}` : ''}${appBtn(t, it, pid)}
       ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}
       <textarea data-fb="${t.id}" rows="2" placeholder="Rückmeldung zu dieser Aufgabe (sieht der Schüler)">${esc(fbk[t.id] || '')}</textarea></div>`;
   }).join('') + '<button class="btn pri" data-save>Speichern</button>', { wide: true });
   d.el.onclick = ev => {
+    if (appView(ev, x.p)) return;
     if (!ev.target.closest('[data-save]')) return;
     const man = g.manual[pid] = g.manual[pid] || {}, ov = g.override[pid] = g.override[pid] || {}, fb = g.feedback[pid] = {};
     for (const inp of $$('[data-pp]', d.el)) {
@@ -275,13 +276,30 @@ function personDialog(pid) {
     saveGrading(); d.close(); drawEval();
   };
 }
+/* ---------- Programmier-Aufgaben (JPad …): Code ansehen, in der App öffnen und ausführen ---------- */
+const ansHtml = it => `<div class="ans${it.type === 'app' ? ' code' : ''}">${X.esc(it.text || '– keine Antwort –')}</div>${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
+const solHtml = t => t.type === 'app' ? `<details class="help"><summary>Musterlösung</summary><div class="ans code">${X.esc(t.solution)}</div></details>` : `<div class="help">Musterlösung: ${X.esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>`;
+const appBtn = (t, it, pid) => t.type === 'app' && it.files?.length ? `<div class="btns" style="margin:4px 0"><button class="btn sm" data-appview="${X.esc(t.id)}" data-pid="${pid}">▶ In ${X.esc(S2.M.appName(t.app))} öffnen und ausführen</button></div>` : '';
+let APPM = null;
+/** Klick auf „In JPad öffnen“: Stand des Schülers nur ansehen (Änderungen gehen nicht zurück) */
+function appView(ev, p) {
+  const b = ev.target.closest('[data-appview]'); if (!b) return false;
+  const t = S2.key.tasks.find(x => x.id === b.dataset.appview), who = p || S2.people.find(x => x.id === +b.dataset.pid), a = who?.ans?.[t.id];
+  (async () => {
+    APPM = APPM || await import('../vendor/pathfinder/core/pfapp.js');
+    let apps = {}; try { apps = (await X.api('cfg')).apps || {}; } catch (er) { }
+    APPM.openApp({ app: t.app, url: apps[t.app], task: 'ansicht-' + t.id, title: `${t.title} · ${who.v} ${who.n}`, files: a?.files || [], readonly: true, closeLabel: 'Schließen' });
+  })().catch(er => X.toast('⚠ ' + X.esc(er.message)));
+  return true;
+}
 /** eine Freitext-Aufgabe für alle bewerten */
 function essayDialog(tid) {
   const { esc, fmtPts } = X, { key, g } = S2, i = key.tasks.findIndex(t => t.id === tid), t = key.tasks[i], RS = results();
-  const d = X.dialog(`${esc(t.title)} – für alle bewerten`, `${t.rubric?.length ? `<div class="help"><b>Erwartungshorizont:</b> ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)} P.)`).join(' · ')}</div>` : t.solution ? `<div class="help"><b>Musterlösung:</b> ${esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>` : ''}
-    ${RS.map(x => { const it = x.R.items[i]; return `<div class="pt"><div class="bar" style="margin:0"><b>${esc(x.p.n)}, ${esc(x.p.v)}</b><span class="sp"></span><input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-ep="${x.p.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.</div><div class="ans">${esc(it.text || '– keine Antwort –')}</div><textarea data-ef="${x.p.id}" rows="1" placeholder="Rückmeldung (optional)">${esc(g.feedback[x.p.id]?.[t.id] || '')}</textarea></div>`; }).join('')}
+  const d = X.dialog(`${esc(t.title)} – für alle bewerten`, `${t.rubric?.length ? `<div class="help"><b>Erwartungshorizont:</b> ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)} P.)`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}
+    ${RS.map(x => { const it = x.R.items[i]; return `<div class="pt"><div class="bar" style="margin:0"><b>${esc(x.p.n)}, ${esc(x.p.v)}</b><span class="sp"></span><input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-ep="${x.p.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.</div>${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}</div>`).join('')}${ansHtml(it)}${appBtn(t, it, x.p.id)}<textarea data-ef="${x.p.id}" rows="1" placeholder="Rückmeldung (optional)">${esc(g.feedback[x.p.id]?.[t.id] || '')}</textarea></div>`; }).join('')}
     <button class="btn pri" data-save>Speichern</button>`, { wide: true });
   d.el.onclick = ev => {
+    if (appView(ev, null)) return;
     if (!ev.target.closest('[data-save]')) return;
     for (const inp of $$('[data-ep]', d.el)) { const pid = +inp.dataset.ep, m = g.manual[pid] = g.manual[pid] || {}; if (inp.value.trim() === '') delete m[t.id]; else m[t.id] = Math.min(t.pts, Math.max(0, +inp.value.replace(',', '.'))); }
     for (const ta of $$('[data-ef]', d.el)) { const pid = +ta.dataset.ef, f = g.feedback[pid] = g.feedback[pid] || {}; if (ta.value.trim()) f[t.id] = ta.value.trim(); else delete f[t.id]; }
@@ -323,7 +341,7 @@ async function publish() {
         const fb = g.feedback[x.p.id] || {};
         const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
           punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
-          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), text: it.auto ? undefined : (it.text || ''), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
+          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
         const { rid, key: k } = await X.K.reportKeys(x.p.rc);
         reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });
       }

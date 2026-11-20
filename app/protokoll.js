@@ -100,8 +100,8 @@ export function protokollPdf(S2, RS, X) {
         F.need(14); pdf.text(p.ok ? 'richtig' : 'falsch', F.M + 6, F.y + 11, 8.5, { bold: true, col: p.ok ? GOOD : BAD });
         F.para(line, { size: 9.5, x: 52, after: 0, col: INK });
       }
-      if (!it.auto) {
-        F.para(it.text ? it.text : '– keine Antwort –', { size: 10, x: 6, col: it.text ? INK : GREY, after: 2 });
+      if (!it.auto || it.text != null) {
+        F.para(it.text ? it.text : '– keine Antwort –', { size: it.type === 'app' ? 8.5 : 10, x: 6, col: it.text ? INK : GREY, after: 2 });
         if (t.rubric?.length) F.para('Erwartung: ' + t.rubric.map(r => `${plain(r.t)} (${fmtPts(r.p)})`).join(' · '), { size: 8.5, x: 6, col: GREY, after: 0 });
       }
       if (it.overridden) F.para('Punkte von der Lehrkraft angepasst.', { size: 8.5, x: 6, col: GREY, after: 0 });

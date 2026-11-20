@@ -174,3 +174,4 @@ table.t td.act { text-align: right; white-space: nowrap; }
 .demo-btn img { width: 46px; height: 46px; border-radius: 12px; flex: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, .25), 0 0 18px rgba(255, 210, 122, .35); }
 .demo-btn span { display: grid; flex: 1; } .demo-btn b { font-size: 17px; } .demo-btn small { color: #c9d3ea; font-size: 13px; }
 .demo-btn i { font-style: normal; font-size: 28px; line-height: 1; color: #ffd27a; }
+.ans.code { font: 13px/1.45 ui-monospace, Menlo, monospace; max-height: 28em; overflow: auto; }

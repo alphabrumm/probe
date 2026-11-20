@@ -162,7 +162,7 @@ function render(ctx) {
       const it = x.R.items[i];
       return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(tk.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `${it.pts == null ? '?' : fmtPts(it.pts)} / ${fmtPts(tk.pts)} P.`}</div>
         ${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
-        ${!it.auto ? `<div class="ans">${esc(it.text || '– keine Antwort –')}</div>${tk.rubric?.length ? `<div class="help">Erwartung: ${tk.rubric.map(q => `${esc(q.t)} (${fmtPts(q.p)})`).join(' · ')}</div>` : ''}` : ''}
+        ${!it.auto || it.text != null ? `<div class="ans${it.type === 'app' ? ' code' : ''}">${esc(it.text || '– keine Antwort –')}</div>${tk.rubric?.length ? `<div class="help">Erwartung: ${tk.rubric.map(q => `${esc(q.t)} (${fmtPts(q.p)})`).join(' · ')}</div>` : ''}` : ''}
         ${it.overridden ? '<div class="help">Punkte von der Lehrkraft geändert.</div>' : ''}${fb[tk.id] ? `<div class="help">Rückmeldung: ${esc(fb[tk.id])}</div>` : ''}</div>`;
     }).join(''), { wide: true });
   };

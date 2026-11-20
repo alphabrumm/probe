@@ -35,8 +35,13 @@ jobs:
           echo "ziel=$Z" >> "$GITHUB_OUTPUT"; echo "### Ziel: $Z" >> "$GITHUB_STEP_SUMMARY"
           echo "dir=$D" >> "$GITHUB_OUTPUT"
       - name: Paket zusammenstellen
+        env:
+          Z: ${{ steps.ziel.outputs.ziel }}
+          APPS: ${{ vars.TEST_APP_JPAD || 'https://alphabrumm.github.io/jpad/' }}
         run: |
           python3 tools/paket.py out "${GITHUB_SHA::7}"
+          # Testinstanz: Programmier-Aufgaben öffnen die Test-Fassung von JPad (GitHub Pages) statt jpad.pandapy.de
+          if [ "$Z" = "test" ]; then printf "<?php return ['apps' => ['jpad' => '%s']];\n" "$APPS" > out/config.deploy.php; php -l out/config.deploy.php; fi
           php -l out/api.php && php -l out/intern/db.php
       - name: lftp installieren
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp

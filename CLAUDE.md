@@ -6,3 +6,6 @@
 - Untermodul aktualisieren: `git -C vendor/pathfinder fetch && git -C vendor/pathfinder checkout <commit>`, dann hier committen.
 - FTP-Deploy = Push `main:live`, nur auf „Go FTP“. `data/` und `config.local.php` nie ins Paket oder überschreiben.
 - Geschlossene Prüfungen nehmen keine Nachreichung übers Netz an; Schüler-Geräte bekommen nie Lösungen.
+- Testinstanz: `git push origin <zweig>:test` (eigener Ordner `FTP_DIR_TEST`, eigene Datenbank). Neue Funktionen dort zeigen lassen, bevor `live`.
+  Der Test-Deploy schreibt `config.deploy.php` (Programmier-Aufgaben öffnen die Test-Fassung von JPad auf GitHub Pages).
+- Programmier-Aufgaben (Typ `app`, JPad …): Protokoll und Anbindung weiterer Apps in `vendor/pathfinder/docs/APP-AUFGABEN.md`.

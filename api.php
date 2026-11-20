@@ -74,6 +74,13 @@ function need_keys(array $u): void { if ($u['must_setup']) fail('Bitte zuerst ei
 function admin(): array { $u = me(); csrf(); need_keys($u); if (!$u['is_admin']) fail('Nur für Admins', 403); return $u; }
 function teacher(): array { $u = me(); csrf(); need_keys($u); return $u; }
 function fake_salt(string $k): string { return base64_encode(substr(hash_hmac('sha256', mb_strtolower($k), server_secret(), true), 0, 16)); }
+/** Adressen der Apps für Programmier-Aufgaben (JPad …); leer = Standard aus PathFinder (core/pfapp.js).
+ *  Testinstanz: in config.local.php z. B. 'apps' => ['jpad' => 'https://alphabrumm.github.io/jpad/'] */
+function apps_cfg(): ?array {
+    $a = probe_config()['apps'] ?? null; if (!is_array($a)) return null;
+    $o = []; foreach ($a as $k => $v) if (is_string($k) && preg_match('~^[a-z]{2,12}$~', $k) && is_string($v) && preg_match('~^(https://|http://(localhost|127\.0\.0\.1)(:\d+)?/)[^\s"<>]*$~', $v)) $o[$k] = $v;
+    return $o ?: null;
+}
 function ip(): string { return (string)($_SERVER['REMOTE_ADDR'] ?? ''); }
 function ufields(array $u): array {
     $fl = db()->prepare('SELECT f.id, f.name FROM fachleitungen l JOIN fachschaften f ON f.id = l.fachschaft_id WHERE l.user_id = ? ORDER BY f.name');
@@ -544,6 +551,9 @@ case 'exam_delete': {
     db()->prepare('DELETE FROM exams WHERE id = ?')->execute([$e['id']]); out([]);
 }
 /* ---------- Schüler: ohne Konto, mit Prüfungscode und Gerätetoken ---------- */
+case 'cfg': { // öffentliche Einstellungen für die Oberfläche
+    out(['apps' => apps_cfg()]);
+}
 case 'p_info': {
     $e = exam_by_code(str($in, 'code', 12, true));
     out(['exam' => ['status' => $e['status'], 'titel' => $e['titel'], 'fach' => $e['fach'], 'klasse' => $e['klasse'], 'art' => $e['art'], 'datum' => $e['datum'],
@@ -559,12 +569,12 @@ case 'p_join': {
     $token = bin2hex(random_bytes(24));
     db()->prepare('INSERT INTO participants (exam_id, token_hash, identity_enc, joined, last_seen) VALUES (?,?,?,?,?)')->execute([$e['id'], hash('sha256', $token), $id, time(), time()]);
     $p = participant($e, $token);
-    out(['token' => $token, 'doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e)] + student_state($e, $p));
+    out(['token' => $token, 'doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e), 'apps' => apps_cfg()] + student_state($e, $p));
 }
 case 'p_resume': {
     $e = exam_by_code(str($in, 'code', 12, true)); $p = participant($e, str($in, 'token', 64, true));
     db()->prepare('UPDATE participants SET last_seen = ? WHERE id = ?')->execute([time(), $p['id']]);
-    out(['doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e)] + student_state($e, $p));
+    out(['doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e), 'apps' => apps_cfg()] + student_state($e, $p));
 }
 case 'p_save': { // Zwischenstand oder Abgabe (Antworten verschlüsselt für die Lehrkraft)
     $e = exam_by_code(str($in, 'code', 12, true)); $p = participant($e, str($in, 'token', 64, true));

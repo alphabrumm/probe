@@ -9,6 +9,9 @@ function probe_config(): array {
     static $c = null;
     if ($c !== null) return $c;
     $c = ['data' => dirname(__DIR__) . '/data'];
+    // config.deploy.php schreibt nur der Test-Deploy (z. B. Adresse der Test-Fassung von JPad); config.local.php hat Vorrang
+    $deploy = dirname(__DIR__) . '/config.deploy.php';
+    if (is_file($deploy)) { $x = require $deploy; if (is_array($x)) $c = array_merge($c, $x); }
     $local = dirname(__DIR__) . '/config.local.php';
     if (is_file($local)) { $x = require $local; if (is_array($x)) $c = array_merge($c, $x); }
     return $c;

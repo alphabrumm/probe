@@ -71,8 +71,9 @@ function run(r, offline = false) {
   setDeadline(r.deadline, r.auto);
   screen.hidden = true; $('#app').hidden = false; $('#sbar').hidden = false;
   const D = r.doc; $('#sbT').textContent = [D.kicker, D.title].filter(Boolean).map(s => s.replace(/<[^>]*>/g, '')).join(' · ') || 'Prüfung';
+  if (r.apps) { st.apps = r.apps; keep(); }
   ctx = startPathFinder({
-    player: true, doc: D, storage: 'probe-s', appName: 'Probe', logo: 'app/icon.svg', answers: st.answers || {},
+    player: true, doc: D, storage: 'probe-s', appName: 'Probe', logo: 'app/icon.svg', answers: st.answers || {}, apps: st.apps || undefined,
     host: {
       onAnswer: (id, v, all) => { st.answers = all; keep(); dirty = true; clearTimeout(timer); timer = setTimeout(() => send(false), 3000); saveLabel(); },
       submit: async () => { await send(true); },
@@ -88,6 +89,8 @@ function run(r, offline = false) {
 }
 async function send(final) {
   if (sending && !final) return; sending = true; clearTimeout(timer);
+  // Programmier-Aufgaben (JPad …): bei der Abgabe den letzten Stand aus der App holen
+  if (final) { try { await ctx?.flushApp?.(); await ctx?.closeApp?.(); } catch (e) { } }
   try {
     const answers_enc = await K.seal(st.pub, { answers: st.answers || {}, at: Date.now() });
     const r = await api('p_save', { token: st.token, answers_enc, final: final ? 1 : 0, fokus: st.fokus || 0 });
@@ -151,7 +154,7 @@ function offlineFinal() {
 
 /* ---------- Nach der Abgabe ---------- */
 function done(note = '') {
-  finished = true; $('#app').hidden = true; $('#sbar').hidden = true;
+  finished = true; $('#app').hidden = true; $('#sbar').hidden = true; ctx?.closeApp?.();
   const link = resultLink();
   show(`<img class="ic" src="app/icon.svg" alt=""><h1>✓ Abgegeben</h1>${note ? `<p class="help">${esc(note)}</p>` : ''}
     <p>${st.v ? `Danke, ${esc(st.v)}! ` : ''}Mit diesem <b>Ergebniscode</b> siehst du später deine Ergebnisse:</p>

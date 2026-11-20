@@ -78,6 +78,26 @@ git push origin main:live     # freigeben
 Repository-Secrets: `FTP_SERVER`, `FTP_USERNAME`, `FTP_PASSWORD`, `FTP_DIR`, `FTP_DIR_TEST` (optional Variable `FTP_PROTOCOL`).
 `data/` und `config.local.php` auf dem Webspace werden nie überschrieben.
 
+### Testinstanz
+
+Die Testinstanz ist eine zweite, komplett getrennte Probe auf demselben Webspace: eigener Ordner (Secret `FTP_DIR_TEST`,
+z. B. `/probe-test/`), am besten mit eigener Subdomain (z. B. `test-probe.pandapy.de` → dieser Ordner). Sie hat ihre eigene
+Datenbank (`data/` im Test-Ordner) – also eigene Konten und Prüfungen, nichts geht in die echte Probe.
+
+* `git push origin <zweig>:test` überträgt einen beliebigen Stand (auch einen Feature-Zweig) in den Test-Ordner.
+* Der Test-Deploy schreibt zusätzlich `config.deploy.php`: Programmier-Aufgaben öffnen dort die **Test-Fassung von JPad**
+  (`https://alphabrumm.github.io/jpad/`, änderbar mit der Repository-Variable `TEST_APP_JPAD`). Die echte Probe nutzt `https://jpad.pandapy.de/`.
+* Eigene Einstellungen der Testinstanz gehen weiter in `config.local.php` im Test-Ordner (hat Vorrang).
+
+## Programmier-Aufgaben (JPad, später QPad und FlowPad)
+
+`### JPad: Titel` im Prüfungstext (Aufgabenart `app` in PathFinder): Die Schüler programmieren in JPad, das sich als Vollbild-Fenster
+über der Prüfung öffnet; der Stand (Dateien und letzter Programmlauf) ist ihre Antwort und wird wie alle Antworten verschlüsselt.
+Mehrere Aufgaben mit `Projekt: Name` bauen am selben Programm weiter. Bewertet wird automatisch nach Ausgabe und Pflicht-Code –
+oder mit `Erwartung:` von der Lehrkraft. In der Auswertung öffnet „▶ In JPad öffnen“ den Code des Schülers zum Ausführen.
+Adressen der Apps: Standard in `vendor/pathfinder/core/pfapp.js`, sonst `config.local.php` mit `'apps' => ['jpad' => 'https://…/']`.
+Wie eine App angebunden wird: `vendor/pathfinder/docs/APP-AUFGABEN.md`.
+
 Von Hand: `python3 tools/paket.py /tmp/probe-out --zip Webspace.zip` baut dasselbe Paket als Zip zum Entpacken im
 Wurzelordner. Das Skript hängt an alle Skript- und Style-Verweise `?v=<Commit>` an, damit Safari nach einem Update keine
 alten Dateien aus dem Zwischenspeicher verwendet; `.htaccess` setzt dazu `Cache-Control: no-cache`.

@@ -1,6 +1,6 @@
 # Probe – Schutz für Apache. Datenordner, Bibliotheken und Einstellungen sind nicht abrufbar.
 Options -Indexes
-<FilesMatch "^(config\.local\.php|\.git.*|README\.md)$">
+<FilesMatch "^(config\.local\.php|config\.deploy\.php|\.git.*|README\.md)$">
   Require all denied
 </FilesMatch>
 RedirectMatch 404 ^/(.*/)?(data|intern|lib|tools|\.github)/

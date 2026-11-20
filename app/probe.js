@@ -393,7 +393,7 @@ async function saveRoster(e, L) {
 }
 
 /* ---------- Inhalt: PathFinder eingebettet ---------- */
-const EXAM_TYPES = new Set(['task', 'quiz', 'gap', 'match', 'essay']);
+const EXAM_TYPES = new Set(['task', 'quiz', 'gap', 'match', 'essay', 'mark', 'sort', 'order', 'app']);
 const countTasks = d => { const t = (d.stations || []).flatMap(s => s.blocks || []).filter(b => EXAM_TYPES.has(b.type)); return { aufgaben: t.length, punkte: t.reduce((a, b) => a + Math.max(0, +(b.pts ?? 1) || 0), 0) }; };
 async function saveDraft(id, d, fertig = false) {
   const data = { id, draft_enc: await K.seal(S.keys.pub_key, d), titel: (d.title || '').replace(/<[^>]*>/g, '').trim(), ...countTasks(d) };
