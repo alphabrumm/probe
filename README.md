@@ -19,12 +19,13 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   automatische Abgabe abschaltbar, Schließen/Beenden, Notfall-Abgabe per Datei.
 * **Auswertung:** Notenschlüssel per Regler, Freitext bewerten, Antworten akzeptieren, Aufgaben streichen, Ergebnisseiten
   mit Ergebniscode veröffentlichen, Kommentare der Schüler.
-* **KI-gestützte Korrektur** (`app/ki.js`): „✱ Für KI-Korrektur exportieren“ erzeugt eine Markdown-Datei mit der Prüfung im
-  PathFinder-Textformat (mit Lösungen und Erwartungshorizont), einer Anleitung für die KI und den Antworten aller Schüler –
+* **KI-gestützte Korrektur** (`app/ki.js`): „KI-Korrektur: Export“ – die Lehrkraft wählt die Aufgaben (gemerkt in `g.kiSel`) –
+  erzeugt eine Markdown-Datei mit genau diesen Aufgaben im PathFinder-Textformat (mit Lösungen, Erwartungshorizont und dem
+  Material davor), einer Anleitung für die KI und den Antworten aller Schüler dazu –
   ohne Namen, je Schüler eine Korrektur-Kennung `S-XXXXXX` (aus dem Ergebniscode abgeleitet, nicht umkehrbar; der Ergebniscode
   selbst öffnet die Ergebnisseite und verlässt Probe nicht). Namen in Antworten werden durch [Name] ersetzt. Die KI antwortet
   mit JSON (`{"probe":"ki-korrektur","pruefung":…,"bewertungen":[{"schueler","aufgabe","punkte","begruendung"}]}`);
-  „✱ KI-Vorschläge einlesen“ legt sie als Vorschläge in die verschlüsselte Bewertung (`g.ki`). Pink mit ✱ je Aufgabe,
+  „KI-Vorschläge einlesen“ (versteht auch viele einzelne JSON-Schnipsel) legt sie als Vorschläge in die verschlüsselte Bewertung (`g.ki`). Pink mit KI-Sternen je Aufgabe,
   Schüler mit abweichender Bewertung hervorgehoben; je Aufgabe übernehmen (automatisch bewertete Aufgaben als Neubewertung,
   sonst als Punkte der Lehrkraft) oder ablehnen.
 * **Namen:** Anmeldungen werden der Klassenliste zugeordnet (`app/names.js`) – auch mit Rufnamen („Max“ für „Maximilian Antony“),

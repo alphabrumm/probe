@@ -44,12 +44,24 @@ const typName = t => t.type === 'order' && t.words ? 'Satzpuzzle' : t.type === '
 const fmt = n => String(Math.round(n * 2) / 2).replace('.', ',');
 const block = s => { const t = String(s ?? '').replace(/\s+$/, ''); const f = t.includes('```') ? '~~~~' : '```'; return `${f}\n${t || '(leer)'}\n${f}`; };
 
-/** Prüfungstext für die KI: PathFinder-Text ohne Anhang (Bilder) und ohne Gestaltungszeilen */
-async function examText(doc) {
+/**
+ * Prüfungstext für die KI: PathFinder-Text ohne Anhang (Bilder) und ohne Gestaltungszeilen – nur die gewählten Aufgaben
+ * (sel: Set der Aufgaben-IDs) und das Material, das in ihrer Station davor steht (Text, Tabellen, Code, Abbildungen).
+ */
+async function examText(doc, sel, taskIds) {
   if (!doc) return '';
   try {
     const T = await import('../vendor/pathfinder/core/pftext.js');
     const env = { palettes: [{ n: 'Pastell' }], figures: {}, plugins: [] };
+    if (sel) {
+      const stations = [];
+      for (const st of doc.stations || []) {
+        const bl = st.blocks || [], last = bl.map(b => sel.has(b.id)).lastIndexOf(true);
+        if (last < 0) continue;
+        stations.push({ ...st, blocks: bl.slice(0, last + 1).filter(b => sel.has(b.id) || !taskIds.has(b.id)) });
+      }
+      doc = { ...doc, stations };
+    }
     let t = T.docToText(doc, env, { refs: true });
     t = t.replace(/\n## Anhang[\s\S]*$/, '\n').split('\n').filter(l => !/^(Farbe|Schrift|Kopfbild|Kopfbild-Art|Titel-Animation|Untertitel-Animation|Animation):/.test(l)).join('\n');
     return t.trim();
@@ -60,14 +72,16 @@ async function examText(doc) {
  * Exporttext bauen.
  * S2: Auswertungs-Zustand (e, key, people, g, M), RS: results() aus run.js
  */
-export async function buildExport(S2, RS) {
+export async function buildExport(S2, RS, selIds = null) {
   const { e, key } = S2, ids = await kennungen(e, S2.people), scrub = scrubber(S2.people);
-  const tasks = key.tasks.map((t, i) => ({ t, nr: i + 1 })).filter(x => !S2.g.drop.includes(x.t.id));
+  const sel = selIds ? new Set(selIds) : null;
+  const tasks = key.tasks.map((t, i) => ({ t, nr: i + 1 })).filter(x => !S2.g.drop.includes(x.t.id) && (!sel || sel.has(x.t.id)));
+  const nrs = tasks.map(x => x.nr).join(', ');
   const L = [];
   L.push(`# KI-Korrektur · ${e.fach} · ${e.klasse} · ${e.art}`, '',
     'Du hilfst einer Lehrkraft beim Korrigieren einer digitalen Prüfung (Plattform Probe). Unten stehen die Prüfung mit Musterlösungen und Erwartungshorizont und die Antworten aller Schüler. Die Schüler sind nur über eine Kennung (S-XXXXXX) angegeben.', '',
     '## Deine Aufgabe', '',
-    '- Bewerte JEDE Aufgabe JEDES Schülers: Punkte von 0 bis zur Höchstpunktzahl der Aufgabe, in halben Punkten.',
+    `- Bewerte bei JEDEM Schüler ${tasks.length === 1 ? `die Aufgabe ${nrs}` : `die Aufgaben ${nrs}`} (Nummern wie in der Prüfung; nur ${tasks.length === 1 ? 'diese Aufgabe ist' : 'diese Aufgaben sind'} hier enthalten): Punkte von 0 bis zur Höchstpunktzahl der Aufgabe, in halben Punkten.`,
     '- Maßstab sind Arbeitsauftrag, Musterlösung und Erwartungshorizont („Erwartung: … (Punkte)“). Bei mehreren Teilaspekten vergib die Punkte je erfülltem Aspekt.',
     '- Bewerte sinngemäß: Tipp- und Rechtschreibfehler, Groß-/Kleinschreibung, fehlende oder zusätzliche Leerzeichen und Satzzeichen kosten keine Punkte, wenn die Antwort inhaltlich stimmt. Beispiel: Erwartete Programmausgabe „Apollo hat 50 Liter Treibstoff.“, Ausgabe des Schülers „Apollo hat50 Liter Treibstoff“ → volle Punkte.',
     '- Programmieraufgaben (Java in JPad: println() ohne System.out, Wrapper-Typen wie Integer statt int sind richtig): Beurteile den Code und die Ausgabe des letzten Programmlaufs. Wurde das Programm nie ausgeführt oder danach noch geändert, beurteile den Code selbst und schreibe das in die Begründung. Werte Pflicht-Code („Muss:“) und erwartete Ausgabe („Ausgabe:“) sinngemäß, nicht zeichengenau.',
@@ -78,13 +92,13 @@ export async function buildExport(S2, RS) {
     'Antworte mit GENAU EINEM einzigen JSON-Codeblock – kein Text davor oder danach, keine einzelnen Blöcke je Schüler oder je Aufgabe. Alle Bewertungen aller Schüler stehen zusammen in der Liste "bewertungen", eine Zeile je Schüler und Aufgabe:', '',
     '```json',
     `{"probe":"ki-korrektur","pruefung":"${e.code || e.id}","bewertungen":[`,
-    `  {"schueler":"S-ABCDEF","aufgabe":1,"punkte":2,"begruendung":"…"},`,
-    `  {"schueler":"S-ABCDEF","aufgabe":2,"punkte":1.5,"begruendung":"…"}`,
+    `  {"schueler":"S-ABCDEF","aufgabe":${tasks[0]?.nr ?? 1},"punkte":2,"begruendung":"…"},`,
+    `  {"schueler":"S-GHJKLM","aufgabe":${tasks[0]?.nr ?? 1},"punkte":1.5,"begruendung":"…"}`,
     ']}', '```', '',
     'Halte die Begründungen kurz (höchstens 15 Wörter), damit alles in die eine Antwort passt. Nur falls deine Antwort trotzdem abbrechen würde: höre nach einem vollständigen Schüler auf, schließe den Block korrekt ab und schreibe darunter „Fortsetzung folgt“ – die Lehrkraft fordert den Rest an und liest beide Teile nacheinander ein.', '');
-  const text = await examText(e.draft);
-  L.push('## Die Prüfung (mit Lösungen und Erwartungshorizont)', '',
-    'Format: PathFinder-Text. „### …“ beginnt eine Aufgabe; die Aufgaben sind unten in derselben Reihenfolge nummeriert. „Lösung“, „Erwartung“, „Antwort“, ```java lösung``` und [x] beim Quiz sehen nur Lehrkraft und KI.', '');
+  const text = await examText(e.draft, sel, new Set(key.tasks.map(t => t.id)));
+  L.push(sel ? '## Die Aufgaben aus der Prüfung (mit Lösungen und Erwartungshorizont)' : '## Die Prüfung (mit Lösungen und Erwartungshorizont)', '',
+    `Format: PathFinder-Text. „### …“ beginnt eine Aufgabe${sel ? '; davor steht das Material der Station, auf das sich die Aufgabe bezieht' : ''}. Die Nummern stehen in der Aufgabenübersicht unten. „Lösung“, „Erwartung“, „Antwort“, \`\`\`java lösung\`\`\` und [x] beim Quiz sehen nur Lehrkraft und KI.`, '');
   if (text) L.push(block(text), '');
   L.push('## Aufgabenübersicht', '');
   for (const { t, nr } of tasks) {

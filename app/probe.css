@@ -192,3 +192,10 @@ tr.ki-diff > td { background: #fff0f8; } tr.ki-diff > td:first-child { box-shado
   .ki-box { background: #2c1323; color: #ffd0ea; } .ki-box.soft { background: #23111d; } .ki-why { color: #f3c2dd; }
   tr.ki-diff > td { background: #2c1323; }
 }
+.ki-ico { vertical-align: -0.15em; flex-shrink: 0; }
+.ki-list { display: grid; gap: 4px; max-height: 50vh; overflow: auto; margin: 4px 0 10px; }
+.ki-pick { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.ki-pick input { margin-top: 3px; } .ki-pick:has(input:checked) { border-color: #e0559f; background: #fff3f9; }
+@media (prefers-color-scheme: dark) { .ki-pick:has(input:checked) { background: #2c1323; } }
+.btn.pri.ki { background: #c2307e; border-color: #c2307e; color: #fff; } .btn.pri.ki:hover { background: #a8266b; }
+.btn.pri.ki:disabled { opacity: .5; cursor: default; }
