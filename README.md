@@ -19,6 +19,11 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   automatische Abgabe abschaltbar, Schließen/Beenden, Notfall-Abgabe per Datei.
 * **Auswertung:** Notenschlüssel per Regler, Freitext bewerten, Antworten akzeptieren, Aufgaben streichen, Ergebnisseiten
   mit Ergebniscode veröffentlichen, Kommentare der Schüler.
+* **Namen:** Anmeldungen werden der Klassenliste zugeordnet (`app/names.js`) – auch mit Rufnamen („Max“ für „Maximilian Antony“),
+  einem Teil eines Doppelnamens, Kurzformen („Basti“), Tippfehlern oder vertauschtem Vor- und Nachnamen. In der Auswertung
+  steht der Name aus der Klassenliste (auch in Notenliste, Protokoll, Ergebnisseite); die Lehrkraft kann von Hand zuordnen und
+  doppelte Anmeldungen zusammenführen (fehlende Antworten kommen aus der zweiten Anmeldung). Das steht nur in der verschlüsselten
+  Bewertung und lässt sich jederzeit wieder trennen; die Abgaben selbst bleiben unverändert.
 * **Respizienz:** Die Lehrkraft reicht die korrigierte Prüfung bei der Fachleitung ihrer Fachschaft ein (nur wenn es dort eine
   Fachleitung mit eingerichtetem Konto gibt). Das Paket – Prüfung mit Lösungen, Antworten, Bewertung, Klarnamen – wird für jede
   Fachleitung einzeln verschlüsselt. Die Fachleitung sieht unter „Respizienz“ Verteilung, Notenschlüssel, Ergebnisse und jede

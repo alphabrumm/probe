@@ -4,6 +4,7 @@ import { qrSvg } from './qr.js';
 import { respState, respHtml, respSubmit } from './resp.js';
 import { protokollPdf } from './protokoll.js';
 import { showPdf } from './pdf.js';
+import { matchRoster } from './names.js';
 
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
@@ -12,18 +13,8 @@ let liveTimer = null, clockTimer = null, liveRedraw = () => { };
 export const stopLive = () => { clearInterval(liveTimer); clearInterval(clockTimer); liveTimer = clockTimer = null; };
 addEventListener('hashchange', stopLive);
 
-/* ---------- Namen abgleichen (Klassenliste ↔ Anmeldungen) ---------- */
-const norm = s => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
-function lev(a, b) { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; }
-/** jede Anmeldung einem Namen der Liste zuordnen: exakt, vertauscht oder mit bis zu 2 Tippfehlern (dann „≈“) */
-export function matchRoster(roster, people) {
-  const R = roster.map((r, i) => ({ i, a: norm(r.v + ' ' + r.n), b: norm(r.n + ' ' + r.v) })), used = new Set(), res = new Map();
-  const cands = [];
-  people.forEach(p => { const k = norm(p.v + ' ' + p.n); R.forEach(r => { const d = Math.min(lev(k, r.a), lev(k, r.b)); if (d <= 2) cands.push({ p, r, d }); }); });
-  cands.sort((x, y) => x.d - y.d);
-  for (const c of cands) if (!res.has(c.p.id) && !used.has(c.r.i)) { res.set(c.p.id, { idx: c.r.i, exact: c.d === 0 }); used.add(c.r.i); }
-  return { byPerson: res, missing: roster.filter((_, i) => !used.has(i)) };
-}
+/* ---------- Namen abgleichen (Klassenliste ↔ Anmeldungen): app/names.js ---------- */
+export { matchRoster };
 
 /* ---------- Live ---------- */
 export async function viewLive(e, helpers) {
@@ -61,7 +52,7 @@ export async function viewLive(e, helpers) {
     const rows = P.map(p => ({ ...p, m: M?.byPerson.get(p.id) })).sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
     const ago = t => !t ? '–' : now - t < 60 ? 'gerade' : `vor ${Math.round((now - t) / 60)} min`;
     $('#tab').innerHTML = `<tr><th>Name</th><th>Status</th><th>gespeichert</th><th>Fokus verlassen</th><th>${e.dauer ? 'Zuschlag (nur für diesen Schüler)' : 'Zuschlag'}</th><th></th></tr>`
-      + rows.map(p => `<tr><td><b>${esc(p.n)}</b>, ${esc(p.v)}${M ? (p.m ? (p.m.exact ? '' : ' <span class="chip warn" title="ähnlicher Name in der Klassenliste">≈ Liste</span>') : ' <span class="chip warn">nicht in Liste</span>') : ''}</td>
+      + rows.map(p => `<tr><td><b>${esc(p.n)}</b>, ${esc(p.v)}${M ? (p.m ? (p.m.exact ? '' : ` <span class="chip warn" title="ähnlicher Name in der Klassenliste">≈ ${esc(e.roster[p.m.idx].v)} ${esc(e.roster[p.m.idx].n)}</span>`) : ' <span class="chip warn">nicht in Liste</span>') : ''}</td>
         <td>${p.status === 'abgegeben' ? `<span class="chip good">✓ abgegeben${+p.imported ? ' (Datei)' : ''}</span>` : now - p.last_seen > 75 ? `<span class="chip bad">offline ${ago(p.last_seen)}</span>` : '<span class="chip">arbeitet</span>'}</td>
         <td>${ago(p.saved)}</td><td>${+p.fokus ? `<span class="chip ${+p.fokus > 2 ? 'bad' : 'warn'}">${p.fokus}×</span>` : '–'}</td>
         <td><select data-zu="${p.id}" style="width:auto;min-height:36px">${[0, 5, 10, 15, 20, 30, 45].map(m => `<option value="${m}"${+p.zuschlag === m ? ' selected' : ''}>${m ? '+' + m + ' min' : '–'}</option>`).join('')}</select></td>
@@ -150,14 +141,112 @@ export async function viewEval(e, helpers) {
     let who = { v: '?', n: '(unlesbar)', rc: '' }, ans = {};
     try { who = await K.open(S.priv, p.identity_enc); } catch (er) { }
     try { if (p.answers_enc) ans = (await K.open(S.priv, p.answers_enc)).answers || {}; } catch (er) { }
-    people.push({ id: p.id, v: who.v, n: who.n, rc: who.rc, ans, status: p.status, imported: +p.imported, fokus: +p.fokus, rid: who.rc ? (await K.reportKeys(who.rc)).rid : '' });
+    people.push({ id: p.id, v: who.v, n: who.n, rc: who.rc, ans, status: p.status, imported: +p.imported, fokus: +p.fokus, saved: +p.saved || 0, rid: who.rc ? (await K.reportKeys(who.rc)).rid : '' });
   }
-  people.sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
   const comments = [];
-  for (const c of r.comments) { try { comments.push({ ...c, ...(await K.open(S.priv, c.comment_enc)), who: people.find(p => p.rid === c.rid) }); } catch (er) { } }
-  S2 = { e: { ...e, ...r.exam }, key, people, g, comments, M, resp: null };
+  for (const c of r.comments) { try { comments.push({ ...c, ...(await K.open(S.priv, c.comment_enc)) }); } catch (er) { } }
+  S2 = { e: { ...e, ...r.exam }, key, raw: people, people: [], g, comments, M, resp: null };
+  buildPeople();
   try { S2.resp = await respState(S2.e, X); } catch (er) { }
   drawEval();
+}
+/* ---------- Namen: Klassenliste zuordnen, doppelte Anmeldungen zusammenführen ----------
+ * Alles steht in der (verschlüsselten) Bewertung g und lässt sich jederzeit ändern – an den Abgaben selbst ändert sich nichts.
+ *   g.link  { pid: 'Nachname|Vorname' }  von der Lehrkraft festgelegter Eintrag der Klassenliste ('' = gehört zu niemandem der Liste)
+ *   g.merge { pid: pidZiel }             diese Anmeldung gehört zu pidZiel; ihre Antworten füllen dort nur Aufgaben ohne Antwort
+ */
+const rkey = r => r.n + '|' + r.v;
+const isEmptyAns = v => v == null || v === '' || (Array.isArray(v) ? v.every(isEmptyAns) : typeof v === 'object' && Object.keys(v).length === 0);
+/** Antwort der gültigen Anmeldung, Fehlendes aus der anderen: bei Quiz, Lückentext, Zuordnen und Sortieren je Frage/Lücke/Paar/Begriff,
+ *  sonst nur ganze Aufgaben (Markierungen, Reihenfolgen, Texte und Code aus zwei Anmeldungen nicht vermischen) */
+const PER_PART = new Set(['quiz', 'gap', 'match', 'sort']);
+function fillAns(type, a, b) {
+  if (isEmptyAns(a)) return b;
+  if (!PER_PART.has(type) || isEmptyAns(b) || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return a;
+  const o = Array.isArray(a) ? a.slice() : { ...a };
+  for (const k of Object.keys(b)) if (isEmptyAns(o[k])) o[k] = b[k];
+  return o;
+}
+function mergeTarget(id) { const { raw, g } = S2, t = g.merge?.[id]; return t != null && t !== id && raw.some(p => p.id === t) && g.merge[t] == null ? t : null; }
+function buildPeople() {
+  const { raw, g, e } = S2; g.merge = g.merge || {}; g.link = g.link || {};
+  const roster = e.roster || [], types = Object.fromEntries(S2.key.tasks.map(t => [t.id, t.type]));
+  const people = raw.filter(p => mergeTarget(p.id) == null).map(p => {
+    const parts = raw.filter(q => mergeTarget(q.id) === p.id), ans = { ...p.ans };
+    for (const q of parts) for (const k of Object.keys(q.ans || {})) ans[k] = fillAns(types[k], ans[k], q.ans[k]);
+    return { ...p, ans, typed: { v: p.v, n: p.n }, merged: parts, rids: [p.rid, ...parts.map(q => q.rid)].filter(Boolean),
+      fokus: p.fokus + parts.reduce((s, q) => s + q.fokus, 0), imported: p.imported || parts.some(q => q.imported) ? 1 : 0, m: null };
+  });
+  S2.missing = [];
+  if (roster.length) {
+    const fixed = new Map();
+    for (const p of people) if (Object.prototype.hasOwnProperty.call(g.link, p.id)) {
+      const k = g.link[p.id], i = k ? roster.findIndex(r => rkey(r) === k) : -1;
+      if (!k || i >= 0) fixed.set(p.id, i);
+    }
+    const R = matchRoster(roster, people.map(p => ({ id: p.id, v: p.typed.v, n: p.typed.n })), fixed);
+    for (const p of people) {
+      const m = R.byPerson.get(p.id);
+      if (m) { const r = roster[m.idx]; p.v = r.v; p.n = r.n; p.m = m.manual ? 'manual' : m.exact ? 'exact' : 'approx'; }
+      else p.m = fixed.get(p.id) === -1 ? 'outside' : 'none';
+    }
+    S2.missing = R.missing;
+  }
+  people.sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
+  S2.people = people;
+  for (const c of S2.comments) c.who = people.find(p => c.rid && p.rids.includes(c.rid));
+}
+const typedName = p => `${p.typed.v} ${p.typed.n}`.trim();
+function nameChips(p) {
+  const { esc } = X, t = esc(typedName(p));
+  return ({ approx: ` <span class="chip warn" title="so eingegeben – automatisch der Klassenliste zugeordnet">≈ „${t}“</span>`, manual: p.typed.v !== p.v || p.typed.n !== p.n ? ` <span class="chip" title="von dir zugeordnet">↔ „${t}“</span>` : '',
+    none: ' <span class="chip bad">nicht in der Klassenliste</span>', outside: ' <span class="chip">nicht in der Klassenliste</span>' }[p.m] || '')
+    + (p.merged.length ? ` <span class="chip" title="${esc(p.merged.map(q => `${q.v} ${q.n}`).join(', '))}">＋${p.merged.length} Anmeldung${p.merged.length > 1 ? 'en' : ''}</span>` : '');
+}
+/** Namen-Bereich im Bewertungsdialog: Klassenliste zuordnen, mit anderer Anmeldung zusammenführen, wieder trennen */
+function nameBox(p) {
+  const { esc } = X, { e } = S2, roster = e.roster || [], taken = new Map(S2.people.filter(q => q.m && q.m !== 'none' && q.m !== 'outside').map(q => [rkey(q), q]));
+  const linkSel = roster.length ? `<label class="help">Klassenliste <select data-link style="width:auto;min-height:36px">
+      <option value="*"${!Object.prototype.hasOwnProperty.call(S2.g.link, p.id) ? ' selected' : ''}>automatisch${p.m === 'exact' || p.m === 'approx' ? ` (${esc(p.v)} ${esc(p.n)})` : ''}</option>
+      ${roster.map(r => { const o = taken.get(rkey(r)); return `<option value="${esc(rkey(r))}"${S2.g.link[p.id] === rkey(r) ? ' selected' : ''}>${esc(r.n)}, ${esc(r.v)}${o && o.id !== p.id ? ` – jetzt bei „${esc(typedName(o))}“` : ''}</option>`; }).join('')}
+      <option value=""${S2.g.link[p.id] === '' ? ' selected' : ''}>– gehört zu niemandem der Liste –</option></select></label>` : '';
+  const others = S2.people.filter(q => q.id !== p.id);
+  return `<div class="pt"><div class="help">Angemeldet als <b>${esc(typedName(p))}</b>${p.merged.map(q => ` · zusammengeführt mit <b>${esc(q.v)} ${esc(q.n)}</b> <button class="btn sm ghost" data-unmerge="${q.id}">trennen</button>`).join('')}</div>
+    <div class="btns" style="margin:6px 0 0">${linkSel}${others.length ? `<label class="help">Doppelt angemeldet? <select data-mergesel style="width:auto;min-height:36px"><option value="">zusammenführen mit …</option>${others.map(q => `<option value="${q.id}">${esc(q.n)}, ${esc(q.v)}${q.typed.v !== q.v || q.typed.n !== q.n ? ` („${esc(typedName(q))}“)` : ''}</option>`).join('')}</select></label>` : ''}</div></div>`;
+}
+/** Namen-Aktionen im Dialog; true = erledigt (Dialog wird neu aufgebaut) */
+function nameAction(ev, p, reopen) {
+  const { g } = S2;
+  const un = ev.target.closest?.('[data-unmerge]');
+  if (un && ev.type === 'click') { delete g.merge[+un.dataset.unmerge]; saveGrading(); buildPeople(); drawEval(); reopen(); return true; }
+  if (ev.type !== 'change') return false;
+  if (ev.target.matches('[data-link]')) {
+    const v = ev.target.value;
+    if (v === '*') delete g.link[p.id];
+    else { for (const k of Object.keys(g.link)) if (v && g.link[k] === v) delete g.link[k]; g.link[p.id] = v; }
+    saveGrading(); buildPeople(); drawEval(); reopen(); return true;
+  }
+  if (ev.target.matches('[data-mergesel]') && ev.target.value) {
+    const q = S2.people.find(x => x.id === +ev.target.value); if (!q) return true;
+    if (!confirm(`„${typedName(q)}“ mit „${typedName(p)}“ zusammenführen?\n\nEs zählt die Anmeldung „${typedName(p)}“. Aufgaben, die dort keine Antwort haben, bekommen die Antwort aus „${typedName(q)}“. Du kannst das jederzeit wieder trennen.`)) { ev.target.value = ''; return true; }
+    g.merge[q.id] = p.id; for (const x of q.merged) g.merge[x.id] = p.id;
+    if (!Object.prototype.hasOwnProperty.call(g.link, p.id) && q.m === 'manual') g.link[p.id] = g.link[q.id];
+    delete g.link[q.id];
+    saveGrading(); buildPeople(); drawEval(); reopen(); return true;
+  }
+  return false;
+}
+/** fehlender Name der Klassenliste: eine Anmeldung auswählen, die zu ihm gehört */
+function assignDialog(k) {
+  const { esc } = X, r = (S2.e.roster || []).find(x => rkey(x) === k); if (!r) return;
+  const list = S2.people.slice().sort((a, b) => (a.m === 'none' ? 0 : 1) - (b.m === 'none' ? 0 : 1));
+  const d = X.dialog(`${esc(r.v)} ${esc(r.n)} zuordnen`, `<p class="help">Welche Anmeldung gehört zu <b>${esc(r.v)} ${esc(r.n)}</b>? Ist der Name bisher einem anderen Listeneintrag zugeordnet, wird er umgehängt.</p>
+    ${list.map(p => `<button class="btn" style="display:flex;width:100%;margin:4px 0;text-align:left" data-pick="${p.id}"><span style="flex:1">„${esc(typedName(p))}“</span><span class="help">${p.m === 'none' ? 'nicht in der Liste' : p.m === 'outside' ? 'gehört zu niemandem der Liste' : `jetzt: ${esc(p.v)} ${esc(p.n)}`}</span></button>`).join('')}`);
+  d.el.onclick = ev => {
+    const b = ev.target.closest('[data-pick]'); if (!b) return;
+    const { g } = S2; for (const x of Object.keys(g.link)) if (g.link[x] === k) delete g.link[x];
+    g.link[+b.dataset.pick] = k; saveGrading(); buildPeople(); d.close(); drawEval();
+  };
 }
 const gradeOf = (pct, g, skala, M) => skala === 'punkte' ? M.pointsFor(pct, g.gkey) : M.gradeFor(pct, g.gkey);
 function results() {
@@ -185,7 +274,7 @@ function drawEval() {
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
     <div class="grid2" style="margin-top:16px"><section class="card"><h2>Notenschlüssel</h2><div id="key"></div></section><section class="card"><h2>Verteilung</h2><div id="dist"></div></section></div>
-    <section class="card" style="margin-top:16px"><h2>Ergebnisse</h2><div class="scroll-x"><table class="t" id="res"></table></div><p class="help">Zeile antippen: Aufgaben einzeln ansehen, Punkte ändern, Rückmeldung schreiben.</p></section>
+    <section class="card" style="margin-top:16px"><h2>Ergebnisse</h2><div class="scroll-x"><table class="t" id="res"></table></div><p class="help">Zeile antippen: Aufgaben einzeln ansehen, Punkte ändern, Rückmeldung schreiben – dort auch Namen der Klassenliste zuordnen oder doppelte Anmeldungen zusammenführen.</p><div id="miss"></div></section>
     <section class="card" style="margin-top:16px"><h2>Aufgaben</h2><div class="scroll-x"><table class="t" id="tasks"></table></div></section>
     ${comments.length ? `<section class="card" style="margin-top:16px"><h2>Kommentare der Schüler</h2>${comments.slice().reverse().map(c => `<div class="cmt${+c.gelesen ? '' : ' new'}"><b>${esc(c.who ? c.who.n + ', ' + c.who.v : c.name)}</b> · ${esc(c.title)} · <span class="help">${new Date(c.created * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</span><p>${esc(c.text)}</p>${+c.gelesen ? '' : `<button class="btn sm" data-read="${c.id}">✓ gelesen</button>`} ${c.who ? `<button class="btn sm" data-person="${c.who.id}">Bewertung öffnen</button>` : ''}</div>`).join('')}</section>` : ''}`;
   drawKey(); drawTables();
@@ -203,7 +292,8 @@ function drawEval() {
     a.download = `Noten_${e.klasse}_${e.fach}_${e.datum}.csv`.replace(/[^\wäöüÄÖÜß.-]+/g, '_'); a.click();
   };
   main.onclick = async ev => {
-    const t = ev.target.closest('[data-person],[data-task],[data-acc],[data-drop],[data-read]'); if (!t) return;
+    const t = ev.target.closest('[data-person],[data-task],[data-acc],[data-drop],[data-read],[data-assign]'); if (!t) return;
+    if (t.dataset.assign != null) { assignDialog(t.dataset.assign); return; }
     if (t.dataset.person) personDialog(+t.dataset.person);
     if (t.dataset.task) essayDialog(t.dataset.task);
     if (t.dataset.acc) acceptDialog(t.dataset.acc);
@@ -238,8 +328,9 @@ function drawTables() {
     <p><b>Durchschnitt: ${RS.length ? avg.toFixed(2).replace('.', ',') : '–'}</b>${pts ? ' Punkte' : ''} · ${RS.length} Teilnehmer${pts ? '' : ` · Note 5 und 6: ${(cnt[5] || 0) + (cnt[6] || 0)}`}</p>`;
   // Ergebnisse je Schüler
   const unread = new Set(S2.comments.filter(c => !+c.gelesen && c.who).map(c => c.who.id));
-  $('#res').innerHTML = `<tr><th>Name</th><th>Punkte</th><th>%</th><th>${pts ? 'Punkte (0–15)' : 'Note'}</th><th></th></tr>` + RS.map(x => `<tr data-person="${x.p.id}" style="cursor:pointer"><td><b>${esc(x.p.n)}</b>, ${esc(x.p.v)}${x.p.imported ? ' <span class="chip">Datei</span>' : ''}${x.p.fokus ? ` <span class="chip warn" title="hat den Browser verlassen">${x.p.fokus}× Fokus</span>` : ''}</td>
+  $('#res').innerHTML = `<tr><th>Name</th><th>Punkte</th><th>%</th><th>${pts ? 'Punkte (0–15)' : 'Note'}</th><th></th></tr>` + RS.map(x => `<tr data-person="${x.p.id}" style="cursor:pointer"><td><b>${esc(x.p.n)}</b>, ${esc(x.p.v)}${nameChips(x.p)}${x.p.imported ? ' <span class="chip">Datei</span>' : ''}${x.p.fokus ? ` <span class="chip warn" title="hat den Browser verlassen">${x.p.fokus}× Fokus</span>` : ''}</td>
     <td>${fmtPts(x.R.total)} / ${fmtPts(x.R.max)}</td><td>${Math.round(x.R.pct)}</td><td><b>${x.note}</b></td><td>${x.R.pending ? `<span class="chip warn">${x.R.pending} offen</span>` : ''}${unread.has(x.p.id) ? ' <span class="chip bad">💬</span>' : ''}</td></tr>`).join('');
+  $('#miss').innerHTML = S2.missing?.length ? `<div class="pt"><b>Laut Klassenliste ohne Abgabe (${S2.missing.length}):</b> ${S2.missing.map(r => `<button class="btn sm ghost" data-assign="${esc(rkey(r))}" title="Anmeldung zuordnen">${esc(r.n)}, ${esc(r.v)} ↔</button>`).join(' ')}<div class="help">Hat sich jemand mit einem stark abweichenden Namen angemeldet, tippe seinen Namen an und wähle die Anmeldung.</div></div>` : '';
   // Aufgaben
   $('#tasks').innerHTML = `<tr><th>Aufgabe</th><th>Ø Punkte</th><th></th></tr>` + key.tasks.map((t, i) => {
     const its = RS.map(x => x.R.items[i]), drop = g.drop.includes(t.id), open = its.filter(x => x.open).length;
@@ -255,7 +346,7 @@ function personDialog(pid) {
   const { esc, fmtPts } = X, { key, g } = S2, x = results().find(y => y.p.id === pid); if (!x) return;
   const fbk = g.feedback[pid] || {};
   const top = x.p.rc ? `<div class="help">Ergebniscode <b>${esc(x.p.rc)}</b>${S2.e.status === 'veroeffentlicht' ? ` · <a href="${esc(resultLink(x.p.rc))}" target="_blank" rel="noopener">Ergebnisseite ansehen (Vorschau)</a>` : ' · die Ergebnisseite gibt es nach dem Veröffentlichen'}</div>` : '';
-  const d = X.dialog(`${esc(x.p.v)} ${esc(x.p.n)} · ${fmtPts(x.R.total)} / ${fmtPts(x.R.max)} P. · ${S2.e.skala === 'punkte' ? '' : 'Note '}${x.note}`, top + key.tasks.map((t, i) => {
+  const d = X.dialog(`${esc(x.p.v)} ${esc(x.p.n)} · ${fmtPts(x.R.total)} / ${fmtPts(x.R.max)} P. · ${S2.e.skala === 'punkte' ? '' : 'Note '}${x.note}`, top + nameBox(x.p) + key.tasks.map((t, i) => {
     const it = x.R.items[i], free = !it.auto;
     return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(t.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `<input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-pp="${t.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.`}</div>
       ${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
@@ -263,8 +354,11 @@ function personDialog(pid) {
       ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}
       <textarea data-fb="${t.id}" rows="2" placeholder="Rückmeldung zu dieser Aufgabe (sieht der Schüler)">${esc(fbk[t.id] || '')}</textarea></div>`;
   }).join('') + '<button class="btn pri" data-save>Speichern</button>', { wide: true });
+  const reopen = () => { d.close(); personDialog(pid); };
+  d.el.onchange = ev => { nameAction(ev, x.p, reopen); };
   d.el.onclick = ev => {
     if (appView(ev, x.p)) return;
+    if (nameAction(ev, x.p, reopen)) return;
     if (!ev.target.closest('[data-save]')) return;
     const man = g.manual[pid] = g.manual[pid] || {}, ov = g.override[pid] = g.override[pid] || {}, fb = g.feedback[pid] = {};
     for (const inp of $$('[data-pp]', d.el)) {
@@ -342,8 +436,10 @@ async function publish() {
         const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
           punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
           items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
-        const { rid, key: k } = await X.K.reportKeys(x.p.rc);
-        reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });
+        for (const rc of [x.p.rc, ...x.p.merged.map(q => q.rc)].filter(Boolean)) { // doppelt angemeldet: unter jedem Ergebniscode dieselbe Seite
+          const { rid, key: k } = await X.K.reportKeys(rc);
+          reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });
+        }
       }
       const r = await X.api('exam_publish', { id: e.id, reports, days: g.days });
       S2.e = { ...S2.e, ...r.exam };
