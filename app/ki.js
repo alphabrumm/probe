@@ -75,13 +75,13 @@ export async function buildExport(S2, RS) {
     '- Begründe jede Bewertung kurz und sachlich auf Deutsch (ein Satz; bei Abweichung von Probe: warum).',
     '- Schreibe die Kennungen genau ab. Stelle keine Vermutungen über die Identität der Schüler an.', '',
     '## Antwortformat', '',
-    'Antworte NUR mit einem JSON-Codeblock in genau diesem Format (eine Zeile je Schüler und Aufgabe, alle Schüler, alle Aufgaben):', '',
+    'Antworte mit GENAU EINEM einzigen JSON-Codeblock – kein Text davor oder danach, keine einzelnen Blöcke je Schüler oder je Aufgabe. Alle Bewertungen aller Schüler stehen zusammen in der Liste "bewertungen", eine Zeile je Schüler und Aufgabe:', '',
     '```json',
     `{"probe":"ki-korrektur","pruefung":"${e.code || e.id}","bewertungen":[`,
     `  {"schueler":"S-ABCDEF","aufgabe":1,"punkte":2,"begruendung":"…"},`,
     `  {"schueler":"S-ABCDEF","aufgabe":2,"punkte":1.5,"begruendung":"…"}`,
     ']}', '```', '',
-    'Wird die Antwort zu lang, teile sie auf mehrere solche JSON-Blöcke auf (jeder vollständig, mit Kopf "probe" und "pruefung") – die Lehrkraft kann alle nacheinander einlesen.', '');
+    'Halte die Begründungen kurz (höchstens 15 Wörter), damit alles in die eine Antwort passt. Nur falls deine Antwort trotzdem abbrechen würde: höre nach einem vollständigen Schüler auf, schließe den Block korrekt ab und schreibe darunter „Fortsetzung folgt“ – die Lehrkraft fordert den Rest an und liest beide Teile nacheinander ein.', '');
   const text = await examText(e.draft);
   L.push('## Die Prüfung (mit Lösungen und Erwartungshorizont)', '',
     'Format: PathFinder-Text. „### …“ beginnt eine Aufgabe; die Aufgaben sind unten in derselben Reihenfolge nummeriert. „Lösung“, „Erwartung“, „Antwort“, ```java lösung``` und [x] beim Quiz sehen nur Lehrkraft und KI.', '');
@@ -119,19 +119,43 @@ export async function buildExport(S2, RS) {
   return L.join('\n');
 }
 
-/** Antwort der KI lesen: alle JSON-Blöcke (```json … ```) oder ein reines JSON */
-export function parseImport(text) {
-  const s = String(text || '').trim(), objs = [];
-  const tryParse = t => { try { const o = JSON.parse(t.replace(/^﻿/, '').replace(/,\s*([\]}])/g, '$1')); if (o && typeof o === 'object') objs.push(o); return true; } catch (e) { return false; } };
-  const fences = [...s.matchAll(/(```|~~~)(?:json)?\s*\n([\s\S]*?)\n\s*\1/g)].map(m => m[2]);
-  if (fences.length) fences.forEach(tryParse);
-  else if (!tryParse(s)) { const a = s.indexOf('{'), b = s.lastIndexOf('}'); if (a >= 0 && b > a) tryParse(s.slice(a, b + 1)); }
-  const rows = [], codes = new Set();
-  for (const o of objs) {
-    if (o.pruefung != null) codes.add(String(o.pruefung));
-    for (const r of Array.isArray(o.bewertungen) ? o.bewertungen : Array.isArray(o) ? o : []) rows.push(r);
+/**
+ * Antwort der KI lesen – möglichst nachsichtig, denn KIs halten sich nicht immer an das Format:
+ * ein großer JSON-Block, viele einzelne Schnipsel (je Schüler oder je Bewertung), Listen, JSON-Zeilen,
+ * mit oder ohne ```json-Rahmen und Text dazwischen. Gesammelt wird jedes Objekt mit Kennung, Aufgabe und Punkten.
+ */
+function jsonValues(text) {
+  const out = [], s = String(text || '');
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]; if (c !== '{' && c !== '[') continue;
+    let depth = 0, str = false, esc = false, j = i;
+    for (; j < s.length; j++) {
+      const d = s[j];
+      if (str) { if (esc) esc = false; else if (d === '\\') esc = true; else if (d === '"') str = false; continue; }
+      if (d === '"') str = true; else if (d === '{' || d === '[') depth++; else if (d === '}' || d === ']') { if (--depth === 0) break; }
+    }
+    if (depth !== 0) continue;
+    const chunk = s.slice(i, j + 1);
+    try { out.push(JSON.parse(chunk.replace(/,\s*([\]}])/g, '$1'))); i = j; } catch (e) { /* kein JSON ab hier – beim nächsten Zeichen weitersuchen */ }
   }
-  return { rows, codes: [...codes], blocks: objs.length };
+  return out;
+}
+const pick = (o, ...keys) => { for (const k of keys) if (o[k] != null) return o[k]; return undefined; };
+export function parseImport(text) {
+  const rows = [], codes = new Set();
+  const walk = (v, ctx) => {
+    if (Array.isArray(v)) { v.forEach(x => walk(x, ctx)); return; }
+    if (!v || typeof v !== 'object') return;
+    const code = pick(v, 'pruefung', 'prüfung', 'exam'); if (code != null) codes.add(String(code));
+    const sid = pick(v, 'schueler', 'schüler', 'kennung', 'student') ?? ctx.sid;
+    const nr = pick(v, 'aufgabe', 'nr', 'task'), pts = pick(v, 'punkte', 'pts', 'points');
+    if (sid != null && nr != null && pts != null && typeof pts !== 'object') rows.push({ schueler: sid, aufgabe: nr, punkte: pts, begruendung: pick(v, 'begruendung', 'begründung', 'grund', 'reason') ?? '' });
+    for (const [k, x] of Object.entries(v)) if (x && typeof x === 'object') walk(x, { sid: /^S-[A-Z0-9]{6}$/i.test(k) ? k : sid });
+  };
+  for (const v of jsonValues(text)) walk(v, {});
+  // doppelte Angaben (gleicher Schüler, gleiche Aufgabe): die letzte gilt
+  const seen = new Map(); for (const r of rows) seen.set(String(r.schueler).trim().toUpperCase() + '|' + parseInt(r.aufgabe, 10), r);
+  return { rows: [...seen.values()], codes: [...codes] };
 }
 
 /**

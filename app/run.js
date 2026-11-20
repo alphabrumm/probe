@@ -485,7 +485,7 @@ async function kiExport() {
 }
 function kiImport() {
   const { esc } = X, has = S2.g.ki && Object.keys(S2.g.ki).length;
-  const d = X.dialog('✱ KI-Vorschläge einlesen', `<p class="help">Füge die Antwort der KI ein (den JSON-Block oder die ganze Antwort) – mehrere Blöcke gehen auch nacheinander. Die Vorschläge erscheinen pink mit ✱ bei jedem Schüler; an deiner Bewertung ändert sich erst etwas, wenn du einen Vorschlag übernimmst.</p>
+  const d = X.dialog('✱ KI-Vorschläge einlesen', `<p class="help">Füge die ganze Antwort der KI ein – auch wenn sie aus vielen einzelnen JSON-Schnipseln mit Text dazwischen besteht; Probe sammelt alle Bewertungen heraus. Teil-Antworten kannst du nacheinander einlesen. Die Vorschläge erscheinen pink mit ✱ bei jedem Schüler; an deiner Bewertung ändert sich erst etwas, wenn du einen Vorschlag übernimmst.</p>
     <textarea id="kiT" rows="10" placeholder='{"probe":"ki-korrektur", … }'></textarea><div class="err" id="kiErr"></div>
     <div class="btns"><button class="btn pri" data-go>Einlesen</button><button class="btn" data-file>Datei wählen</button>${has ? '<span class="sp"></span><button class="btn danger" data-clear>Alle KI-Vorschläge entfernen</button>' : ''}</div>`, { wide: true });
   d.el.onclick = async ev => {
