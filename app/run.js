@@ -6,6 +6,7 @@ import { protokollPdf } from './protokoll.js';
 import { showPdf } from './pdf.js';
 import { matchRoster } from './names.js';
 import { buildExport, parseImport, applyImport } from './ki.js';
+import { codeAnswerHtml, highlight, langOf } from './hl.js';
 
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
@@ -257,6 +258,18 @@ function results() {
     return { p, R, note: gradeOf(R.pct, g, e.skala, M) };
   });
 }
+/**
+ * Nur zur Ansicht (nicht in CSV, Protokoll oder Ergebnisseite): Pfeil neben der Note, wenn ein halber Punkt die Note ändern würde –
+ * grün ↑: mit +0,5 P. die nächstbessere Note, rot ↓: mit −0,5 P. die nächstschlechtere.
+ */
+function noteTrend(x) {
+  const { g, e, M } = S2, { total, max } = x.R; if (!max) return '';
+  const at = t => gradeOf(100 * t / max, g, e.skala, M);
+  const up = total + 0.5 <= max + 1e-9 && at(total + 0.5) !== x.note, down = total - 0.5 >= -1e-9 && at(total - 0.5) !== x.note;
+  const unit = e.skala === 'punkte' ? 'Notenpunkte' : 'Note';
+  return (up ? `<span class="trend up" title="Ein halber Punkt mehr ergibt ${unit} ${at(total + 0.5)}">▲</span>` : '')
+    + (down ? `<span class="trend down" title="Ein halber Punkt weniger ergibt ${unit} ${at(total - 0.5)}">▼</span>` : '');
+}
 function saveGrading() {
   clearTimeout(S2.saveT);
   S2.saveT = setTimeout(async () => { try { await X.api('exam_grading', { id: S2.e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, S2.g) }); } catch (er) { X.toast('⚠ Bewertung nicht gespeichert: ' + X.esc(er.message), 5000); } }, 600);
@@ -332,7 +345,7 @@ function drawTables() {
   // Ergebnisse je Schüler
   const unread = new Set(S2.comments.filter(c => !+c.gelesen && c.who).map(c => c.who.id));
   $('#res').innerHTML = `<tr><th>Name</th><th>Punkte</th><th>%</th><th>${pts ? 'Punkte (0–15)' : 'Note'}</th><th></th></tr>` + RS.map(x => { const k = kiStats(x); return `<tr data-person="${x.p.id}" style="cursor:pointer"${k.diff ? ' class="ki-diff"' : ''}><td><b>${esc(x.p.n)}</b>, ${esc(x.p.v)}${nameChips(x.p)}${k.html}${x.p.imported ? ' <span class="chip">Datei</span>' : ''}${x.p.fokus ? ` <span class="chip warn" title="hat den Browser verlassen">${x.p.fokus}× Fokus</span>` : ''}</td>
-    <td>${fmtPts(x.R.total)} / ${fmtPts(x.R.max)}</td><td>${Math.round(x.R.pct)}</td><td><b>${x.note}</b></td><td>${x.R.pending ? `<span class="chip warn">${x.R.pending} offen</span>` : ''}${unread.has(x.p.id) ? ' <span class="chip bad">💬</span>' : ''}</td></tr>`; }).join('');
+    <td>${fmtPts(x.R.total)} / ${fmtPts(x.R.max)}</td><td>${Math.round(x.R.pct)}</td><td class="note-c"><b>${x.note}</b>${noteTrend(x)}</td><td>${x.R.pending ? `<span class="chip warn">${x.R.pending} offen</span>` : ''}${unread.has(x.p.id) ? ' <span class="chip bad">💬</span>' : ''}</td></tr>`; }).join('');
   $('#miss').innerHTML = S2.missing?.length ? `<div class="pt"><b>Laut Klassenliste ohne Abgabe (${S2.missing.length}):</b> ${S2.missing.map(r => `<button class="btn sm ghost" data-assign="${esc(rkey(r))}" title="Anmeldung zuordnen">${esc(r.n)}, ${esc(r.v)} ↔</button>`).join(' ')}<div class="help">Hat sich jemand mit einem stark abweichenden Namen angemeldet, tippe seinen Namen an und wähle die Anmeldung.</div></div>` : '';
   // Aufgaben
   $('#tasks').innerHTML = `<tr><th>Aufgabe</th><th>Ø Punkte</th><th></th></tr>` + key.tasks.map((t, i) => {
@@ -345,38 +358,55 @@ function drawTables() {
   }).join('');
 }
 /** einen Schüler bewerten: alle Aufgaben, Punkte überschreiben, Rückmeldung */
+/** Schüler-Dialog: Schalter „Nur offene KI-Vorschläge“ – nur da, wenn KI-Vorschläge eingelesen sind; standardmäßig an */
+let kiOnly = true;
+const kiOpenAt = (x, t, i) => { const k = kiOf(x.p.id, t.id), it = x.R.items[i]; return !!k && !it.dropped && k.st === 'neu' && k.pts !== it.pts; };
 function personDialog(pid) {
   const { esc, fmtPts } = X, { key, g } = S2, x = results().find(y => y.p.id === pid); if (!x) return;
+  const hasKi = !!(g.ki && Object.keys(g.ki).length), only = hasKi && kiOnly;
+  const shown = key.tasks.map((t, i) => ({ t, i })).filter(({ t, i }) => !only || kiOpenAt(x, t, i));
+  const kiBar = hasKi ? `<div class="ki-toggle"><label class="switch"><input type="checkbox" data-kionly${only ? ' checked' : ''}><span></span></label><b>${KI} Nur offene KI-Vorschläge</b><span class="help">${only ? `${shown.length} von ${key.tasks.length} Aufgaben` : 'alle Aufgaben'}</span></div>`
+    + (only && !shown.length ? `<div class="pt help">Bei ${esc(x.p.v)} gibt es keine offenen KI-Vorschläge mehr – Schalter aus, um alle Aufgaben zu sehen.</div>` : '') : '';
   const fbk = g.feedback[pid] || {};
   const top = x.p.rc ? `<div class="help">Ergebniscode <b>${esc(x.p.rc)}</b>${S2.e.status === 'veroeffentlicht' ? ` · <a href="${esc(resultLink(x.p.rc))}" target="_blank" rel="noopener">Ergebnisseite ansehen (Vorschau)</a>` : ' · die Ergebnisseite gibt es nach dem Veröffentlichen'}</div>` : '';
-  const d = X.dialog(`${esc(x.p.v)} ${esc(x.p.n)} · ${fmtPts(x.R.total)} / ${fmtPts(x.R.max)} P. · ${S2.e.skala === 'punkte' ? '' : 'Note '}${x.note}`, top + nameBox(x.p) + key.tasks.map((t, i) => {
+  const d = X.dialog(`${esc(x.p.v)} ${esc(x.p.n)} · ${fmtPts(x.R.total)} / ${fmtPts(x.R.max)} P. · ${S2.e.skala === 'punkte' ? '' : 'Note '}${x.note}${noteTrend(x)}`, top + kiBar + nameBox(x.p) + shown.map(({ t, i }) => {
     const it = x.R.items[i], free = !it.auto;
     return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(t.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `<input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-pp="${t.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.`}</div>
-      ${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
+      ${only ? kiBox(x.p, t, it) : ''}${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
       ${free || it.text != null ? `${ansHtml(it)}${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}` : ''}${appBtn(t, it, pid)}
-      ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}${kiBox(x.p, t, it)}
+      ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}${only ? '' : kiBox(x.p, t, it)}
       <textarea data-fb="${t.id}" rows="2" placeholder="Rückmeldung zu dieser Aufgabe (sieht der Schüler)">${esc(fbk[t.id] || '')}</textarea></div>`;
   }).join('') + (kiStats(x).open > 1 ? `<div class="btns"><button class="btn ki" data-kiall="${pid}">${KI} Alle ${kiStats(x).open} offenen KI-Vorschläge übernehmen</button></div>` : '') + '<button class="btn pri" data-save>Speichern</button>', { wide: true });
   const reopen = () => { d.close(); personDialog(pid); };
-  d.el.onchange = ev => { nameAction(ev, x.p, reopen); };
+  d.el.onchange = ev => { if (ev.target.matches('[data-kionly]')) { kiOnly = ev.target.checked; reopen(); return; } nameAction(ev, x.p, reopen); };
   d.el.onclick = ev => {
     if (appView(ev, x.p)) return;
     if (nameAction(ev, x.p, reopen)) return;
     if (kiAction(ev, reopen)) return;
+    const nav = ev.target.closest('[data-pnav]');
+    if (nav) { save(); d.close(); drawEval(); personDialog(+nav.dataset.pnav); return; }
     if (!ev.target.closest('[data-save]')) return;
-    const man = g.manual[pid] = g.manual[pid] || {}, ov = g.override[pid] = g.override[pid] || {}, fb = g.feedback[pid] = {};
+    save(); d.close(); drawEval();
+  };
+  // Vorheriger / nächster Schüler (Reihenfolge wie in der Ergebnisliste); beim Wechseln wird gespeichert
+  const order = results().map(y => y.p), pos = order.findIndex(p => p.id === pid), prev = order[pos - 1], next = order[pos + 1];
+  const navEl = document.createElement('span'); navEl.className = 'pnav';
+  navEl.innerHTML = `<button class="btn sm" data-pnav="${prev?.id ?? ''}"${prev ? ` title="${esc(prev.v)} ${esc(prev.n)}"` : ' disabled'}>‹ Vorheriger</button><span class="help">${pos + 1}/${order.length}</span><button class="btn sm" data-pnav="${next?.id ?? ''}"${next ? ` title="${esc(next.v)} ${esc(next.n)}"` : ' disabled'}>Nächster ›</button>`;
+  const hdr = $('header', d.el); hdr.insertBefore(navEl, $('[data-close]', hdr));
+  function save() {
+    const man = g.manual[pid] = g.manual[pid] || {}, ov = g.override[pid] = g.override[pid] || {}, fb = g.feedback[pid] = { ...(g.feedback[pid] || {}) };
     for (const inp of $$('[data-pp]', d.el)) {
       const t = key.tasks.find(y => y.id === inp.dataset.pp), it = x.R.items[key.tasks.indexOf(t)], v = inp.value.trim();
       if (!it.auto) { if (v === '') delete man[t.id]; else man[t.id] = Math.min(t.pts, Math.max(0, +v.replace(',', '.'))); }
       else { const auto = S2.M.gradeExam(S2.key, x.p.ans, { accept: g.accept, drop: g.drop }).items[key.tasks.indexOf(t)].pts; if (v === '' || +v === auto) delete ov[t.id]; else ov[t.id] = Math.min(t.pts, Math.max(0, +v.replace(',', '.'))); }
     }
-    for (const ta of $$('[data-fb]', d.el)) if (ta.value.trim()) fb[ta.dataset.fb] = ta.value.trim();
-    saveGrading(); d.close(); drawEval();
-  };
+    for (const ta of $$('[data-fb]', d.el)) { if (ta.value.trim()) fb[ta.dataset.fb] = ta.value.trim(); else delete fb[ta.dataset.fb]; } // ausgeblendete Aufgaben behalten ihre Rückmeldung
+    saveGrading();
+  }
 }
 /* ---------- Programmier-Aufgaben (JPad …): Code ansehen, in der App öffnen und ausführen ---------- */
-const ansHtml = it => `<div class="ans${it.type === 'app' ? ' code' : ''}">${X.esc(it.text || '– keine Antwort –')}</div>${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
-const solHtml = t => t.type === 'app' ? `<details class="help"><summary>Musterlösung</summary><div class="ans code">${X.esc(t.solution)}</div></details>` : `<div class="help">Musterlösung: ${X.esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>`;
+const ansHtml = it => `${it.type === 'app' ? (it.text ? codeAnswerHtml(it.text, S2.key.tasks.find(t => t.id === it.id)?.app) : '<div class="ans">– keine Abgabe –</div>') : `<div class="ans">${X.esc(it.text || '– keine Antwort –')}</div>`}${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
+const solHtml = t => t.type === 'app' ? `<details class="help"><summary>Musterlösung</summary><div class="ans code hl">${highlight(t.solution, langOf(t.app))}</div></details>` : `<div class="help">Musterlösung: ${X.esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>`;
 const appBtn = (t, it, pid) => t.type === 'app' && it.files?.length ? `<div class="btns" style="margin:4px 0"><button class="btn sm" data-appview="${X.esc(t.id)}" data-pid="${pid}">▶ In ${X.esc(S2.M.appName(t.app))} öffnen und ausführen</button></div>` : '';
 let APPM = null;
 /** Klick auf „In JPad öffnen“: Stand des Schülers nur ansehen (Änderungen gehen nicht zurück) */
@@ -539,7 +569,7 @@ async function publish() {
         const fb = g.feedback[x.p.id] || {};
         const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
           punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
-          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
+          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true, app: key.tasks[i].app } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
         for (const rc of [x.p.rc, ...x.p.merged.map(q => q.rc)].filter(Boolean)) { // doppelt angemeldet: unter jedem Ergebniscode dieselbe Seite
           const { rid, key: k } = await X.K.reportKeys(rc);
           reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });

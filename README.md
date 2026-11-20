@@ -28,6 +28,10 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   „KI-Vorschläge einlesen“ (versteht auch viele einzelne JSON-Schnipsel) legt sie als Vorschläge in die verschlüsselte Bewertung (`g.ki`). Pink mit KI-Sternen je Aufgabe,
   Schüler mit abweichender Bewertung hervorgehoben; je Aufgabe übernehmen (automatisch bewertete Aufgaben als Neubewertung,
   sonst als Punkte der Lehrkraft) oder ablehnen.
+* **Bewerten je Schüler:** ‹ Vorheriger / Nächster › im Dialogkopf (speichert beim Wechseln); Schalter „Nur offene
+  KI-Vorschläge“ (nur wenn KI-Vorschläge eingelesen sind, standardmäßig an); Code-Antworten mit Syntax-Highlighting
+  (`app/hl.js`: Java für JPad, SQL für QPad) und Programmlauf als eigener Kasten; neben der Note ▲/▼, wenn ein halber Punkt
+  die Note ändern würde (nur Ansicht, nicht in CSV, Protokoll oder Ergebnisseite).
 * **Namen:** Anmeldungen werden der Klassenliste zugeordnet (`app/names.js`) – auch mit Rufnamen („Max“ für „Maximilian Antony“),
   einem Teil eines Doppelnamens, Kurzformen („Basti“), Tippfehlern oder vertauschtem Vor- und Nachnamen. In der Auswertung
   steht der Name aus der Klassenliste (auch in Notenliste, Protokoll, Ergebnisseite); die Lehrkraft kann von Hand zuordnen und
