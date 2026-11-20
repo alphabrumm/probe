@@ -19,6 +19,10 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   automatische Abgabe abschaltbar, Schließen/Beenden, Notfall-Abgabe per Datei.
 * **Auswertung:** Notenschlüssel per Regler, Freitext bewerten, Antworten akzeptieren, Aufgaben streichen, Ergebnisseiten
   mit Ergebniscode veröffentlichen, Kommentare der Schüler.
+* **Programmier-Aufgaben (JPad):** In Prüfungen läuft JPad als Prüfungsfassung unter `probe.pandapy.de/jpad/` – während der
+  Prüfung muss nur die Probe-Domain frei sein, gespeicherte Projekte von jpad.pandapy.de sind dort nicht erreichbar. Die
+  Prüfungsfassung startet nur innerhalb einer Probe-Prüfung und kommt mit dem JPad-Workflow „auf den Webspace“
+  (Secret `PROBE_FTP_DIR` im JPad-Repo). Weitere Prüfungs-Apps bekommen ebenso einen eigenen Unterordner.
 * **KI-gestützte Korrektur** (`app/ki.js`): „✱ Für KI-Korrektur exportieren“ erzeugt eine Markdown-Datei mit der Prüfung im
   PathFinder-Textformat (mit Lösungen und Erwartungshorizont), einer Anleitung für die KI und den Antworten aller Schüler –
   ohne Namen, je Schüler eine Korrektur-Kennung `S-XXXXXX` (aus dem Ergebniscode abgeleitet, nicht umkehrbar; der Ergebniscode

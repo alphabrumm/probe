@@ -76,9 +76,17 @@ function teacher(): array { $u = me(); csrf(); need_keys($u); return $u; }
 function fake_salt(string $k): string { return base64_encode(substr(hash_hmac('sha256', mb_strtolower($k), server_secret(), true), 0, 16)); }
 /** Adressen der Apps für Programmier-Aufgaben (JPad …); leer = Standard aus PathFinder (core/pfapp.js).
  *  Testinstanz: in config.local.php z. B. 'apps' => ['jpad' => 'https://alphabrumm.github.io/jpad/'] */
+/**
+ * Adressen der Apps für Programmier-Aufgaben (JPad …). In Prüfungen laufen sie in einem Unterordner von Probe selbst
+ * (z. B. probe.pandapy.de/jpad/): Während der Prüfung muss dann nur die Probe-Domain frei sein. Die Prüfungsfassung
+ * kommt mit dem Workflow der jeweiligen App dorthin (JPad: jpad-webspace.yml, Secret PROBE_FTP_DIR).
+ * config 'apps' überschreibt einzelne Einträge (Testinstanz: JPad-Testfassung auf GitHub Pages).
+ */
+const APPS_DEFAULT = ['jpad' => 'jpad/'];
 function apps_cfg(): ?array {
-    $a = probe_config()['apps'] ?? null; if (!is_array($a)) return null;
-    $o = []; foreach ($a as $k => $v) if (is_string($k) && preg_match('~^[a-z]{2,12}$~', $k) && is_string($v) && preg_match('~^(https://|http://(localhost|127\.0\.0\.1)(:\d+)?/)[^\s"<>]*$~', $v)) $o[$k] = $v;
+    $a = probe_config()['apps'] ?? []; if (!is_array($a)) $a = [];
+    $o = []; foreach (array_merge(APPS_DEFAULT, $a) as $k => $v) if (is_string($k) && preg_match('~^[a-z]{2,12}$~', $k) && is_string($v)
+        && preg_match('~^(https://|http://(localhost|127\.0\.0\.1)(:\d+)?/|/?[a-z0-9][a-z0-9_-]*/)[^\s"<>]*$~', $v)) $o[$k] = $v;
     return $o ?: null;
 }
 function ip(): string { return (string)($_SERVER['REMOTE_ADDR'] ?? ''); }

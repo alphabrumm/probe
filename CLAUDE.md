@@ -9,3 +9,6 @@
 - Testinstanz: `git push origin <zweig>:test` (eigener Ordner `FTP_DIR_TEST`, eigene Datenbank). Neue Funktionen dort zeigen lassen, bevor `live`.
   Der Test-Deploy schreibt `config.deploy.php` (Programmier-Aufgaben öffnen die Test-Fassung von JPad auf GitHub Pages).
 - Programmier-Aufgaben (Typ `app`, JPad …): Protokoll und Anbindung weiterer Apps in `vendor/pathfinder/docs/APP-AUFGABEN.md`.
+- Prüfungs-Apps laufen in Prüfungen **innerhalb der Probe-Domain** in einem eigenen Unterordner (JPad: `/jpad/`, bald FlowPad,
+  QPad, wEOS): Prüfungsfassung der App (startet nur in einer Probe-Prüfung), übertragen vom Workflow der App
+  (Secret `PROBE_FTP_DIR`); Probe-Standard in `api.php` `APPS_DEFAULT`. Probe-Deploy löscht diese Ordner nicht (lftp ohne --delete).
