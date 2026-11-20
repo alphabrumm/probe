@@ -179,3 +179,16 @@ table.t td.act { text-align: right; white-space: nowrap; }
 .demo-btn span { display: grid; flex: 1; } .demo-btn b { font-size: 17px; } .demo-btn small { color: #c9d3ea; font-size: 13px; }
 .demo-btn i { font-style: normal; font-size: 28px; line-height: 1; color: #ffd27a; }
 .ans.code { font: 13px/1.45 ui-monospace, Menlo, monospace; max-height: 28em; overflow: auto; }
+/* KI-gestützte Korrektur: Vorschläge pink mit ✱ */
+.chip.ki { background: #fde2f1; color: #b0186f; } .chip.ki.soft { background: #fdf0f7; color: #b0457f; }
+.btn.ki { border-color: #e7a3c9; color: #b0186f; } .btn.ki:hover { background: #fdf0f7; }
+.ki-bar { margin-top: 8px; align-items: center; }
+.ki-box { margin: 8px 0; padding: 8px 12px; border: 1.5px dashed #e0559f; border-radius: 12px; background: #fff3f9; color: #7a1150; }
+.ki-box.soft { border-style: dotted; border-color: #efb3d4; background: #fffafd; }
+.ki-why { margin-top: 3px; font-size: 14px; color: #5c2443; }
+tr.ki-diff > td { background: #fff0f8; } tr.ki-diff > td:first-child { box-shadow: inset 4px 0 #e0559f; }
+@media (prefers-color-scheme: dark) {
+  .chip.ki { background: #4a1834; color: #ffb3dc; } .chip.ki.soft { background: #35172a; color: #e7a3c9; }
+  .ki-box { background: #2c1323; color: #ffd0ea; } .ki-box.soft { background: #23111d; } .ki-why { color: #f3c2dd; }
+  tr.ki-diff > td { background: #2c1323; }
+}

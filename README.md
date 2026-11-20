@@ -19,6 +19,14 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   automatische Abgabe abschaltbar, Schließen/Beenden, Notfall-Abgabe per Datei.
 * **Auswertung:** Notenschlüssel per Regler, Freitext bewerten, Antworten akzeptieren, Aufgaben streichen, Ergebnisseiten
   mit Ergebniscode veröffentlichen, Kommentare der Schüler.
+* **KI-gestützte Korrektur** (`app/ki.js`): „✱ Für KI-Korrektur exportieren“ erzeugt eine Markdown-Datei mit der Prüfung im
+  PathFinder-Textformat (mit Lösungen und Erwartungshorizont), einer Anleitung für die KI und den Antworten aller Schüler –
+  ohne Namen, je Schüler eine Korrektur-Kennung `S-XXXXXX` (aus dem Ergebniscode abgeleitet, nicht umkehrbar; der Ergebniscode
+  selbst öffnet die Ergebnisseite und verlässt Probe nicht). Namen in Antworten werden durch [Name] ersetzt. Die KI antwortet
+  mit JSON (`{"probe":"ki-korrektur","pruefung":…,"bewertungen":[{"schueler","aufgabe","punkte","begruendung"}]}`);
+  „✱ KI-Vorschläge einlesen“ legt sie als Vorschläge in die verschlüsselte Bewertung (`g.ki`). Pink mit ✱ je Aufgabe,
+  Schüler mit abweichender Bewertung hervorgehoben; je Aufgabe übernehmen (automatisch bewertete Aufgaben als Neubewertung,
+  sonst als Punkte der Lehrkraft) oder ablehnen.
 * **Namen:** Anmeldungen werden der Klassenliste zugeordnet (`app/names.js`) – auch mit Rufnamen („Max“ für „Maximilian Antony“),
   einem Teil eines Doppelnamens, Kurzformen („Basti“), Tippfehlern oder vertauschtem Vor- und Nachnamen. In der Auswertung
   steht der Name aus der Klassenliste (auch in Notenliste, Protokoll, Ergebnisseite); die Lehrkraft kann von Hand zuordnen und

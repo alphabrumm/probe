@@ -5,6 +5,7 @@ import { respState, respHtml, respSubmit } from './resp.js';
 import { protokollPdf } from './protokoll.js';
 import { showPdf } from './pdf.js';
 import { matchRoster } from './names.js';
+import { buildExport, parseImport, applyImport } from './ki.js';
 
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
@@ -271,6 +272,7 @@ function drawEval() {
       ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
       <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button></div>
+      <div class="btns ki-bar"><button class="btn ki" id="kiExp">✱ Für KI-Korrektur exportieren</button><button class="btn ki" id="kiImp">✱ KI-Vorschläge einlesen</button>${kiSummary()}</div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
     <div class="grid2" style="margin-top:16px"><section class="card"><h2>Notenschlüssel</h2><div id="key"></div></section><section class="card"><h2>Verteilung</h2><div id="dist"></div></section></div>
@@ -281,6 +283,7 @@ function drawEval() {
   $('#pub').onclick = publish;
   $('#resp') && ($('#resp').onclick = async () => { try { if (await respSubmit(S2, S2.resp)) { S2.resp = await respState(S2.e, X); drawEval(); } } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); } });
   $('#ansehen').onclick = () => X.view(e);
+  $('#kiExp').onclick = kiExport; $('#kiImp').onclick = kiImport;
   $('#unpub') && ($('#unpub').onclick = async () => { if (!confirm('Ergebnisseiten der Schüler sofort sperren?')) return; await X.api('exam_state', { id: e.id, to: 'beendet' }); S2.e.status = 'beendet'; drawEval(); });
   $('#prot').onclick = () => { // Übersicht + je Prüfling eine Seite; entsteht hier im Browser
     try { showPdf(protokollPdf(S2, results(), X), `Pruefungsprotokoll_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); }
@@ -328,8 +331,8 @@ function drawTables() {
     <p><b>Durchschnitt: ${RS.length ? avg.toFixed(2).replace('.', ',') : '–'}</b>${pts ? ' Punkte' : ''} · ${RS.length} Teilnehmer${pts ? '' : ` · Note 5 und 6: ${(cnt[5] || 0) + (cnt[6] || 0)}`}</p>`;
   // Ergebnisse je Schüler
   const unread = new Set(S2.comments.filter(c => !+c.gelesen && c.who).map(c => c.who.id));
-  $('#res').innerHTML = `<tr><th>Name</th><th>Punkte</th><th>%</th><th>${pts ? 'Punkte (0–15)' : 'Note'}</th><th></th></tr>` + RS.map(x => `<tr data-person="${x.p.id}" style="cursor:pointer"><td><b>${esc(x.p.n)}</b>, ${esc(x.p.v)}${nameChips(x.p)}${x.p.imported ? ' <span class="chip">Datei</span>' : ''}${x.p.fokus ? ` <span class="chip warn" title="hat den Browser verlassen">${x.p.fokus}× Fokus</span>` : ''}</td>
-    <td>${fmtPts(x.R.total)} / ${fmtPts(x.R.max)}</td><td>${Math.round(x.R.pct)}</td><td><b>${x.note}</b></td><td>${x.R.pending ? `<span class="chip warn">${x.R.pending} offen</span>` : ''}${unread.has(x.p.id) ? ' <span class="chip bad">💬</span>' : ''}</td></tr>`).join('');
+  $('#res').innerHTML = `<tr><th>Name</th><th>Punkte</th><th>%</th><th>${pts ? 'Punkte (0–15)' : 'Note'}</th><th></th></tr>` + RS.map(x => { const k = kiStats(x); return `<tr data-person="${x.p.id}" style="cursor:pointer"${k.diff ? ' class="ki-diff"' : ''}><td><b>${esc(x.p.n)}</b>, ${esc(x.p.v)}${nameChips(x.p)}${k.html}${x.p.imported ? ' <span class="chip">Datei</span>' : ''}${x.p.fokus ? ` <span class="chip warn" title="hat den Browser verlassen">${x.p.fokus}× Fokus</span>` : ''}</td>
+    <td>${fmtPts(x.R.total)} / ${fmtPts(x.R.max)}</td><td>${Math.round(x.R.pct)}</td><td><b>${x.note}</b></td><td>${x.R.pending ? `<span class="chip warn">${x.R.pending} offen</span>` : ''}${unread.has(x.p.id) ? ' <span class="chip bad">💬</span>' : ''}</td></tr>`; }).join('');
   $('#miss').innerHTML = S2.missing?.length ? `<div class="pt"><b>Laut Klassenliste ohne Abgabe (${S2.missing.length}):</b> ${S2.missing.map(r => `<button class="btn sm ghost" data-assign="${esc(rkey(r))}" title="Anmeldung zuordnen">${esc(r.n)}, ${esc(r.v)} ↔</button>`).join(' ')}<div class="help">Hat sich jemand mit einem stark abweichenden Namen angemeldet, tippe seinen Namen an und wähle die Anmeldung.</div></div>` : '';
   // Aufgaben
   $('#tasks').innerHTML = `<tr><th>Aufgabe</th><th>Ø Punkte</th><th></th></tr>` + key.tasks.map((t, i) => {
@@ -351,14 +354,15 @@ function personDialog(pid) {
     return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(t.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `<input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-pp="${t.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.`}</div>
       ${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
       ${free || it.text != null ? `${ansHtml(it)}${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}` : ''}${appBtn(t, it, pid)}
-      ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}
+      ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}${kiBox(x.p, t, it)}
       <textarea data-fb="${t.id}" rows="2" placeholder="Rückmeldung zu dieser Aufgabe (sieht der Schüler)">${esc(fbk[t.id] || '')}</textarea></div>`;
-  }).join('') + '<button class="btn pri" data-save>Speichern</button>', { wide: true });
+  }).join('') + (kiStats(x).open > 1 ? `<div class="btns"><button class="btn ki" data-kiall="${pid}">✱ Alle ${kiStats(x).open} offenen KI-Vorschläge übernehmen</button></div>` : '') + '<button class="btn pri" data-save>Speichern</button>', { wide: true });
   const reopen = () => { d.close(); personDialog(pid); };
   d.el.onchange = ev => { nameAction(ev, x.p, reopen); };
   d.el.onclick = ev => {
     if (appView(ev, x.p)) return;
     if (nameAction(ev, x.p, reopen)) return;
+    if (kiAction(ev, reopen)) return;
     if (!ev.target.closest('[data-save]')) return;
     const man = g.manual[pid] = g.manual[pid] || {}, ov = g.override[pid] = g.override[pid] || {}, fb = g.feedback[pid] = {};
     for (const inp of $$('[data-pp]', d.el)) {
@@ -390,10 +394,11 @@ function appView(ev, p) {
 function essayDialog(tid) {
   const { esc, fmtPts } = X, { key, g } = S2, i = key.tasks.findIndex(t => t.id === tid), t = key.tasks[i], RS = results();
   const d = X.dialog(`${esc(t.title)} – für alle bewerten`, `${t.rubric?.length ? `<div class="help"><b>Erwartungshorizont:</b> ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)} P.)`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}
-    ${RS.map(x => { const it = x.R.items[i]; return `<div class="pt"><div class="bar" style="margin:0"><b>${esc(x.p.n)}, ${esc(x.p.v)}</b><span class="sp"></span><input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-ep="${x.p.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.</div>${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}</div>`).join('')}${ansHtml(it)}${appBtn(t, it, x.p.id)}<textarea data-ef="${x.p.id}" rows="1" placeholder="Rückmeldung (optional)">${esc(g.feedback[x.p.id]?.[t.id] || '')}</textarea></div>`; }).join('')}
+    ${RS.map(x => { const it = x.R.items[i]; return `<div class="pt"><div class="bar" style="margin:0"><b>${esc(x.p.n)}, ${esc(x.p.v)}</b><span class="sp"></span><input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-ep="${x.p.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.</div>${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}</div>`).join('')}${ansHtml(it)}${appBtn(t, it, x.p.id)}${kiBox(x.p, t, it)}<textarea data-ef="${x.p.id}" rows="1" placeholder="Rückmeldung (optional)">${esc(g.feedback[x.p.id]?.[t.id] || '')}</textarea></div>`; }).join('')}
     <button class="btn pri" data-save>Speichern</button>`, { wide: true });
   d.el.onclick = ev => {
     if (appView(ev, null)) return;
+    if (kiAction(ev, () => { d.close(); essayDialog(tid); })) return;
     if (!ev.target.closest('[data-save]')) return;
     for (const inp of $$('[data-ep]', d.el)) { const pid = +inp.dataset.ep, m = g.manual[pid] = g.manual[pid] || {}; if (inp.value.trim() === '') delete m[t.id]; else m[t.id] = Math.min(t.pts, Math.max(0, +inp.value.replace(',', '.'))); }
     for (const ta of $$('[data-ef]', d.el)) { const pid = +ta.dataset.ef, f = g.feedback[pid] = g.feedback[pid] || {}; if (ta.value.trim()) f[t.id] = ta.value.trim(); else delete f[t.id]; }
@@ -420,6 +425,79 @@ function acceptDialog(tid) {
     if (!ev.target.closest('[data-save]')) return;
     const n = {}; for (const c of $$('[data-a]', d.el)) if (c.checked) (n[c.dataset.a] = n[c.dataset.a] || []).push(c.value);
     g.accept[tid] = n; saveGrading(); d.close(); drawEval();
+  };
+}
+/* ---------- KI-gestützte Korrektur (app/ki.js): Export ohne Namen, Vorschläge einlesen, je Aufgabe übernehmen oder ablehnen ---------- */
+const kiOf = (pid, tid) => S2.g.ki?.[pid]?.[tid] || null;
+/** offen = noch nicht entschieden und anders als die jetzige Bewertung; diff = davon weicht von bereits vergebenen Punkten ab */
+function kiStats(x) {
+  let open = 0, diff = 0, any = 0;
+  S2.key.tasks.forEach((t, i) => {
+    const k = kiOf(x.p.id, t.id), it = x.R.items[i]; if (!k || it.dropped) return; any++;
+    if (k.st === 'neu' && k.pts !== it.pts) { open++; if (it.pts != null) diff++; }
+  });
+  const html = !any ? '' : open ? ` <span class="chip ki" title="KI-Vorschläge, die du noch nicht übernommen oder abgelehnt hast">✱ KI: ${diff ? `${diff} abweichend` : `${open} Vorschlag${open > 1 ? 'e' : ''}`}${diff && open > diff ? ` · ${open - diff} offen` : ''}</span>` : ' <span class="chip ki soft" title="KI-Vorschläge stimmen mit deiner Bewertung überein oder sind entschieden">✱ KI ✓</span>';
+  return { open, diff, any, html };
+}
+function kiSummary() {
+  if (!S2.g.ki || !Object.keys(S2.g.ki).length) return '';
+  const RS = results(), st = RS.map(kiStats), diffP = st.filter(k => k.diff).length, open = st.reduce((s, k) => s + k.open, 0);
+  return `<span class="chip ki">✱ ${open ? `${open} ${open === 1 ? 'offener Vorschlag' : 'offene Vorschläge'} · ${diffP} Schüler mit abweichender Bewertung` : 'alle KI-Vorschläge entschieden'}</span>`;
+}
+function kiBox(p, t, it) {
+  const k = kiOf(p.id, t.id); if (!k || it.dropped) return '';
+  const { esc, fmtPts } = X, same = k.pts === it.pts, ref = `${p.id}|${esc(t.id)}`;
+  const head = `<b>✱ KI-Vorschlag: ${fmtPts(k.pts)} / ${fmtPts(t.pts)} P.</b> <span class="help">${it.pts == null ? '(noch nicht bewertet)' : same ? '– stimmt mit der Bewertung überein' : `(jetzt ${fmtPts(it.pts)} P.)`}</span>`;
+  const why = k.why ? `<div class="ki-why">${esc(k.why)}</div>` : '';
+  if (k.st === 'ok' || k.st === 'nein' || same) return `<div class="ki-box soft">${head} ${k.st === 'ok' ? '<span class="chip ki soft">übernommen</span>' : k.st === 'nein' ? '<span class="chip">abgelehnt</span>' : ''}${why}${k.st !== 'neu' ? `<button class="btn sm ghost" data-kireset="${ref}">Entscheidung zurücknehmen</button>` : ''}</div>`;
+  return `<div class="ki-box">${head}${why}<div class="btns" style="margin:6px 0 0"><button class="btn sm ki" data-kiok="${ref}">✓ Übernehmen</button><button class="btn sm" data-kino="${ref}">✗ Ablehnen</button></div></div>`;
+}
+/** Punkte eines Vorschlags eintragen: automatisch bewertete Aufgaben als Neubewertung, sonst als Punkte der Lehrkraft */
+function kiTake(pid, tid) {
+  const { key, g, M } = S2, k = kiOf(pid, tid), p = S2.people.find(x => x.id === pid), i = key.tasks.findIndex(t => t.id === tid);
+  if (!k || !p || i < 0) return;
+  const it = M.gradeExam(key, p.ans, { accept: g.accept, drop: g.drop, manual: g.manual[pid] }).items[i];
+  if (it.auto) { const ov = g.override[pid] = g.override[pid] || {}; if (k.pts === it.pts) delete ov[tid]; else ov[tid] = k.pts; }
+  else { (g.manual[pid] = g.manual[pid] || {})[tid] = k.pts; if (g.override[pid]) delete g.override[pid][tid]; }
+  k.st = 'ok';
+}
+function kiAction(ev, reopen) {
+  const b = ev.target.closest?.('[data-kiok],[data-kino],[data-kireset],[data-kiall]'); if (!b) return false;
+  const [pid, tid] = (b.dataset.kiok || b.dataset.kino || b.dataset.kireset || '').split('|');
+  if (b.dataset.kiok) kiTake(+pid, tid);
+  if (b.dataset.kino) { const k = kiOf(+pid, tid); if (k) k.st = 'nein'; }
+  if (b.dataset.kireset) { const k = kiOf(+pid, tid); if (k) k.st = 'neu'; }
+  if (b.dataset.kiall) { const x = results().find(y => y.p.id === +b.dataset.kiall); S2.key.tasks.forEach((t, i) => { const k = kiOf(x.p.id, t.id); if (k && k.st === 'neu' && k.pts !== x.R.items[i].pts && !x.R.items[i].dropped) kiTake(x.p.id, t.id); }); }
+  saveGrading(); drawEval(); reopen(); return true;
+}
+async function kiExport() {
+  const { esc, e } = { esc: X.esc, e: S2.e };
+  let txt = ''; try { txt = await X.withBusy('Export wird erstellt …', async () => buildExport(S2, results())); } catch (er) { X.toast('⚠ ' + esc(er.message), 5000); return; }
+  const name = `KI-Korrektur_${e.klasse}_${e.fach}_${e.datum}.md`.replace(/[^\wäöüÄÖÜß.-]+/g, '_');
+  const d = X.dialog('✱ Für KI-Korrektur exportieren', `<p>Die Datei enthält die Prüfung mit Lösungen und Erwartungshorizont und die Antworten aller Schüler – <b>ohne Namen</b>. Jeder Schüler hat eine Korrektur-Kennung (S-…), die nur Probe wieder zuordnen kann. Namen, die ein Schüler in eine Antwort geschrieben hat, sind durch [Name] ersetzt.</p>
+    <ol class="help"><li>Datei herunterladen (oder kopieren) und in der KI deiner Wahl hochladen bzw. einfügen.</li><li>Die KI antwortet mit einem JSON-Block. Diesen hier unter „✱ KI-Vorschläge einlesen“ einfügen.</li><li>Bei jedem Schüler die Vorschläge je Aufgabe übernehmen oder ablehnen.</li></ol>
+    <p class="help">Prüfe vor dem Hochladen selbst, ob die Antworten keine persönlichen Angaben enthalten, und beachte die Vorgaben deiner Schule zum Einsatz von KI. ${(txt.length / 1024).toFixed(0)} KB · ${results().length} Schüler.</p>
+    <div class="btns"><button class="btn pri" data-dl>⇩ Datei herunterladen</button><button class="btn" data-cp>Text kopieren</button></div>`);
+  d.el.onclick = async ev => {
+    if (ev.target.closest('[data-dl]')) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/markdown' })); a.download = name; a.click(); }
+    if (ev.target.closest('[data-cp]')) { try { await navigator.clipboard.writeText(txt); X.toast('✓ kopiert'); } catch (er) { X.toast('⚠ Kopieren nicht möglich – bitte die Datei nehmen'); } }
+  };
+}
+function kiImport() {
+  const { esc } = X, has = S2.g.ki && Object.keys(S2.g.ki).length;
+  const d = X.dialog('✱ KI-Vorschläge einlesen', `<p class="help">Füge die Antwort der KI ein (den JSON-Block oder die ganze Antwort) – mehrere Blöcke gehen auch nacheinander. Die Vorschläge erscheinen pink mit ✱ bei jedem Schüler; an deiner Bewertung ändert sich erst etwas, wenn du einen Vorschlag übernimmst.</p>
+    <textarea id="kiT" rows="10" placeholder='{"probe":"ki-korrektur", … }'></textarea><div class="err" id="kiErr"></div>
+    <div class="btns"><button class="btn pri" data-go>Einlesen</button><button class="btn" data-file>Datei wählen</button>${has ? '<span class="sp"></span><button class="btn danger" data-clear>Alle KI-Vorschläge entfernen</button>' : ''}</div>`, { wide: true });
+  d.el.onclick = async ev => {
+    if (ev.target.closest('[data-file]')) { X.pickFile('.json,.txt,.md,application/json,text/plain', async f => { $('#kiT', d.el).value = await f.text(); }); return; }
+    if (ev.target.closest('[data-clear]')) { if (!confirm('Alle KI-Vorschläge entfernen? Bereits übernommene Punkte bleiben.')) return; delete S2.g.ki; saveGrading(); d.close(); drawEval(); return; }
+    if (!ev.target.closest('[data-go]')) return;
+    const P = parseImport($('#kiT', d.el).value);
+    if (!P.rows.length) { $('#kiErr', d.el).textContent = 'Keine Bewertungen gefunden. Erwartet wird ein JSON-Block mit "bewertungen".'; return; }
+    const r = await applyImport(S2, P);
+    if (r.wrongExam && !r.ok) { $('#kiErr', d.el).textContent = 'Diese Vorschläge gehören zu einer anderen Prüfung.'; return; }
+    saveGrading(); d.close(); drawEval();
+    X.toast(`✱ ${r.ok} Vorschläge eingelesen${r.unknown.size ? ` · ${r.unknown.size} unbekannte Kennung${r.unknown.size > 1 ? 'en' : ''}` : ''}${r.bad ? ` · ${r.bad} ungültig` : ''}${r.wrongExam ? ' · ⚠ Prüfungscode passt nicht' : ''}`, 6000);
   };
 }
 /** Quittieren: für jeden Schüler einen Bericht, verschlüsselt mit seinem Ergebniscode */
