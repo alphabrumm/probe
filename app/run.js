@@ -507,18 +507,26 @@ function kiAction(ev, reopen) {
   saveGrading(); drawEval(); reopen(); return true;
 }
 /** Export für die KI: zuerst die Aufgaben wählen (gemerkt in g.kiSel), dann nur diese samt Musterlösung exportieren */
-const kiFree = t => t.type === 'essay' || (t.type === 'task' && !t.short) || t.type === 'app';
+/**
+ * Was die KI sinnvoll prüfen kann: 'rec' empfohlen (offen oder getippt – Freitext, Programmieren, kurze Antwort, Lückentext ohne
+ * Wortbank), 'opt' wählbar (Satzpuzzle, Reihenfolge – es kann weitere richtige Reihenfolgen geben), 'fix' eindeutig automatisch
+ * bewertet (Quiz, Zuordnen, Sortieren, Markieren, Lückentext mit Wortbank – nur ausgewählt bzw. gezogen, die KI bringt nichts).
+ */
+const kiKind = t => t.type === 'essay' || t.type === 'app' || t.type === 'task' || (t.type === 'gap' && !t.bank) ? 'rec' : t.type === 'order' ? 'opt' : 'fix';
+const kiFree = t => kiKind(t) === 'rec';
 function kiExport() {
   const { esc, fmtPts } = X, { e, key, g } = S2, RS = results();
   const tasks = key.tasks.map((t, i) => ({ t, i })).filter(x => !g.drop.includes(x.t.id));
-  const pre = new Set(Array.isArray(g.kiSel) && g.kiSel.some(id => tasks.some(x => x.t.id === id)) ? g.kiSel : tasks.filter(x => kiFree(x.t)).map(x => x.t.id));
+  const pre = new Set((Array.isArray(g.kiSel) && g.kiSel.some(id => tasks.some(x => x.t.id === id)) ? g.kiSel : tasks.filter(x => kiFree(x.t)).map(x => x.t.id))
+    .filter(id => kiKind(key.tasks.find(t => t.id === id) || {}) !== 'fix'));
   const typ = t => ({ quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', mark: 'Markieren', sort: 'Sortieren', order: t.words ? 'Satzpuzzle' : 'Reihenfolge', essay: 'Freitext', app: S2.M.appName(t.app) })[t.type] || (t.short ? 'kurze Antwort' : 'Freitext');
   const row = ({ t, i }) => {
     const its = RS.map(x => x.R.items[i]), open = its.filter(x => x.pts == null).length, notFull = its.filter(x => x.pts != null && x.pts < t.pts).length;
-    return `<label class="ck ki-pick"><input type="checkbox" data-kisel="${esc(t.id)}"${pre.has(t.id) ? ' checked' : ''}><span><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${esc(typ(t))} · ${fmtPts(t.pts)} P.${open ? ` · ${open} noch nicht bewertet` : ''}${notFull ? ` · ${notFull}× nicht volle Punkte` : ''}</span></span></label>`;
+    const fix = kiKind(t) === 'fix', why = fix ? ' · eindeutig automatisch bewertet' : kiKind(t) === 'opt' ? ' · falls es weitere richtige Reihenfolgen gibt' : '';
+    return `<label class="ck ki-pick${fix ? ' off' : ''}"${fix ? ' title="Hier wird nur ausgewählt oder gezogen – Probe bewertet eindeutig, die KI bringt nichts dazu."' : ''}><input type="checkbox" data-kisel="${esc(t.id)}"${pre.has(t.id) ? ' checked' : ''}${fix ? ' disabled' : ''}><span><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${esc(typ(t))}${t.type === 'gap' ? (t.bank ? ' mit Wortbank' : ' zum Eintippen') : ''} · ${fmtPts(t.pts)} P.${open ? ` · ${open} noch nicht bewertet` : ''}${notFull ? ` · ${notFull}× nicht volle Punkte` : ''}${why}</span></span></label>`;
   };
-  const d = X.dialog(`${KI} KI-Korrektur: Export`, `<p class="help">Welche Aufgaben soll die KI korrigieren? Exportiert werden nur diese Aufgaben – mit Musterlösung, Erwartungshorizont und dem Material davor – und die Antworten aller Schüler dazu, <b>ohne Namen</b>. Weniger Aufgaben = kürzerer Text, weniger Tokens.</p>
-    <div class="btns" style="margin:0 0 6px"><button class="btn sm" data-kiq="free">Freitext und Programmieren</button><button class="btn sm" data-kiq="all">alle</button><button class="btn sm" data-kiq="none">keine</button></div>
+  const d = X.dialog(`${KI} KI-Korrektur: Export`, `<p class="help">Welche Aufgaben soll die KI korrigieren? Sinnvoll ist das überall, wo Schüler:innen etwas selbst schreiben oder tippen – reine Auswahlaufgaben bewertet Probe eindeutig, sie sind deshalb ausgegraut. Exportiert werden nur die gewählten Aufgaben – mit Musterlösung, Erwartungshorizont und dem Material davor – und die Antworten aller Schüler dazu, <b>ohne Namen</b>. Weniger Aufgaben = kürzerer Text, weniger Tokens.</p>
+    <div class="btns" style="margin:0 0 6px"><button class="btn sm" data-kiq="free">empfohlene</button><button class="btn sm" data-kiq="all">alle wählbaren</button><button class="btn sm" data-kiq="none">keine</button></div>
     <div class="ki-list">${tasks.map(row).join('')}</div>
     <div class="btns"><button class="btn pri ki" data-kigo>${KI} Export erstellen</button><span class="help" data-kicount></span></div><div data-kiout></div>`, { wide: true });
   const sel = () => $$('[data-kisel]', d.el).filter(c => c.checked).map(c => c.dataset.kisel);
@@ -528,7 +536,7 @@ function kiExport() {
   d.el.onchange = ev => { if (ev.target.matches('[data-kisel]')) count(); };
   d.el.onclick = async ev => {
     const q = ev.target.closest('[data-kiq]');
-    if (q) { $$('[data-kisel]', d.el).forEach(c => { const t = key.tasks.find(x => x.id === c.dataset.kisel); c.checked = q.dataset.kiq === 'all' || (q.dataset.kiq === 'free' && kiFree(t)); }); count(); return; }
+    if (q) { $$('[data-kisel]', d.el).forEach(c => { if (c.disabled) return; const t = key.tasks.find(x => x.id === c.dataset.kisel); c.checked = q.dataset.kiq === 'all' || (q.dataset.kiq === 'free' && kiFree(t)); }); count(); return; }
     if (ev.target.closest('[data-kigo]')) {
       const ids = sel(); if (!ids.length) return;
       g.kiSel = ids; saveGrading();
