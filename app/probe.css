@@ -230,3 +230,15 @@ tr.ki-diff > td { background: #fff0f8; } tr.ki-diff > td:first-child { box-shado
 .trend { display: inline-block; margin-left: 6px; font-size: 13px; vertical-align: 1px; cursor: help; }
 .trend.up { color: #1f9d55; } .trend.down { color: #d64545; }
 @media (prefers-color-scheme: dark) { .trend.up { color: #5fd38d; } .trend.down { color: #ff7b7b; } }
+/* kleine Text-Knöpfe mit Hinweis-Popup („Woher bekomme ich die?“, „Was bedeutet das?“) */
+.linkbtn { background: none; border: 0; padding: 4px 0; margin-top: 6px; color: var(--a1); font: inherit; font-size: 14px; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.tip-pop { position: absolute; z-index: 200; padding: 12px 14px; border-radius: 12px; background: #1e2433; color: #f2f4fa; font-size: 14px; line-height: 1.45; box-shadow: 0 10px 30px #0005; }
+.tip-pop p { margin: 0 0 8px; } .tip-pop p:last-child { margin: 0; }
+/* Persönliche QR-Codes */
+.pqr-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.pqr-row .linkbtn { margin: 0; }
+.live-qr.pqr { align-items: center; } .pqr-hint { flex: 1; min-width: 220px; text-align: center; }
+.pqr-msg { font-size: 26px; font-weight: 700; line-height: 1.25; margin-bottom: 6px; } .pqr-ic { font-size: 54px; line-height: 1; margin-bottom: 8px; }
+.pqr-hint .qrbox { max-width: 240px; margin: 10px auto 0; }
+.pqr-beamer { color: #111; font-size: 5vmin; font-weight: 700; line-height: 1.2; text-align: center; padding: 4vmin; }
+.pqr-beamer .pqr-ic { font-size: 14vmin; }

@@ -3,11 +3,17 @@
 
 const WIN = { '€': 128, '‚': 130, '„': 132, '…': 133, '‘': 145, '’': 146, '“': 147, '”': 148, '•': 149, '–': 150, '—': 151, '™': 153 };
 const SUBST = { '−': '-', '→': '->', '←': '<-', '⇒': '=>', '⇔': '<=>', '≤': '<=', '≥': '>=', '≠': '!=', '≈': '~', '√': 'Wurzel ', '∞': 'unendlich', '✓': '', '✗': '', ' ': ' ', ' ': ' ', ' ': ' ' };
+const LATIN = { 'ı': 'i', 'İ': 'I', 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ø': 'ø', 'ő': 'ö', 'Ő': 'Ö', 'ű': 'ü', 'Ű': 'Ü', 'ŀ': 'l', 'ħ': 'h', 'ŧ': 't', 'ə': 'e', 'Ə': 'E' };
 const clean = t => String(t ?? '').replace(/[\r\t]/g, ' ').replace(/[−→←⇒⇔≤≥≠≈√∞✓✗   ]/g, c => SUBST[c]);
 function pdfStr(t) {
   let o = '';
   for (const ch of clean(t)) {
-    const c = ch.codePointAt(0); const b = c < 128 || (c >= 160 && c < 256) ? c : WIN[ch] ?? (/\p{M}/u.test(ch) ? null : 63); // unbekannt → „?“
+    const c = ch.codePointAt(0); let b = c < 128 || (c >= 160 && c < 256) ? c : WIN[ch] ?? (/\p{M}/u.test(ch) ? null : undefined);
+    if (b === undefined) { // nicht im Zeichensatz: nächster darstellbarer Buchstabe (ı → i, ş → s, ł → l, ő → ö …), sonst „?“
+      const base = LATIN[ch] ?? ch.normalize('NFD').replace(/\p{M}/gu, '');
+      if (base && base !== ch && [...base].every(x => { const k = x.codePointAt(0); return k < 128 || (k >= 160 && k < 256); })) { o += base.replace(/[()\\]/g, '\\$&'); continue; }
+      b = 63;
+    }
     if (b == null) continue; const x = String.fromCharCode(b); o += x === '(' || x === ')' || x === '\\' ? '\\' + x : x;
   }
   return '(' + o + ')';

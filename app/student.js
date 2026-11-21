@@ -3,11 +3,17 @@
 import { startPathFinder } from '../vendor/pathfinder/core/pathfinder.js';
 import * as K from './crypto.js';
 import { qrSvg } from './qr.js';
+import { readPersonal } from './pqr.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const code = (new URLSearchParams(location.search).get('c') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const SK = 'probe.s.' + code;
+/* Persönlicher QR-Code (#p=…): Name und Schlüssel nur im Browser – gleich aus der Adresszeile nehmen, für Neuladen in der Sitzung merken */
+const PK = 'probe.p.' + code;
+let personal = readPersonal(location.hash);
+try { if (personal) sessionStorage.setItem(PK, JSON.stringify(personal)); else personal = JSON.parse(sessionStorage.getItem(PK) || 'null'); } catch (e) { }
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 const screen = $('#screen');
 let st = load(), info = null, ctx = null, skew = 0, deadline = null, auto = true, dirty = false, timer = null, sending = false, finished = false, lastOk = 0;
 
@@ -44,19 +50,20 @@ async function boot() {
 }
 function joinForm() {
   const x = info.exam;
-  if (x.status !== 'offen' || !x.join_open) { show(`<img class="ic" src="app/icon.svg" alt=""><h2>${x.status === 'offen' ? 'Einlass geschlossen' : x.status === 'entwurf' || x.status === 'geschlossen' ? 'Die Prüfung ist nicht geöffnet' : 'Die Prüfung ist beendet'}</h2><p class="meta">${esc(x.klasse)} · ${esc(x.fach)} · ${esc(x.art)}</p><p class="help">Bitte melde dich bei deiner Lehrkraft.</p><button class="btn alt" onclick="location.reload()">Nochmal versuchen</button>`); return; }
+  const me = personal ? `<div class="me">👤 <b>${esc(personal.v)} ${esc(personal.n)}</b></div>` : '';
+  if (x.status !== 'offen' || !x.join_open) { show(`<img class="ic" src="app/icon.svg" alt="">${me}<h2>${x.status === 'offen' ? 'Einlass geschlossen' : x.status === 'entwurf' || x.status === 'geschlossen' ? 'Die Prüfung ist nicht geöffnet' : 'Die Prüfung ist beendet'}</h2><p class="meta">${esc(x.klasse)} · ${esc(x.fach)} · ${esc(x.art)}</p><p class="help">${personal && x.status === 'entwurf' ? 'Deine Lehrkraft startet die Prüfung gleich. Tippe dann auf „Nochmal versuchen“ – du musst nicht neu scannen.' : 'Bitte melde dich bei deiner Lehrkraft.'}</p><button class="btn alt" onclick="location.reload()">Nochmal versuchen</button>`); return; }
   show(`<img class="ic" src="app/icon.svg" alt=""><h1>${esc(x.titel || 'Prüfung')}</h1><p class="meta">${esc(x.klasse)} · ${esc(x.fach)} · ${esc(x.art)}${x.dauer ? ` · ${x.dauer} Minuten` : ''}</p>
-    <form id="f" style="display:contents"><label>Vorname<input id="v" autocomplete="given-name" autocapitalize="words" required></label>
-    <label>Nachname<input id="n" autocomplete="family-name" autocapitalize="words" required></label>
+    <form id="f" style="display:contents">${personal ? `${me}<p class="help">Du meldest dich mit deinem persönlichen QR-Code an. Nicht du? Bitte melde dich bei deiner Lehrkraft.</p>` : `<label>Vorname<input id="v" autocomplete="given-name" autocapitalize="words" required></label>
+    <label>Nachname<input id="n" autocomplete="family-name" autocapitalize="words" required></label>`}
     ${x.pin_on ? '<label>PIN (steht an der Tafel)<input id="pin" class="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" required></label>' : ''}
-    <p class="help">Gib deinen richtigen Namen ein – so ordnet deine Lehrkraft deine Arbeit zu.</p>
+    ${personal ? '' : '<p class="help">Gib deinen richtigen Namen ein – so ordnet deine Lehrkraft deine Arbeit zu.</p>'}
     <div class="err" id="err"></div><button class="btn">Prüfung beginnen</button></form>`);
-  $('#v').focus();
+  ($('#v') || $('#pin'))?.focus();
   $('#f').onsubmit = async ev => {
     ev.preventDefault(); const b = $('#f .btn'); b.disabled = true; $('#err').textContent = '';
-    const v = $('#v').value.trim(), n = $('#n').value.trim();
+    const v = personal ? personal.v : $('#v').value.trim(), n = personal ? personal.n : $('#n').value.trim();
     try {
-      const rc = K.resultCode(), identity_enc = await K.seal(info.pub_key, { v, n, rc });
+      const rc = personal?.r || K.resultCode(), identity_enc = await K.seal(info.pub_key, personal ? { v, n, rc, t: personal.t } : { v, n, rc });
       const r = await api('p_join', { pin: $('#pin')?.value || '', identity_enc });
       st = { token: r.token, pid: r.pid, rc, v, n, pub: r.pub_key, identity_enc, answers: {}, fokus: 0, doc: r.doc, deadline: r.deadline, auto: r.auto !== false };
       keep(); run(r);

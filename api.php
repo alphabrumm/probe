@@ -115,7 +115,7 @@ function exam_meta(array $e): array {
         'fertig' => (bool)$e['fertig'], 'has_draft' => (bool)$e['draft_enc'], 'updated' => (int)$e['updated'],
         'code' => $e['code'], 'pin' => $e['pin'], 'join_open' => (bool)$e['join_open'], 'opened' => $e['opened'] ? (int)$e['opened'] : null,
         'ended' => $e['ended'] ? (int)$e['ended'] : null, 'expires' => $e['expires'] ? (int)$e['expires'] : null,
-        'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'],
+        'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'], 'pqr' => (bool)($e['pqr'] ?? 0),
         'resp' => db()->query('SELECT status FROM respizienz WHERE exam_id = ' . (int)$e['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn() ?: null,
         'teilnehmer' => (int)(db()->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn())];
 }
@@ -128,8 +128,9 @@ function new_code(): string {
     }
     fail('Kein freier Prüfungscode');
 }
-function exam_by_code(string $code): array {
-    $st = db()->prepare("SELECT * FROM exams WHERE code = ? AND status <> 'entwurf'"); $st->execute([strtoupper(trim($code))]);
+function exam_by_code(string $code, bool $pqrDraft = false): array {
+    // vor dem Start unbekannt – außer für die Info-Abfrage bei persönlichen QR-Codes (die gibt es schon vorher auf Papier)
+    $st = db()->prepare("SELECT * FROM exams WHERE code = ? AND (status <> 'entwurf'" . ($pqrDraft ? ' OR pqr = 1' : '') . ')'); $st->execute([strtoupper(trim($code))]);
     return $st->fetch() ?: fail('Diese Prüfung gibt es nicht (mehr). Prüfe den Link oder scanne den QR-Code erneut.', 404);
 }
 function participant(array $e, string $token): array {
@@ -546,6 +547,14 @@ case 'exam_roster': { // Klassenliste (Vor- und Nachnamen) – verschlüsselt
     db()->prepare('UPDATE exams SET roster_enc = ?, roster_n = ?, erwartet = CASE WHEN ? > 0 THEN ? ELSE erwartet END, updated = ? WHERE id = ?')->execute([$r, $r ? $n : 0, $n, $n, time(), $e['id']]);
     out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
 }
+case 'exam_pqr': { // Persönliche QR-Codes an/aus (nur vor dem Start); an: Prüfungscode schon jetzt vergeben, er steht in den gedruckten QR-Codes
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    if ($e['status'] !== 'entwurf') fail('Die Prüfung wurde schon gestartet.', 409);
+    $on = !empty($in['on']) ? 1 : 0;
+    db()->prepare('UPDATE exams SET pqr = ?, updated = ? WHERE id = ?')->execute([$on, time(), $e['id']]);
+    if ($on && !$e['code']) db()->prepare('UPDATE exams SET code = ? WHERE id = ? AND code IS NULL')->execute([new_code(), $e['id']]);
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
 case 'exam_delete': { // endgültig: Inhalt, Abgaben, Bewertung, Ergebnisseiten, Kommentare (Respizienz-Fassung der Fachleitung bleibt)
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
     if (in_array($e['status'], ['offen', 'geschlossen'], true)) fail('Die Prüfung läuft noch – bitte zuerst beenden.', 409);
@@ -559,8 +568,8 @@ case 'cfg': { // öffentliche Einstellungen für die Oberfläche
     out(['apps' => apps_cfg()]);
 }
 case 'p_info': {
-    $e = exam_by_code(str($in, 'code', 12, true));
-    out(['exam' => ['status' => $e['status'], 'titel' => $e['titel'], 'fach' => $e['fach'], 'klasse' => $e['klasse'], 'art' => $e['art'], 'datum' => $e['datum'],
+    $e = exam_by_code(str($in, 'code', 12, true), true);
+    out(['exam' => ['status' => $e['status'], 'titel' => $e['status'] === 'entwurf' ? '' : $e['titel'], 'fach' => $e['fach'], 'klasse' => $e['klasse'], 'art' => $e['art'], 'datum' => $e['datum'],
         'dauer' => (int)$e['dauer'], 'pin_on' => (bool)$e['pin_on'], 'join_open' => (bool)$e['join_open']], 'pub_key' => owner_pub($e), 'now' => time()]);
 }
 case 'p_join': {

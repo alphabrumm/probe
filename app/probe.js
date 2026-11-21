@@ -1,5 +1,6 @@
 // Probe – Oberfläche: Einrichtung, Anmeldung, Prüfungen der Lehrkraft, Admin.
 // Alles Persönliche (Schülernamen, Inhalte mit Lösungen) wird hier im Browser verschlüsselt, bevor es zum Server geht.
+import { tip, ensureTokens, keepTokens, qrSheetPdf } from './pqr.js';
 import * as K from './crypto.js';
 import { viewLive, viewEval, stopLive } from './run.js';
 import { viewRespList, viewResp, viewArchiv, importArchive, respChip } from './resp.js';
@@ -347,13 +348,18 @@ async function viewExam(id) {
         <details class="help" style="margin-top:12px"><summary>Prüfung woanders gebaut?</summary><p>Hast du die Prüfung im normalen PathFinder gebaut (nicht hier in Probe), speichere sie dort unter ⋯ → Export → „Prüfungsdatei für Probe“ und lade die Datei hier.</p><button class="btn sm" id="imp">⤒ Prüfungsdatei laden</button></details></section>
       <section class="card"><h2>Klassenliste</h2>
         ${R.length ? `<p>${R.length} Schüler · während der Prüfung siehst du, wer fehlt.</p><ul class="names">${R.map(s => `<li>${esc(s.n)}, ${esc(s.v)}</li>`).join('')}</ul>` : '<p class="help">Optional: Mit einer Liste der Vor- und Nachnamen erkennt Probe, wer bei der Prüfung fehlt. Die Namen werden verschlüsselt gespeichert.</p>'}
-        <div class="btns" style="margin-top:10px"><button class="btn" id="csv">⤒ CSV-Datei wählen</button><button class="btn" id="paste">Namen einfügen</button>${R.length ? '<button class="btn danger" id="rdel">Liste entfernen</button>' : ''}</div></section>
+        <div class="btns" style="margin-top:10px"><button class="btn" id="csv">⤒ Klassenliste einlesen</button><button class="btn" id="paste">Namen einfügen</button>${R.length ? '<button class="btn danger" id="rdel">Liste entfernen</button>' : ''}</div>
+        <button class="linkbtn" data-tip="klasse">Woher bekomme ich die?</button></section>
     </div><div class="cards">
       <section class="card"><h2>Rahmenbedingungen</h2>
         <table class="t"><tr><td>Klasse</td><td><b>${esc(e.klasse)}</b></td></tr><tr><td>Fach</td><td><b>${esc(e.fach)}</b></td></tr><tr><td>Datum</td><td><b>${esc(fmtDate(e.datum))}</b></td></tr><tr><td>Art</td><td><b>${esc(ARTEN[e.art] || e.art)}</b></td></tr>
         <tr><td>Bearbeitungszeit</td><td><b>${e.dauer ? e.dauer + ' min' : 'ohne Countdown'}</b></td></tr><tr><td>Teilnehmer</td><td><b>${e.erwartet || '–'}</b></td></tr><tr><td>Einlass-PIN</td><td><b>${e.pin_on ? 'an' : 'aus'}</b></td></tr><tr><td>Bewertung</td><td><b>${e.skala === 'punkte' ? 'Punkte 0–15' : 'Noten 1–6'}</b></td></tr></table>
         <div class="btns" style="margin-top:12px"><button class="btn" id="meta">Ändern</button></div></section>
-      <section class="card"><h2>Durchführung</h2><p class="help">${e.fertig ? 'Beim Start bekommt die Prüfung einen QR-Code' + (e.pin_on ? ' und eine PIN' : '') + '. Danach lässt sich der Inhalt nicht mehr ändern.' : 'Erst den Inhalt fertigstellen (im Editor „✓ Fertig – zurück zu Probe“).'}</p><button class="btn pri" id="start"${e.fertig ? '' : ' disabled'}>▶ Prüfung starten</button></section>
+      <section class="card"><h2>Durchführung</h2>
+        <div class="pqr-row"><label class="switch"><input type="checkbox" id="pqr"${e.pqr ? ' checked' : ''}${!R.length && !e.pqr ? ' disabled' : ''}><span></span></label><b>Persönliche QR-Codes</b><button class="linkbtn" data-tip="pqr">Was bedeutet das?</button></div>
+        ${!R.length ? `<p class="help">${e.pqr ? '⚠ ' : ''}Dafür zuerst die Klassenliste einlesen.</p>` : ''}
+        ${e.pqr && R.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn" id="qrgen">▦ QR-Codes generieren</button><span class="help">${R.filter(r => r.t).length ? `für ${R.filter(r => r.t).length} von ${R.length} Schüler:innen erzeugt` : ''}</span></div>` : ''}
+        <p class="help">${e.fertig ? (e.pqr ? 'Beim Start scannen die Schüler:innen ihren persönlichen QR-Code' + (e.pin_on ? ' und geben die PIN ein' : '') : 'Beim Start bekommt die Prüfung einen QR-Code' + (e.pin_on ? ' und eine PIN' : '')) + '. Danach lässt sich der Inhalt nicht mehr ändern.' : 'Erst den Inhalt fertigstellen (im Editor „✓ Fertig – zurück zu Probe“).'}</p><button class="btn pri" id="start"${e.fertig ? '' : ' disabled'}>▶ Prüfung starten</button></section>
       <section class="card"><h2>Löschen</h2><p class="help">Löscht die Prüfung mit Inhalt und Klassenliste endgültig.</p><button class="btn danger" id="del">Prüfung löschen</button></section>
     </div></div>`;
   $('#edit').onclick = () => openEditor(e, e.draft);
@@ -362,6 +368,11 @@ async function viewExam(id) {
     try { await api('exam_state', { id: e.id, to: 'offen' }); viewExam(e.id); } catch (er) { toast('⚠ ' + esc(er.message), 5000); }
   };
   $('#meta').onclick = () => examForm(e);
+  main.querySelectorAll('[data-tip]').forEach(b => b.onclick = () => tip(b, TIPS[b.dataset.tip]));
+  $('#pqr').onchange = async ev => {
+    try { await api('exam_pqr', { id: e.id, on: ev.target.checked }); viewExam(e.id); } catch (er) { ev.target.checked = !ev.target.checked; toast('⚠ ' + esc(er.message)); }
+  };
+  $('#qrgen') && ($('#qrgen').onclick = () => qrCodes(e));
   $('#imp').onclick = () => pickFile('.json,application/json', async f => {
     try {
       const d = JSON.parse(await f.text());
@@ -401,8 +412,27 @@ export function parseNames(text) {
   }
   return out.sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
 }
+const TIPS = {
+  klasse: 'Klassenliste mit Schüler:innen aus einer Schulverwaltung (z. B. Infoportal) exportieren und hier einlesen.',
+  pqr: '<p>Wird dieser Schalter aktiviert, so wählen sich die Schüler:innen mit einem <b>individuellen QR-Code</b> ein.</p><p>Wenn deaktiviert, wählen sich die Schüler:innen über einen <b>gemeinsamen</b>, an der Tafel projizierten QR-Code ein und geben anschließend ihren Namen ein.</p>',
+};
+/** Persönliche QR-Codes: fehlende Schlüssel ergänzen (verschlüsselt in der Klassenliste), Druckbogen als PDF */
+async function qrCodes(e) {
+  const R = (e.roster || []).map(r => ({ ...r }));
+  if (!R.length || !e.code) { toast('⚠ Erst die Klassenliste einlesen'); return; }
+  try {
+    if (ensureTokens(R)) await withBusy('QR-Codes werden erzeugt …', async () => api('exam_roster', { id: e.id, roster_enc: await K.seal(S.keys.pub_key, R), roster_n: R.length }));
+    e.roster = R;
+  } catch (er) { toast('⚠ ' + esc(er.message), 5000); return; }
+  await viewExam(e.id); // zeigt „für n von m erzeugt“ – vor dem Dialog, sonst schließt der Neuaufbau ihn
+  const d = dialog('▦ Persönliche QR-Codes', `<p>Individuelle QR-Codes für deine Schüler:innen wurden generiert. Drucke sie aus und teile sie am Prüfungstermin deinen Schüler:innen aus.</p>
+    <p class="help">Ein A4-Blatt je Schüler:in (${R.length} Seiten): oben Name, Prüfung, Datum, QR-Code und der Zugangscode zur persönlichen Auswertung, darunter Karopapier als Schmierblatt für die Prüfung. Kommen später Namen dazu, einfach erneut generieren – schon gedruckte Blätter bleiben gültig.</p>
+    <div class="btns"><button class="btn pri" id="go">⇩ Datei laden</button></div>`);
+  $('#go', d.el).onclick = () => { try { showPdf(qrSheetPdf(e, R), `QR-Codes_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); } catch (er) { toast('⚠ ' + esc(er.message), 5000); } };
+}
 async function saveRoster(e, L) {
   if (!L.length) { toast('⚠ Keine Namen erkannt'); return; }
+  L = keepTokens(e.roster, L); // schon gedruckte persönliche QR-Codes bleiben für gleiche Namen gültig
   await withBusy('Klassenliste wird verschlüsselt …', async () => api('exam_roster', { id: e.id, roster_enc: await K.seal(S.keys.pub_key, L), roster_n: L.length }));
   toast(`✓ ${L.length} Namen übernommen`); viewExam(e.id);
 }

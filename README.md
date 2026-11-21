@@ -32,6 +32,13 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   KI-Vorschläge“ (nur wenn KI-Vorschläge eingelesen sind, standardmäßig an); Code-Antworten mit Syntax-Highlighting
   (`app/hl.js`: Java für JPad, SQL für QPad) und Programmlauf als eigener Kasten; neben der Note ▲/▼, wenn ein halber Punkt
   die Note ändern würde (nur Ansicht, nicht in CSV, Protokoll oder Ergebnisseite).
+* **Persönliche QR-Codes** (`app/pqr.js`, Spalte `exams.pqr`): Schalter in „Durchführung“ (braucht die Klassenliste).
+  „QR-Codes generieren“ ergänzt je Schüler:in einen zufälligen Schlüssel und den Zugangscode zur Auswertung (verschlüsselt in
+  der Klassenliste) und vergibt den Prüfungscode schon vor dem Start; das PDF hat je Schüler:in ein A4-Blatt mit Name, Prüfung,
+  Datum, Zugangscode, QR-Code und Karopapier (5 mm) als Schmierblatt. Der QR-Code enthält `s.html?c=<Code>#p=…` – der Teil
+  nach `#` (Name, Schlüssel, Zugangscode) geht nie an den Server. Anmeldung dann ohne Namenseingabe (PIN bleibt), Zuordnung
+  über den Schlüssel; nach dem Start zeigt die Live-Ansicht statt des QR-Codes „Scanne jetzt deinen persönlichen QR-Code“
+  (gemeinsamer QR-Code auf Wunsch für vergessene Blätter). Vor dem Start gescannt: Name und „nicht geöffnet“, später nur neu laden.
 * **Namen:** Anmeldungen werden der Klassenliste zugeordnet (`app/names.js`) – auch mit Rufnamen („Max“ für „Maximilian Antony“),
   einem Teil eines Doppelnamens, Kurzformen („Basti“), Tippfehlern oder vertauschtem Vor- und Nachnamen. In der Auswertung
   steht der Name aus der Klassenliste (auch in Notenliste, Protokoll, Ergebnisseite); die Lehrkraft kann von Hand zuordnen und

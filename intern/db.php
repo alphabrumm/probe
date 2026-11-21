@@ -179,4 +179,10 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 8;
         SQL);
     }
+    if ($v < 9) { // Persönliche QR-Codes: Schüler melden sich mit einem eigenen QR-Code an (Prüfungscode wird dafür schon vor dem Start vergeben)
+        $pdo->exec(<<<SQL
+        ALTER TABLE exams ADD COLUMN pqr INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version = 9;
+        SQL);
+    }
 }

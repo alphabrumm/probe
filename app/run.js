@@ -5,6 +5,7 @@ import { respState, respHtml, respSubmit } from './resp.js';
 import { protokollPdf } from './protokoll.js';
 import { showPdf } from './pdf.js';
 import { matchRoster } from './names.js';
+import { tokenFixed } from './pqr.js';
 import { buildExport, parseImport, applyImport } from './ki.js';
 import { codeAnswerHtml, highlight, langOf } from './hl.js';
 
@@ -29,12 +30,15 @@ export async function viewLive(e, helpers) {
     ${e.dauer ? `<section class="card zeit" id="zeit"><div class="zt"><span class="help">Restzeit für alle</span><div class="big" id="zLeft">–</div><span class="help" id="zEnd"></span></div>
       <div class="stack"><div class="btns"><span class="help">Verlängern für alle:</span>${[1, 2, 5, 10, 15].map(m => `<button class="btn sm" data-plus="${m}">+${m} min</button>`).join('')}<span id="zSum"></span></div>
       <label class="check"><input type="checkbox" id="zAuto"> Automatisch abgeben, wenn die Zeit abgelaufen ist</label><p class="help" id="zHint"></p></div></section>` : ''}
-    <div class="grid2"><section class="card live-qr"><div class="qrbox">${qrSvg(link, { title: 'QR-Code zur Prüfung' })}</div>
+    <div class="grid2"><section class="card live-qr${e.pqr ? ' pqr' : ''}">${e.pqr ? `<div class="pqr-hint"><div class="pqr-ic">▦</div><div class="pqr-msg">Scanne jetzt deinen persönlichen <span style="white-space:nowrap">QR-Code</span></div>
+        <button class="linkbtn" id="showQr">QR-Code vergessen? Gemeinsamen QR-Code zeigen</button><div class="qrbox" id="qrAll" hidden>${qrSvg(link, { title: 'QR-Code zur Prüfung' })}</div></div>`
+      : `<div class="qrbox">${qrSvg(link, { title: 'QR-Code zur Prüfung' })}</div>`}
       <div class="stack"><div><span class="help">Code</span><div class="big">${esc(e.code)}</div></div>${e.pin_on ? `<div><span class="help">PIN</span><div class="big pin">${esc(e.pin)}</div></div>` : ''}
       <div class="help link">${esc(link)}</div><button class="btn" id="beamer">⛶ Für den Beamer</button></div></section>
     <section class="card"><h2 id="state"></h2><div class="stat" id="stat"></div><div class="btns" id="acts"></div><p class="help" id="hint"></p></section></div>
     <section class="card" style="margin-top:16px"><div class="bar"><h2 style="margin:0">Teilnehmer</h2><span class="sp"></span><button class="btn sm" id="imp">⤒ Abgabe aus Datei</button></div><div class="scroll-x"><table class="t" id="tab"></table></div></section>`;
   $('#beamer').onclick = () => beamer(e, link);
+  $('#showQr') && ($('#showQr').onclick = () => { const q = $('#qrAll'); q.hidden = !q.hidden; $('#showQr').textContent = q.hidden ? 'QR-Code vergessen? Gemeinsamen QR-Code zeigen' : 'Gemeinsamen QR-Code ausblenden'; });
   $('#imp').onclick = () => importFile(e);
   $('#ansehen').onclick = ev => { ev.stopPropagation(); X.view(e); };
   const draw = async () => {
@@ -42,14 +46,14 @@ export async function viewLive(e, helpers) {
     e = { ...e, ...r.exam }; const now = r.now;
     if (!['offen', 'geschlossen'].includes(e.status)) { stopLive(); X.viewExam(e.id); return; }
     const P = await Promise.all(r.participants.map(decrypt));
-    const M = e.roster?.length ? matchRoster(e.roster, P) : null;
+    const M = e.roster?.length ? matchRoster(e.roster, P, tokenFixed(e.roster, P)) : null; // persönlicher QR-Code: sichere Zuordnung
     const abg = P.filter(p => p.status === 'abgegeben').length, soll = e.erwartet || e.roster?.length || 0;
     $('#state').innerHTML = e.status === 'offen' ? '🟢 Prüfung läuft' : '⏸ Geschlossen – keine Abgaben';
     skew = now - Date.now() / 1000; clock();
     $('#stat').innerHTML = `<div><b>${P.length}${soll ? ` / ${soll}` : ''}</b><span>angemeldet</span></div><div><b>${abg}</b><span>abgegeben</span></div>${M ? `<div><b>${M.missing.length}</b><span>fehlen</span></div>` : ''}`;
     $('#acts').innerHTML = (e.status === 'offen' ? `<button class="btn" data-st="geschlossen">⏸ Schließen</button>` : `<button class="btn pri" data-st="offen">▶ Wieder öffnen</button>`)
       + `<button class="btn" data-join>${e.join_open ? '🔒 Einlass sperren' : '🔓 Einlass öffnen'}</button><button class="btn danger" data-st="beendet">■ Beenden und auswerten</button>`;
-    $('#hint').textContent = e.status === 'offen' ? (e.join_open ? 'Schüler scannen den QR-Code und melden sich mit Namen' + (e.pin_on ? ' und PIN' : '') + ' an.' : 'Einlass gesperrt: Neue Anmeldungen sind nicht möglich, angemeldete Schüler arbeiten weiter.')
+    $('#hint').textContent = e.status === 'offen' ? (e.join_open ? (e.pqr ? 'Schüler scannen ihren persönlichen QR-Code' + (e.pin_on ? ' und geben die PIN ein' : '') + '. Wer seinen vergessen hat, meldet sich über den gemeinsamen QR-Code mit Namen an.' : 'Schüler scannen den QR-Code und melden sich mit Namen' + (e.pin_on ? ' und PIN' : '') + ' an.') : 'Einlass gesperrt: Neue Anmeldungen sind nicht möglich, angemeldete Schüler arbeiten weiter.')
       : 'Solange geschlossen ist, kann niemand speichern oder abgeben. Wieder öffnen setzt die Prüfung fort; Beenden ist endgültig.';
     const rows = P.map(p => ({ ...p, m: M?.byPerson.get(p.id) })).sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
     const ago = t => !t ? '–' : now - t < 60 ? 'gerade' : `vor ${Math.round((now - t) / 60)} min`;
@@ -108,7 +112,7 @@ export async function viewLive(e, helpers) {
 }
 function beamer(e, link) {
   const d = document.createElement('div'); d.className = 'beamer'; d.id = 'bm';
-  d.innerHTML = `<button class="btn" data-x>✕ Schließen</button><div class="bq">${qrSvg(link)}</div><div class="bi"><div class="help">Code</div><div class="big">${X.esc(e.code)}</div>${e.pin_on ? `<div class="help">PIN</div><div class="big pin">${X.esc(e.pin)}</div>` : ''}<div class="cnt"></div><div class="help">${X.esc(link)}</div></div>`;
+  d.innerHTML = `<button class="btn" data-x>✕ Schließen</button><div class="bq">${e.pqr ? '<div class="pqr-beamer"><div class="pqr-ic">▦</div>Scanne jetzt deinen persönlichen QR-Code</div>' : qrSvg(link)}</div><div class="bi"><div class="help">Code</div><div class="big">${X.esc(e.code)}</div>${e.pin_on ? `<div class="help">PIN</div><div class="big pin">${X.esc(e.pin)}</div>` : ''}<div class="cnt"></div><div class="help">${X.esc(link)}</div></div>`;
   document.body.appendChild(d);
   d.onclick = ev => { if (ev.target.closest('[data-x]')) { d.remove(); document.exitFullscreen?.().catch(() => { }); } };
   d.requestFullscreen?.().catch(() => { });
@@ -143,7 +147,7 @@ export async function viewEval(e, helpers) {
     let who = { v: '?', n: '(unlesbar)', rc: '' }, ans = {};
     try { who = await K.open(S.priv, p.identity_enc); } catch (er) { }
     try { if (p.answers_enc) ans = (await K.open(S.priv, p.answers_enc)).answers || {}; } catch (er) { }
-    people.push({ id: p.id, v: who.v, n: who.n, rc: who.rc, ans, status: p.status, imported: +p.imported, fokus: +p.fokus, saved: +p.saved || 0, rid: who.rc ? (await K.reportKeys(who.rc)).rid : '' });
+    people.push({ id: p.id, v: who.v, n: who.n, rc: who.rc, t: who.t || null, ans, status: p.status, imported: +p.imported, fokus: +p.fokus, saved: +p.saved || 0, rid: who.rc ? (await K.reportKeys(who.rc)).rid : '' });
   }
   const comments = [];
   for (const c of r.comments) { try { comments.push({ ...c, ...(await K.open(S.priv, c.comment_enc)) }); } catch (er) { } }
@@ -181,7 +185,7 @@ function buildPeople() {
   });
   S2.missing = [];
   if (roster.length) {
-    const fixed = new Map();
+    const fixed = tokenFixed(roster, people.map(p => ({ id: p.id, t: p.t }))); // persönlicher QR-Code
     for (const p of people) if (Object.prototype.hasOwnProperty.call(g.link, p.id)) {
       const k = g.link[p.id], i = k ? roster.findIndex(r => rkey(r) === k) : -1;
       if (!k || i >= 0) fixed.set(p.id, i);
