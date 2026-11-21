@@ -12,7 +12,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const main = $('#main');
 const S = { user: null, csrf: '', keys: null, priv: null, catalog: null, sj: null };
-const ARTEN = { Schulaufgabe: 'Schulaufgabe', Kurzarbeit: 'Kurzarbeit', AKL: 'AKL (angekündigter kleiner Leistungsnachweis)', 'Übungsprüfung': 'Übungsprüfung' };
+const ARTEN = { 'Übungsprüfung': 'Übungsprüfung', AKL: 'AKL (angekündigter kleiner Leistungsnachweis)', Kurzarbeit: 'Kurzarbeit', Schulaufgabe: 'Schulaufgabe' };
 const fmtDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
 const fmtPts = x => String(Math.round((+x || 0) * 100) / 100).replace('.', ',');
 
@@ -301,12 +301,12 @@ async function examForm(e) {
   const C = await catalog();
   const klassen = [...new Set((await api('exam_list', { schuljahr: S.sj })).exams.map(x => x.klasse))];
   const F = [...C.faecher]; if (e?.fach_id && !F.some(f => +f.id === +e.fach_id)) F.push({ id: e.fach_id, name: e.fach });
-  const v = e || { klasse: '', fach_id: F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'Schulaufgabe', erwartet: 0, dauer: 45, pin_on: true, skala: 'noten' };
+  const v = e || { klasse: '', fach_id: F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'Schulaufgabe', erwartet: 0, dauer: 20, pin_on: true, skala: 'noten' };
   const d = dialog(e ? 'Rahmenbedingungen' : 'Neue Prüfung', `
     <div class="row">${field('Klasse', `<input type="text" id="kl" list="kll" value="${esc(v.klasse)}" placeholder="z. B. 8b" autocapitalize="off"><datalist id="kll">${klassen.map(k => `<option value="${esc(k)}">`).join('')}</datalist>`)}
     ${field('Fach', `<select id="fa">${F.map(f => `<option value="${f.id}"${+f.id === +v.fach_id ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`, C.eigene ? 'Deine Fächer – weitere über deinen Namen oben rechts → Meine Fächer.' : 'Lege über deinen Namen oben rechts → Meine Fächer fest, welche Fächer du unterrichtest.')}</div>
     <div class="row">${field('Datum', `<input type="date" id="da" value="${esc(v.datum)}">`)}${field('Art', `<select id="ar">${Object.entries(ARTEN).map(([k, n]) => `<option value="${esc(k)}"${k === v.art ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`)}</div>
-    <div class="row">${field('Bearbeitungszeit (Minuten)', `<input type="number" id="du" min="0" max="600" inputmode="numeric" value="${v.dauer || ''}" placeholder="45">`, 'Leer = ohne Countdown.')}
+    <div class="row">${field('Bearbeitungszeit (Minuten)', `<input type="number" id="du" min="0" max="600" inputmode="numeric" value="${v.dauer || ''}" placeholder="20">`, 'Leer = ohne Countdown.')}
     ${field('Erwartete Teilnehmer', `<input type="number" id="er" min="0" max="200" inputmode="numeric" value="${v.erwartet || ''}" placeholder="z. B. 28">`, 'Mit Klassenliste automatisch.')}</div>
     ${field('Bewertung', `<select id="sk"><option value="noten"${v.skala !== 'punkte' ? ' selected' : ''}>Noten 1–6</option><option value="punkte"${v.skala === 'punkte' ? ' selected' : ''}>Punkte 0–15 (Oberstufe)</option></select>`)}
     <label class="ck"><input type="checkbox" id="pin"${v.pin_on ? ' checked' : ''}>Einlass-PIN: Schüler geben zusätzlich zum QR-Code eine PIN ein, die nur am Beamer steht.</label>
