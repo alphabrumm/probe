@@ -289,7 +289,7 @@ function drawEval() {
       ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
       <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button></div>
-      <div class="btns ki-bar"><button class="btn ki" id="kiExp">${KI} KI-Korrektur: Export</button><button class="btn ki" id="kiImp">${KI} KI-Vorschläge einlesen</button>${kiSummary()}</div>
+      <div class="btns ki-bar"><button class="btn ki" id="kiGo">${KI} KI-Korrektur</button>${kiSummary()}</div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
     <div class="grid2" style="margin-top:16px"><section class="card"><h2>Notenschlüssel</h2><div id="key"></div></section><section class="card"><h2>Verteilung</h2><div id="dist"></div></section></div>
@@ -300,7 +300,7 @@ function drawEval() {
   $('#pub').onclick = publish;
   $('#resp') && ($('#resp').onclick = async () => { try { if (await respSubmit(S2, S2.resp)) { S2.resp = await respState(S2.e, X); drawEval(); } } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); } });
   $('#ansehen').onclick = () => X.view(e);
-  $('#kiExp').onclick = kiExport; $('#kiImp').onclick = kiImport;
+  $('#kiGo').onclick = () => kiWizard();
   $('#unpub') && ($('#unpub').onclick = async () => { if (!confirm('Ergebnisseiten der Schüler sofort sperren?')) return; await X.api('exam_state', { id: e.id, to: 'beendet' }); S2.e.status = 'beendet'; drawEval(); });
   $('#prot').onclick = () => { // Übersicht + je Prüfling eine Seite; entsteht hier im Browser
     try { showPdf(protokollPdf(S2, results(), X), `Pruefungsprotokoll_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); }
@@ -514,7 +514,11 @@ function kiAction(ev, reopen) {
  */
 const kiKind = t => t.type === 'essay' || t.type === 'app' || t.type === 'task' || (t.type === 'gap' && !t.bank) ? 'rec' : t.type === 'order' ? 'opt' : 'fix';
 const kiFree = t => kiKind(t) === 'rec';
-function kiExport() {
+/**
+ * KI-Korrektur als Assistent in drei Schritten: 1 Aufgaben wählen und Export erstellen, 2 an die KI geben (Datei oder Text),
+ * 3 Antwort der KI einfügen. Schritt 3 geht jederzeit direkt – zwischen Export und Antwort liegen oft Stunden.
+ */
+function kiWizard(start = 1) {
   const { esc, fmtPts } = X, { e, key, g } = S2, RS = results();
   const tasks = key.tasks.map((t, i) => ({ t, i })).filter(x => !g.drop.includes(x.t.id));
   const pre = new Set((Array.isArray(g.kiSel) && g.kiSel.some(id => tasks.some(x => x.t.id === id)) ? g.kiSel : tasks.filter(x => kiFree(x.t)).map(x => x.t.id))
@@ -525,48 +529,59 @@ function kiExport() {
     const fix = kiKind(t) === 'fix', why = fix ? ' · eindeutig automatisch bewertet' : kiKind(t) === 'opt' ? ' · falls es weitere richtige Reihenfolgen gibt' : '';
     return `<label class="ck ki-pick${fix ? ' off' : ''}"${fix ? ' title="Hier wird nur ausgewählt oder gezogen – Probe bewertet eindeutig, die KI bringt nichts dazu."' : ''}><input type="checkbox" data-kisel="${esc(t.id)}"${pre.has(t.id) ? ' checked' : ''}${fix ? ' disabled' : ''}><span><b>${i + 1}. ${esc(t.title)}</b> <span class="help">${esc(typ(t))}${t.type === 'gap' ? (t.bank ? ' mit Wortbank' : ' zum Eintippen') : ''} · ${fmtPts(t.pts)} P.${open ? ` · ${open} noch nicht bewertet` : ''}${notFull ? ` · ${notFull}× nicht volle Punkte` : ''}${why}</span></span></label>`;
   };
-  const d = X.dialog(`${KI} KI-Korrektur: Export`, `<p class="help">Welche Aufgaben soll die KI korrigieren? Sinnvoll ist das überall, wo Schüler:innen etwas selbst schreiben oder tippen – reine Auswahlaufgaben bewertet Probe eindeutig, sie sind deshalb ausgegraut. Exportiert werden nur die gewählten Aufgaben – mit Musterlösung, Erwartungshorizont und dem Material davor – und die Antworten aller Schüler dazu, <b>ohne Namen</b>. Weniger Aufgaben = kürzerer Text, weniger Tokens.</p>
-    <div class="btns" style="margin:0 0 6px"><button class="btn sm" data-kiq="free">empfohlene</button><button class="btn sm" data-kiq="all">alle wählbaren</button><button class="btn sm" data-kiq="none">keine</button></div>
-    <div class="ki-list">${tasks.map(row).join('')}</div>
-    <div class="btns"><button class="btn pri ki" data-kigo>${KI} Export erstellen</button><span class="help" data-kicount></span></div><div data-kiout></div>`, { wide: true });
+  let step = start, txt = '', pasted = '';
+  const d = X.dialog(`${KI} KI-Korrektur`, '<div data-kisteps></div><div data-kibody></div>', { wide: true });
+  const STEPS = ['Aufgaben wählen', 'An die KI geben', 'Antwort einfügen'];
+  const draw = () => {
+    $('[data-kisteps]', d.el).innerHTML = `<div class="ki-steps">${STEPS.map((n, k) => `<button class="ki-step${step === k + 1 ? ' on' : ''}${k + 1 < step ? ' done' : ''}" data-kistep="${k + 1}"${k === 1 && !txt ? ' disabled' : ''}><b>${k + 1}</b>${n}</button>`).join('')}</div>`;
+    const B = $('[data-kibody]', d.el);
+    if (step === 1) {
+      B.innerHTML = `<p class="help">Welche Aufgaben soll die KI korrigieren? Sinnvoll ist das überall, wo Schüler:innen etwas selbst schreiben oder tippen – reine Auswahlaufgaben bewertet Probe eindeutig, sie sind deshalb ausgegraut. In den Export kommen nur die gewählten Aufgaben (mit Musterlösung, Erwartungshorizont und dem Material davor) und die Antworten aller Schüler dazu – <b>ohne Namen</b>.</p>
+        <div class="btns" style="margin:0 0 6px"><button class="btn sm" data-kiq="free">empfohlene</button><button class="btn sm" data-kiq="all">alle wählbaren</button><button class="btn sm" data-kiq="none">keine</button></div>
+        <div class="ki-list">${tasks.map(row).join('')}</div>
+        <div class="btns"><button class="btn pri ki" data-kigo>${KI} Export erstellen</button><span class="help" data-kicount></span><span class="sp"></span><button class="linkbtn" data-kistep="3">Antwort der KI schon da? Direkt zu Schritt 3 ›</button></div>`;
+      count();
+    } else if (step === 2) {
+      B.innerHTML = `<div class="ki-box soft"><b>Export fertig</b> <span class="help">${(txt.length / 1024).toFixed(0)} KB · etwa ${Math.max(1, Math.round(txt.length / 3.5 / 1000))}k Tokens · ${(g.kiSel || []).length} Aufgabe${(g.kiSel || []).length === 1 ? '' : 'n'} · ${RS.length} Schüler</span>
+          <div class="btns" style="margin:8px 0 0"><button class="btn pri" data-dl>⇩ Datei herunterladen</button><button class="btn" data-cp>Text kopieren</button></div></div>
+        <ol class="ki-how"><li>Öffne eine KI deiner Wahl, z. B. <b>ByLKI</b> oder <b>Claude</b>.</li><li>Lade die Datei hoch <span class="help">oder</span> füge den kopierten Text ins Eingabefeld ein und schicke ihn ab. Die Anleitung für die KI steht schon im Text – du musst nichts dazuschreiben.</li><li>Warte, bis die KI fertig ist, und kopiere ihre <b>komplette Antwort</b>. Schreibt sie „Fortsetzung folgt“, bitte sie mit „weiter“ um den Rest.</li></ol>
+        <p class="help">In der Datei stehen keine Namen; schreibt ein Schüler seinen Namen in eine Antwort, steht dort [Name]. Prüfe trotzdem, ob die Antworten persönliche Angaben enthalten, und beachte die Vorgaben deiner Schule zum Einsatz von KI.</p>
+        <div class="btns"><button class="btn" data-kistep="1">‹ Zurück</button><span class="sp"></span><button class="btn pri ki" data-kistep="3">Weiter: Antwort einfügen ›</button></div>`;
+    } else {
+      const has = g.ki && Object.keys(g.ki).length;
+      B.innerHTML = `<p class="help">Füge hier die <b>ganze Antwort der KI</b> ein – auch wenn sie aus vielen einzelnen Schnipseln mit Text dazwischen besteht; Probe sammelt alle Bewertungen heraus. Teil-Antworten kannst du nacheinander einlesen. Die Vorschläge erscheinen danach pink mit ${KI} bei jedem Schüler – an deiner Bewertung ändert sich erst etwas, wenn du einen Vorschlag übernimmst.</p>
+        <textarea id="kiT" rows="10" placeholder="Antwort der KI hier einfügen …"></textarea><div class="err" id="kiErr"></div>
+        <div class="btns"><button class="btn" data-kistep="${txt ? 2 : 1}">‹ Zurück</button><button class="btn" data-file>Datei wählen</button><span class="sp"></span>${has ? '<button class="btn danger sm" data-clear>Alle KI-Vorschläge entfernen</button>' : ''}<button class="btn pri ki" data-go>${KI} Einlesen</button></div>`;
+      $('#kiT', d.el).value = pasted; $('#kiT', d.el).oninput = ev => { pasted = ev.target.value; };
+      setTimeout(() => $('#kiT', d.el)?.focus(), 50);
+    }
+  };
   const sel = () => $$('[data-kisel]', d.el).filter(c => c.checked).map(c => c.dataset.kisel);
-  const count = () => { const n = sel().length; $('[data-kicount]', d.el).textContent = n ? `${n} Aufgabe${n > 1 ? 'n' : ''} · ${RS.length} Schüler` : 'Bitte mindestens eine Aufgabe wählen.'; $('[data-kigo]', d.el).disabled = !n; $('[data-kiout]', d.el).innerHTML = ''; };
-  count();
-  let txt = '';
-  d.el.onchange = ev => { if (ev.target.matches('[data-kisel]')) count(); };
+  function count() { const n = sel().length; $('[data-kicount]', d.el).textContent = n ? `${n} Aufgabe${n > 1 ? 'n' : ''} · ${RS.length} Schüler` : 'Bitte mindestens eine Aufgabe wählen.'; $('[data-kigo]', d.el).disabled = !n; }
+  d.el.onchange = ev => { const c = ev.target.closest('[data-kisel]'); if (c) { c.checked ? pre.add(c.dataset.kisel) : pre.delete(c.dataset.kisel); count(); } };
   d.el.onclick = async ev => {
+    const st = ev.target.closest('[data-kistep]'); if (st && !st.disabled) { step = +st.dataset.kistep; draw(); return; }
     const q = ev.target.closest('[data-kiq]');
-    if (q) { $$('[data-kisel]', d.el).forEach(c => { if (c.disabled) return; const t = key.tasks.find(x => x.id === c.dataset.kisel); c.checked = q.dataset.kiq === 'all' || (q.dataset.kiq === 'free' && kiFree(t)); }); count(); return; }
+    if (q) { $$('[data-kisel]', d.el).forEach(c => { if (c.disabled) return; const t = key.tasks.find(x => x.id === c.dataset.kisel); c.checked = q.dataset.kiq === 'all' || (q.dataset.kiq === 'free' && kiFree(t)); c.checked ? pre.add(c.dataset.kisel) : pre.delete(c.dataset.kisel); }); count(); return; }
     if (ev.target.closest('[data-kigo]')) {
       const ids = sel(); if (!ids.length) return;
       g.kiSel = ids; saveGrading();
       try { txt = await X.withBusy('Export wird erstellt …', async () => buildExport(S2, RS, ids)); } catch (er) { X.toast('⚠ ' + esc(er.message), 5000); return; }
-      $('[data-kiout]', d.el).innerHTML = `<div class="ki-box soft"><b>Export fertig</b> <span class="help">${(txt.length / 1024).toFixed(0)} KB · etwa ${Math.round(txt.length / 3.5 / 1000)}k Tokens</span>
-        <ol class="help"><li>Datei herunterladen (oder Text kopieren) und in der KI deiner Wahl hochladen bzw. einfügen.</li><li>Die Antwort der KI hier unter „KI-Vorschläge einlesen“ einfügen.</li><li>Bei jedem Schüler die Vorschläge je Aufgabe übernehmen oder ablehnen.</li></ol>
-        <p class="help">Namen, die ein Schüler in eine Antwort geschrieben hat, sind durch [Name] ersetzt. Prüfe trotzdem, ob die Antworten persönliche Angaben enthalten, und beachte die Vorgaben deiner Schule zum Einsatz von KI.</p>
-        <div class="btns"><button class="btn pri" data-dl>⇩ Datei herunterladen</button><button class="btn" data-cp>Text kopieren</button></div></div>`;
-      return;
+      step = 2; draw(); return;
     }
-    if (ev.target.closest('[data-dl]')) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/markdown' })); a.download = `KI-Korrektur_${e.klasse}_${e.fach}_${e.datum}.md`.replace(/[^\wäöüÄÖÜß.-]+/g, '_'); a.click(); }
-    if (ev.target.closest('[data-cp]')) { try { await navigator.clipboard.writeText(txt); X.toast('✓ kopiert'); } catch (er) { X.toast('⚠ Kopieren nicht möglich – bitte die Datei nehmen'); } }
-  };
-}
-function kiImport() {
-  const { esc } = X, has = S2.g.ki && Object.keys(S2.g.ki).length;
-  const d = X.dialog(`${KI} KI-Vorschläge einlesen`, `<p class="help">Füge die ganze Antwort der KI ein – auch wenn sie aus vielen einzelnen JSON-Schnipseln mit Text dazwischen besteht; Probe sammelt alle Bewertungen heraus. Teil-Antworten kannst du nacheinander einlesen. Die Vorschläge erscheinen pink mit ${KI} bei jedem Schüler; an deiner Bewertung ändert sich erst etwas, wenn du einen Vorschlag übernimmst.</p>
-    <textarea id="kiT" rows="10" placeholder='{"probe":"ki-korrektur", … }'></textarea><div class="err" id="kiErr"></div>
-    <div class="btns"><button class="btn pri" data-go>Einlesen</button><button class="btn" data-file>Datei wählen</button>${has ? '<span class="sp"></span><button class="btn danger" data-clear>Alle KI-Vorschläge entfernen</button>' : ''}</div>`, { wide: true });
-  d.el.onclick = async ev => {
-    if (ev.target.closest('[data-file]')) { X.pickFile('.json,.txt,.md,application/json,text/plain', async f => { $('#kiT', d.el).value = await f.text(); }); return; }
-    if (ev.target.closest('[data-clear]')) { if (!confirm('Alle KI-Vorschläge entfernen? Bereits übernommene Punkte bleiben.')) return; delete S2.g.ki; saveGrading(); d.close(); drawEval(); return; }
+    if (ev.target.closest('[data-dl]')) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/markdown' })); a.download = `KI-Korrektur_${e.klasse}_${e.fach}_${e.datum}.md`.replace(/[^\wäöüÄÖÜß.-]+/g, '_'); a.click(); return; }
+    if (ev.target.closest('[data-cp]')) { try { await navigator.clipboard.writeText(txt); X.toast('✓ Text kopiert – jetzt in der KI einfügen'); } catch (er) { X.toast('⚠ Kopieren nicht möglich – bitte die Datei nehmen'); } return; }
+    if (ev.target.closest('[data-file]')) { X.pickFile('.json,.txt,.md,application/json,text/plain', async f => { pasted = await f.text(); $('#kiT', d.el).value = pasted; }); return; }
+    if (ev.target.closest('[data-clear]')) { if (!confirm('Alle KI-Vorschläge entfernen? Bereits übernommene Punkte bleiben.')) return; delete g.ki; saveGrading(); d.close(); drawEval(); return; }
     if (!ev.target.closest('[data-go]')) return;
     const P = parseImport($('#kiT', d.el).value);
-    if (!P.rows.length) { $('#kiErr', d.el).textContent = 'Keine Bewertungen gefunden. Erwartet wird ein JSON-Block mit "bewertungen".'; return; }
+    if (!P.rows.length) { $('#kiErr', d.el).textContent = 'Keine Bewertungen gefunden. Hast du die ganze Antwort der KI kopiert? Darin muss ein Block mit „bewertungen“ stehen.'; return; }
     const r = await applyImport(S2, P);
     if (r.wrongExam && !r.ok) { $('#kiErr', d.el).textContent = 'Diese Vorschläge gehören zu einer anderen Prüfung.'; return; }
     saveGrading(); d.close(); drawEval();
     X.toast(`${KI} ${r.ok} Vorschläge eingelesen${r.unknown.size ? ` · ${r.unknown.size} unbekannte Kennung${r.unknown.size > 1 ? 'en' : ''}` : ''}${r.bad ? ` · ${r.bad} ungültig` : ''}${r.wrongExam ? ' · ⚠ Prüfungscode passt nicht' : ''}`, 6000);
   };
+  draw();
 }
 /** Quittieren: für jeden Schüler einen Bericht, verschlüsselt mit seinem Ergebniscode */
 async function publish() {

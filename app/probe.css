@@ -255,3 +255,12 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 .chk input:checked + span { opacity: .6; text-decoration: line-through; }
 .chk-warn { margin-left: 27px; padding: 6px 9px; border-radius: 8px; background: #4a3a10; color: #ffd98a; font-size: 13px; }
 .ki-pick.off { opacity: .5; cursor: default; } .ki-pick.off input { cursor: default; }
+/* KI-Korrektur: Schritte des Assistenten */
+.ki-steps { display: flex; gap: 6px; margin: 0 0 14px; }
+.ki-step { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink-2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-align: left; }
+.ki-step b { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 13px; flex-shrink: 0; }
+.ki-step.on { border-color: #c2307e; color: #7a1150; background: #fff3f9; } .ki-step.on b { background: #c2307e; color: #fff; }
+.ki-step.done b { background: #e7a3c9; color: #fff; } .ki-step:disabled { opacity: .45; cursor: default; }
+.ki-how { margin: 14px 0 10px; padding-left: 22px; line-height: 1.5; } .ki-how li { margin-bottom: 6px; }
+@media (max-width: 560px) { .ki-step { flex-direction: column; text-align: center; font-size: 12px; } }
+@media (prefers-color-scheme: dark) { .ki-step.on { background: #2c1323; color: #ffd0ea; } }

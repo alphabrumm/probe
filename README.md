@@ -19,15 +19,14 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   automatische Abgabe abschaltbar, Schließen/Beenden, Notfall-Abgabe per Datei.
 * **Auswertung:** Notenschlüssel per Regler, Freitext bewerten, Antworten akzeptieren, Aufgaben streichen, Ergebnisseiten
   mit Ergebniscode veröffentlichen, Kommentare der Schüler.
-* **KI-gestützte Korrektur** (`app/ki.js`): „KI-Korrektur: Export“ – die Lehrkraft wählt die Aufgaben (gemerkt in `g.kiSel`) –
-  erzeugt eine Markdown-Datei mit genau diesen Aufgaben im PathFinder-Textformat (mit Lösungen, Erwartungshorizont und dem
-  Material davor), einer Anleitung für die KI und den Antworten aller Schüler dazu –
-  ohne Namen, je Schüler eine Korrektur-Kennung `S-XXXXXX` (aus dem Ergebniscode abgeleitet, nicht umkehrbar; der Ergebniscode
-  selbst öffnet die Ergebnisseite und verlässt Probe nicht). Namen in Antworten werden durch [Name] ersetzt. Die KI antwortet
-  mit JSON (`{"probe":"ki-korrektur","pruefung":…,"bewertungen":[{"schueler","aufgabe","punkte","begruendung"}]}`);
-  „KI-Vorschläge einlesen“ (versteht auch viele einzelne JSON-Schnipsel) legt sie als Vorschläge in die verschlüsselte Bewertung (`g.ki`). Pink mit KI-Sternen je Aufgabe,
-  Schüler mit abweichender Bewertung hervorgehoben; je Aufgabe übernehmen (automatisch bewertete Aufgaben als Neubewertung,
-  sonst als Punkte der Lehrkraft) oder ablehnen.
+* **KI-gestützte Korrektur** (`app/ki.js`): ein Knopf „KI-Korrektur“ öffnet einen Assistenten in drei Schritten –
+  1. Aufgaben wählen (empfohlen: wo getippt oder geschrieben wird; reine Auswahlaufgaben ausgegraut; gemerkt in `g.kiSel`) und
+  Export erstellen, 2. Datei laden oder Text kopieren und in einer KI (z. B. ByLKI, Claude) abschicken, 3. Antwort der KI
+  einfügen (auch viele einzelne JSON-Schnipsel; direkt erreichbar, wenn man später mit der Antwort zurückkommt). Der Export
+  enthält nur die gewählten Aufgaben im PathFinder-Textformat (mit Lösungen, Erwartungshorizont und Material davor), eine
+  Anleitung für die KI und die Antworten aller Schüler – ohne Namen, je Schüler eine Korrektur-Kennung `S-XXXXXX` (aus dem
+  Ergebniscode abgeleitet, nicht umkehrbar). Vorschläge liegen in der verschlüsselten Bewertung (`g.ki`), pink mit KI-Sternen
+  je Aufgabe; übernehmen oder ablehnen.
 * **Bewerten je Schüler:** ‹ Vorheriger / Nächster › im Dialogkopf (speichert beim Wechseln); Schalter „Nur offene
   KI-Vorschläge“ (nur wenn KI-Vorschläge eingelesen sind, standardmäßig an); Code-Antworten mit Syntax-Highlighting
   (`app/hl.js`: Java für JPad, SQL für QPad) und Programmlauf als eigener Kasten; neben der Note ▲/▼, wenn ein halber Punkt
