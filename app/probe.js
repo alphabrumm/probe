@@ -94,7 +94,7 @@ async function demos(force) {
     const { seedDemos } = await import('./demo.js');
     const made = await withBusy('Beispielprüfungen werden angelegt …', () => seedDemos({ api, K, S }, force));
     S.user.demo = true;
-    if (made) toast(force ? '✓ Beispielprüfungen 7d und 7p neu angelegt' : '👋 Zum Ausprobieren: zwei Beispielprüfungen (7d schon geschrieben, 7p vorbereitet)', 6000);
+    if (made) toast(force ? '✓ Beispielprüfungen 7d, 7p und 6a neu angelegt' : '👋 Zum Ausprobieren: drei Beispielprüfungen – Physik 7d (schon geschrieben), Physik 7p und Englisch 6a (vorbereitet)', 7000);
   } catch (er) { toast('⚠ Beispielprüfungen: ' + esc(er.message), 5000); }
 }
 

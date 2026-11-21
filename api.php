@@ -396,22 +396,24 @@ case 'exam_list': {
     $st->execute([$u['id'], str($in, 'schuljahr', 9) ?: schuljahr()]);
     out(['exams' => array_map('exam_meta', $st->fetchAll())]);
 }
-case 'demo_seed': { // Beispielprüfungen: „7d“ geschrieben und zur Korrektur bereit, „7p“ fertig vorbereitet (Inhalte im Browser verschlüsselt)
+case 'demo_seed': { // Beispielprüfungen: Physik „7d“ geschrieben und zur Korrektur bereit, Physik „7p“ und Englisch „6a“ fertig vorbereitet (Inhalte im Browser verschlüsselt)
     $u = teacher(); $pdo = db();
-    $X = $in['exams'] ?? null; if (!is_array($X) || count($X) !== 2) fail('Ungültige Beispieldaten');
+    $X = $in['exams'] ?? null; if (!is_array($X) || count($X) < 1 || count($X) > 6) fail('Ungültige Beispieldaten');
     $pdo->beginTransaction();
     $st = $pdo->prepare('UPDATE users SET demo = 1 WHERE id = ?' . (empty($in['force']) ? ' AND demo = 0' : '')); $st->execute([$u['id']]);
     if (!$st->rowCount()) { $pdo->rollBack(); out(['skipped' => true]); }
-    $f = $pdo->query("SELECT id, name FROM faecher WHERE name = 'Physik' COLLATE NOCASE")->fetch();
+    $fst = $pdo->prepare('SELECT id, name FROM faecher WHERE name = ? COLLATE NOCASE');
     $sj = schuljahr(); $day = fn(int $d) => schuljahr(date('Y-m-d', time() + $d * 86400)) === $sj ? date('Y-m-d', time() + $d * 86400) : date('Y-m-d');
     $res = [];
     foreach ($X as $x) {
         $done = !empty($x['done']); $datum = $day($done ? -7 : 7); $now = time();
+        $fname = str($x, 'fach', 60) ?: 'Physik'; $fst->execute([$fname]); $f = $fst->fetch(); // Fach und Art je Beispiel
+        $art = in_array($x['art'] ?? '', ARTEN, true) ? $x['art'] : 'Kurzarbeit';
         $opened = strtotime($datum . ' 08:05'); if ($opened > $now) $opened = $now - 3600;
         $parts = $done ? (array)($x['participants'] ?? []) : []; if (count($parts) > 40) fail('Zu viele Teilnehmer');
         $pdo->prepare("INSERT INTO exams (owner_id, schuljahr, klasse, fach_id, fach, datum, art, titel, erwartet, dauer, pin_on, skala, status, draft_enc, key_enc, student_doc, roster_enc, roster_n,
             aufgaben, punkte, fertig, created, updated, code, pin, join_open, opened, ended) VALUES (?,?,?,?,?,?,?,?,?,?,1,'noten',?,?,?,?,?,?,?,?,1,?,?,?,?,0,?,?)")
-            ->execute([$u['id'], schuljahr($datum), str($x, 'klasse', 20, true), $f ? (int)$f['id'] : null, $f ? $f['name'] : 'Physik', $datum, 'Kurzarbeit', str($x, 'titel', 200),
+            ->execute([$u['id'], schuljahr($datum), str($x, 'klasse', 20, true), $f ? (int)$f['id'] : null, $f ? $f['name'] : $fname, $datum, $art, str($x, 'titel', 200),
                 max(0, min(200, (int)($x['roster_n'] ?? 0))), max(0, min(600, (int)($x['dauer'] ?? 20))), $done ? 'beendet' : 'entwurf',
                 str($x, 'draft_enc', 2_000_000, true), str($x, 'key_enc', 2_000_000, true), str($x, 'student_doc', 2_000_000, true), blob($x, 'roster_enc', 2_000_000), max(0, min(500, (int)($x['roster_n'] ?? 0))),
                 max(0, (int)($x['aufgaben'] ?? 0)), max(0, (float)($x['punkte'] ?? 0)), $now, $now, $done ? new_code() : null, $done ? str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT) : '',

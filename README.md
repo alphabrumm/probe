@@ -57,7 +57,8 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
 * **Löschen:** 🗑 auf der Kachel in der Übersicht, mit doppelter Nachfrage. Löscht die Prüfung endgültig vom Server (Inhalt, Lösungen,
   Klassenliste, Abgaben, Bewertung, Ergebnisseiten, Kommentare; SQLite `secure_delete`). Laufende Prüfungen erst beenden.
   Eine bei der Fachleitung eingereichte Fassung (Respizienz) bleibt dort erhalten.
-* **Beispielprüfungen** für jede Lehrkraft und ein **Demo-Modus** ohne Konto (nach 4 Stunden gelöscht).
+* **Beispielprüfungen** für jede Lehrkraft (`app/demo.js`: Physik 7d geschrieben, Physik 7p und Englisch 6a vorbereitet – `app/demo-englisch.js`)
+  und ein **Demo-Modus** ohne Konto (nach 4 Stunden gelöscht).
 
 ## Prüfungsformat und Claude-Skill
 

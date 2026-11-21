@@ -1,6 +1,8 @@
-// Probe – Beispielprüfungen für jede Lehrkraft: „7d“ schon geschrieben (liegt zur Korrektur bereit), „7p“ fertig vorbereitet.
+// Probe – Beispielprüfungen für jede Lehrkraft: Physik „7d“ schon geschrieben (liegt zur Korrektur bereit), Physik „7p“ und
+// Englisch „6a“ (für Sprachlehrkräfte) fertig vorbereitet.
 // Alles wird hier im Browser mit dem öffentlichen Schlüssel der Lehrkraft verschlüsselt – wie bei echten Prüfungen.
 import { splitExam, ensureKeys, GRADE_KEY } from '../vendor/pathfinder/core/pfsplit.js';
+import { englisch, ENGLISCH_TITLE } from './demo-englisch.js';
 
 export const DEMO_TITLE = 'Demo Prüfung Magnetismus';
 const KLASSE = [
@@ -77,10 +79,13 @@ function answersFor(key, [q, g, m, k, e]) {
 export async function seedDemos({ api, K, S }, force = false) {
   const pub = S.keys.pub_key, seal = d => K.seal(pub, d);
   const exams = [];
-  for (const [klasse, done] of [['7d', true], ['7p', false]]) {
-    const doc = ensureKeys(magnetismus(klasse)), { student, key } = splitExam(doc);
+  const TASKS = new Set(['task', 'quiz', 'gap', 'match', 'essay', 'mark', 'sort', 'order', 'app']);
+  for (const [klasse, done, make, titel, fach, art] of [['7d', true, magnetismus, DEMO_TITLE, 'Physik', 'Kurzarbeit'], ['7p', false, magnetismus, DEMO_TITLE, 'Physik', 'Kurzarbeit'],
+    ['6a', false, englisch, ENGLISCH_TITLE, 'Englisch', 'AKL']]) {
+    const doc = ensureKeys(make(klasse)), { student, key } = splitExam(doc);
+    const T = doc.stations.flatMap(st => st.blocks).filter(b => TASKS.has(b.type));
     const x = {
-      klasse, done, titel: DEMO_TITLE, aufgaben: 5, punkte: 16, dauer: 20,
+      klasse, done, titel, fach, art, aufgaben: T.length, punkte: T.reduce((a, b) => a + Math.max(0, +(b.pts ?? 1) || 0), 0), dauer: 20,
       draft_enc: await seal(doc), key_enc: await seal(key), student_doc: JSON.stringify(student), roster_enc: await seal(KLASSE), roster_n: KLASSE.length, participants: [],
     };
     if (done) {
