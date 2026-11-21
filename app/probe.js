@@ -359,7 +359,7 @@ async function viewExam(id) {
         <div class="pqr-row"><label class="switch"><input type="checkbox" id="pqr"${e.pqr ? ' checked' : ''}${!R.length && !e.pqr ? ' disabled' : ''}><span></span></label><b>Persönliche QR-Codes</b><button class="linkbtn" data-tip="pqr">Was bedeutet das?</button></div>
         ${!R.length ? `<p class="help">${e.pqr ? '⚠ ' : ''}Dafür zuerst die Klassenliste einlesen.</p>` : ''}
         ${e.pqr && R.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn" id="qrgen">▦ QR-Codes generieren</button><span class="help">${R.filter(r => r.t).length ? `für ${R.filter(r => r.t).length} von ${R.length} Schüler:innen erzeugt` : ''}</span></div>` : ''}
-        <p class="help">${e.fertig ? (e.pqr ? 'Beim Start scannen die Schüler:innen ihren persönlichen QR-Code' + (e.pin_on ? ' und geben die PIN ein' : '') : 'Beim Start bekommt die Prüfung einen QR-Code' + (e.pin_on ? ' und eine PIN' : '')) + '. Danach lässt sich der Inhalt nicht mehr ändern.' : 'Erst den Inhalt fertigstellen (im Editor „✓ Fertig – zurück zu Probe“).'}</p><button class="btn pri" id="start"${e.fertig ? '' : ' disabled'}>▶ Prüfung starten</button></section>
+        <p class="help">${e.fertig ? (e.pqr ? 'Beim Start scannen die Schüler:innen ihren persönlichen QR-Code' + (e.pin_on ? ' und geben die PIN ein' : '') : 'Beim Start bekommt die Prüfung einen QR-Code' + (e.pin_on ? ' und eine PIN' : '')) + '. Danach lässt sich der Inhalt nicht mehr ändern.' : 'Erst den Inhalt fertigstellen (im Editor „✓ Fertig – zurück zu Probe“).'}</p><button class="linkbtn chk-link" id="chk">☑ Checkliste für die Durchführung</button><button class="btn pri" id="start"${e.fertig ? '' : ' disabled'}>▶ Prüfung starten</button></section>
       <section class="card"><h2>Löschen</h2><p class="help">Löscht die Prüfung mit Inhalt und Klassenliste endgültig.</p><button class="btn danger" id="del">Prüfung löschen</button></section>
     </div></div>`;
   $('#edit').onclick = () => openEditor(e, e.draft);
@@ -373,6 +373,7 @@ async function viewExam(id) {
     try { await api('exam_pqr', { id: e.id, on: ev.target.checked }); viewExam(e.id); } catch (er) { ev.target.checked = !ev.target.checked; toast('⚠ ' + esc(er.message)); }
   };
   $('#qrgen') && ($('#qrgen').onclick = () => qrCodes(e));
+  $('#chk').onclick = () => checklist(e, $('#chk'));
   $('#imp').onclick = () => pickFile('.json,application/json', async f => {
     try {
       const d = JSON.parse(await f.text());
@@ -416,6 +417,25 @@ const TIPS = {
   klasse: 'Klassenliste mit Schüler:innen aus einer Schulverwaltung (z. B. Infoportal) exportieren und hier einlesen.',
   pqr: '<p>Wird dieser Schalter aktiviert, so wählen sich die Schüler:innen mit einem <b>individuellen QR-Code</b> ein.</p><p>Wenn deaktiviert, wählen sich die Schüler:innen über einen <b>gemeinsamen</b>, an der Tafel projizierten QR-Code ein und geben anschließend ihren Namen ein.</p>',
 };
+/** Checkliste vor dem Start – Häkchen je Prüfung auf diesem Gerät gemerkt (nur zur Erinnerung) */
+const CHECKS = e => [
+  ['vorschau', 'Prüfung einmal selbst im Vorschau-Modus durchgearbeitet'],
+  ...(e.pqr ? [['qr', 'Persönliche QR-Codes sind aktiviert: Sind sie bereits ausgedruckt?']] : []),
+  ['notizen', 'Sind handschriftliche Notizen erlaubt?'],
+  ['sicht', 'Trennwände/Sichtschutz organisiert?'],
+  ['teacher', 'Teacher App: Klasse wählen und Vorlage „Digitale Prüfung mit Probe“ starten'],
+  [null, 'Achtung: Startest du in der Teacher App die Vorlage für digitale Prüfungen, dann ist für die Schüler:innen nur noch die Website probe.pandapy.de, die Safari-App und die Kamera-App freigeschaltet.'],
+  ['classroom', 'Apple Classroom starten und Klasse wählen: Alle Schülergeräte sichtbar?'],
+  ['ersatz', '1–3 Ersatz-iPads aus dem Tabletwagen mitbringen. Diese können auch als Powerbank dienen, wenn der Akku eines Schülergeräts schwach wird.'],
+];
+function checklist(e, anchor) {
+  const KEY = 'probe.check.' + e.id; let done = {}; try { done = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (er) { }
+  const t = tip(anchor, `<b class="chk-h">Daran musst du denken</b><ul class="chk">${CHECKS(e).map(([k, txt]) => k
+    ? `<li><label><input type="checkbox" data-ck="${k}"${done[k] ? ' checked' : ''}><span>${esc(txt)}</span></label></li>`
+    : `<li class="chk-warn">⚠ ${esc(txt)}</li>`).join('')}</ul>`);
+  t.classList.add('wide');
+  t.onchange = ev => { const c = ev.target.closest('[data-ck]'); if (!c) return; done[c.dataset.ck] = c.checked; try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (er) { } };
+}
 /** Persönliche QR-Codes: fehlende Schlüssel ergänzen (verschlüsselt in der Klassenliste), Druckbogen als PDF */
 async function qrCodes(e) {
   const R = (e.roster || []).map(r => ({ ...r }));

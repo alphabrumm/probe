@@ -85,7 +85,7 @@ export function tip(anchor, html) {
   document.querySelectorAll('.tip-pop').forEach(t => t.remove());
   const t = document.createElement('div'); t.className = 'tip-pop'; t.setAttribute('role', 'tooltip'); t.innerHTML = html;
   document.body.append(t);
-  const a = anchor.getBoundingClientRect(), w = Math.min(340, innerWidth - 24);
+  const a = anchor.getBoundingClientRect(), w = Math.min(html.length > 600 ? 420 : 340, innerWidth - 24);
   t.style.width = w + 'px';
   t.style.left = Math.max(12, Math.min(innerWidth - w - 12, a.left + a.width / 2 - w / 2)) + scrollX + 'px';
   const below = a.bottom + 8 + t.offsetHeight < innerHeight;
