@@ -301,7 +301,7 @@ async function examForm(e) {
   const C = await catalog();
   const klassen = [...new Set((await api('exam_list', { schuljahr: S.sj })).exams.map(x => x.klasse))];
   const F = [...C.faecher]; if (e?.fach_id && !F.some(f => +f.id === +e.fach_id)) F.push({ id: e.fach_id, name: e.fach });
-  const v = e || { klasse: '', fach_id: F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'Schulaufgabe', erwartet: 0, dauer: 20, pin_on: true, skala: 'noten' };
+  const v = e || { klasse: '', fach_id: F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'AKL', erwartet: 0, dauer: 20, pin_on: true, skala: 'noten' };
   const d = dialog(e ? 'Rahmenbedingungen' : 'Neue Prüfung', `
     <div class="row">${field('Klasse', `<input type="text" id="kl" list="kll" value="${esc(v.klasse)}" placeholder="z. B. 8b" autocapitalize="off"><datalist id="kll">${klassen.map(k => `<option value="${esc(k)}">`).join('')}</datalist>`)}
     ${field('Fach', `<select id="fa">${F.map(f => `<option value="${f.id}"${+f.id === +v.fach_id ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`, C.eigene ? 'Deine Fächer – weitere über deinen Namen oben rechts → Meine Fächer.' : 'Lege über deinen Namen oben rechts → Meine Fächer fest, welche Fächer du unterrichtest.')}</div>
