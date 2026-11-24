@@ -38,14 +38,15 @@
 <script type="module">
 import { startPathFinder } from './vendor/pathfinder/core/pathfinder.js';
 // Vorgaben aus Probe (URL): Fach, Klasse → Jahrgangsstufe, Bearbeitungszeit → Umfang, Kopfzeile – für den KI-Dialog
-const q = new URLSearchParams(location.search), ki = { art: 'pruefung' };
+const q = new URLSearchParams(location.search), SV = q.get('form') === 'befragung', ki = { art: SV ? 'befragung' : 'pruefung' }; // Umfragen: Befragung statt Prüfung
+if (SV) document.title = 'Probe · Fragebogen gestalten';
 if (q.get('fach')) ki.fach = q.get('fach');
 const jg = q.get('jg') || (q.get('klasse') || '').match(/\d{1,2}/)?.[0]; if (jg) ki.jg = +jg;
-if (+q.get('min') > 0) ki.min = +q.get('min');
+if (+q.get('min') > 0 && !SV) ki.min = +q.get('min');
 if (q.get('kopf')) ki.kopf = q.get('kopf');
 // Adressen der Apps (JPad …) für Programmier-Aufgaben – kommen nachträglich, das Objekt wird erst beim Öffnen gelesen
 const apps = {}; fetch('api.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"a":"cfg"}' }).then(r => r.json()).then(j => Object.assign(apps, j.apps || {})).catch(() => { });
-window.probeEdit = opts => startPathFinder({ appName: 'Probe', logo: 'app/icon.svg', storage: 'probe', forms: ['pruefung'], lernpfadStorage: 'pathfinder', examFromLernpfad: false, ki, apps, ...opts });
+window.probeEdit = opts => startPathFinder({ appName: 'Probe', logo: 'app/icon.svg', storage: 'probe', forms: [SV ? 'befragung' : 'pruefung'], lernpfadStorage: 'pathfinder', examFromLernpfad: false, ki, apps, ...opts });
 window.dispatchEvent(new Event('probe-editor-ready'));
 parent.postMessage({ probeEditor: 'ready' }, location.origin);
 </script>

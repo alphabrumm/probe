@@ -167,6 +167,33 @@ function coaching_by_code(string $code): array {
     $st = db()->prepare('SELECT * FROM coachings WHERE code = ?'); $st->execute([strtoupper(preg_replace('~[^A-Za-z0-9]~', '', $code))]);
     return $st->fetch() ?: fail('Diesen Fragebogen gibt es nicht (mehr). Prüfe den QR-Code.', 404);
 }
+/* Umfragen */
+const U_MIN = 5; // anonyme Umfragen: Ergebnisse erst ab so vielen Antworten (sonst ließe sich zurückrechnen, wer was geantwortet hat)
+function own_survey(array $u, int $id): array {
+    $st = db()->prepare('SELECT * FROM surveys WHERE id = ? AND owner_id = ?'); $st->execute([$id, $u['id']]);
+    return $st->fetch() ?: fail('Umfrage nicht gefunden', 404);
+}
+function u_count(int $id): int { $st = db()->prepare('SELECT COUNT(*) FROM survey_answers WHERE survey_id = ?'); $st->execute([$id]); return (int)$st->fetchColumn(); }
+/** Darf die Lehrkraft die Antworten sehen? Mit Namen immer; anonym erst ab U_MIN Antworten, mit Einmal-Codes zusätzlich erst nach dem Beenden */
+function u_visible(array $s, int $n): bool { return $s['mode'] === 'name' || ($n >= U_MIN && ($s['mode'] === 'tafel' || $s['ended'])); }
+function u_meta(array $s): array {
+    $n = u_count((int)$s['id']);
+    return ['id' => (int)$s['id'], 'schuljahr' => $s['schuljahr'], 'gruppe' => $s['gruppe'], 'titel' => $s['titel'], 'mode' => $s['mode'], 'code' => $s['code'],
+        'open' => (bool)$s['open'], 'ended' => $s['ended'] ? (int)$s['ended'] : null, 'has_doc' => $s['doc_enc'] !== null, 'published' => $s['pub_doc'] !== null,
+        'roster_n' => (int)$s['roster_n'], 'n' => $n, 'visible' => u_visible($s, $n), 'min' => U_MIN, 'created' => (int)$s['created'], 'updated' => (int)$s['updated']];
+}
+function new_ucode(): string {
+    $A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    for ($t = 0; $t < 50; $t++) {
+        $c = 'U'; for ($i = 0; $i < 7; $i++) $c .= $A[random_int(0, strlen($A) - 1)];
+        $st = db()->prepare('SELECT 1 FROM surveys WHERE code = ?'); $st->execute([$c]); if (!$st->fetchColumn()) return $c;
+    }
+    fail('Kein freier Code');
+}
+function survey_by_code(string $code): array {
+    $st = db()->prepare('SELECT * FROM surveys WHERE code = ?'); $st->execute([strtoupper(preg_replace('~[^A-Za-z0-9]~', '', $code))]);
+    return $st->fetch() ?: fail('Diese Umfrage gibt es nicht (mehr). Prüfe den QR-Code.', 404);
+}
 /** Respizienz-Eintrag, auf den diese Fachleitung Zugriff hat (mit ihrem verschlüsselten Paket) */
 function resp_for(array $u, int $rid): array {
     $st = db()->prepare('SELECT r.*, k.data_enc, s.name AS fachschaft, o.pub_key AS owner_pub FROM respizienz r JOIN respizienz_keys k ON k.resp_id = r.id AND k.user_id = ?
@@ -690,6 +717,104 @@ case 'c_submit': {
     $id = blob($in, 'identity_enc', 20_000); $an = blob($in, 'answers_enc', 300_000); if (!$id || !$an) fail('Daten fehlen');
     db()->prepare('INSERT INTO coaching_subs (coaching_id, tid, identity_enc, answers_enc, at) VALUES (?,?,?,?,?) ON CONFLICT(coaching_id, tid) DO UPDATE SET identity_enc = excluded.identity_enc, answers_enc = excluded.answers_enc, at = excluded.at, n = n + 1')
         ->execute([$c['id'], $tid, $id, $an, time()]);
+    out([]);
+}
+/* ---------- Umfragen ----------
+   Fragebogen aus PathFinder (Art „Befragung“). Antworten verschlüsselt der Browser der Teilnehmenden mit dem Schlüssel der
+   Lehrkraft. Drei Arten: tafel (ein QR-Code für alle, anonym), einmal (jede:r einen Code, der nur einmal gilt – verbrauchte
+   Codes liegen getrennt von den Antworten, Antworten ohne Code und ohne Zeit), name (persönliche QR-Codes, mit Namen). */
+case 'u_list': {
+    $u = teacher(); $sj = str($in, 'schuljahr', 9);
+    $st = db()->prepare('SELECT * FROM surveys WHERE owner_id = ?' . ($sj ? ' AND schuljahr = ?' : '') . ' ORDER BY created DESC');
+    $st->execute($sj ? [$u['id'], $sj] : [$u['id']]);
+    out(['surveys' => array_map('u_meta', $st->fetchAll())]);
+}
+case 'u_save': { // anlegen oder ändern: Gruppe, Titel, Art, Teilnehmende bzw. Einmal-Codes
+    $u = teacher(); if (!$u['pub_key']) fail('Kein Schlüssel');
+    $id = (int)($in['id'] ?? 0); $gruppe = str($in, 'gruppe', 40); $titel = str($in, 'titel', 160); $mode = str($in, 'mode', 8, true);
+    if (!in_array($mode, ['tafel', 'einmal', 'name'], true)) fail('Unbekannte Art');
+    $roster = blob($in, 'roster_enc', 600_000); $n = max(0, min(500, (int)($in['roster_n'] ?? 0)));
+    $tids = array_values(array_unique(array_filter((array)($in['tids'] ?? []), fn($t) => is_string($t) && hexok($t))));
+    if (count($tids) > 500) fail('Höchstens 500 Teilnehmende');
+    if ($mode !== 'tafel' && $roster !== null && !$tids) fail('Teilnehmende fehlen');
+    $now = time(); $pdo = db();
+    if ($id) {
+        $s = own_survey($u, $id);
+        if ($mode !== $s['mode'] && u_count($id)) fail('Die Art lässt sich nicht mehr ändern – es gibt schon Antworten.');
+        if ($s['mode'] === 'einmal' && $roster !== null) { // gedruckte Codes, die schon benutzt wurden, müssen bleiben
+            $used = $pdo->prepare('SELECT tid FROM survey_used WHERE survey_id = ?'); $used->execute([$id]);
+            foreach ($used->fetchAll(PDO::FETCH_COLUMN) as $t) if (!in_array($t, $tids, true)) fail('Benutzte Codes lassen sich nicht entfernen.');
+        }
+        $pdo->prepare('UPDATE surveys SET gruppe = ?, titel = ?, mode = ?, roster_enc = COALESCE(?, roster_enc), roster_n = ?, tids = ?, updated = ? WHERE id = ?')
+            ->execute([$gruppe, $titel ?: $s['titel'], $mode, $roster, $roster !== null ? $n : (int)$s['roster_n'], $roster !== null ? json_encode($tids) : $s['tids'], $now, $id]);
+    } else {
+        $pdo->prepare('INSERT INTO surveys (owner_id, schuljahr, gruppe, titel, mode, code, roster_enc, roster_n, tids, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$u['id'], schuljahr(), $gruppe, $titel, $mode, new_ucode(), $roster, $n, json_encode($tids), $now, $now]);
+        $id = (int)$pdo->lastInsertId();
+    }
+    out(['survey' => u_meta(own_survey($u, $id))]);
+}
+case 'u_doc': { // Fragebogen aus PathFinder: Entwurf (verschlüsselt); beim Fertigstellen auch die Fassung für die Teilnehmenden
+    $u = teacher(); $s = own_survey($u, (int)($in['id'] ?? 0));
+    $enc = blob($in, 'doc_enc', 20_000_000); if (!$enc) fail('Inhalt fehlt');
+    $pub = blob($in, 'pub_doc', 12_000_000);
+    if ($pub !== null) {
+        $d = json_decode($pub, true); if (!is_array($d) || ($d['form'] ?? '') !== 'befragung' || !is_array($d['stations'] ?? null)) fail('Das ist kein Fragebogen.');
+        if (u_count((int)$s['id']) && $pub !== $s['pub_doc']) fail('Es gibt schon Antworten – die Fragen lassen sich nicht mehr ändern. Lege für neue Fragen eine neue Umfrage an.', 409);
+    }
+    $titel = str($in, 'titel', 160);
+    db()->prepare('UPDATE surveys SET doc_enc = ?, pub_doc = COALESCE(?, pub_doc), titel = CASE WHEN ? <> \'\' THEN ? ELSE titel END, updated = ? WHERE id = ?')
+        ->execute([$enc, $pub, $titel, $titel, time(), $s['id']]);
+    out(['survey' => u_meta(own_survey($u, (int)$s['id']))]);
+}
+case 'u_get': { // alles zu einer Umfrage; Antworten nur, wenn sie sichtbar sein dürfen
+    $u = teacher(); $s = own_survey($u, (int)($in['id'] ?? 0)); $m = u_meta($s); $ans = [];
+    if ($m['visible']) { $st = db()->prepare('SELECT k, answers_enc FROM survey_answers WHERE survey_id = ? ORDER BY k'); $st->execute([$s['id']]); $ans = $st->fetchAll(); }
+    if ($s['mode'] !== 'name') foreach ($ans as &$x) unset($x['k']); unset($x);
+    if ($s['mode'] !== 'name') shuffle($ans);
+    out(['survey' => $m, 'doc_enc' => $s['doc_enc'], 'roster_enc' => $s['roster_enc'], 'answers' => $ans]);
+}
+case 'u_open': {
+    $u = teacher(); $s = own_survey($u, (int)($in['id'] ?? 0)); $open = !empty($in['open']);
+    if ($open && !$s['pub_doc']) fail('Erst den Fragebogen fertigstellen.');
+    if ($open && $s['ended'] && $s['mode'] === 'einmal') fail('Die Umfrage ist beendet. Für eine neue Runde lege eine neue Umfrage an.');
+    db()->prepare('UPDATE surveys SET open = ?, ended = CASE WHEN ? THEN NULL ELSE ended END, updated = ? WHERE id = ?')->execute([$open ? 1 : 0, $open ? 1 : 0, time(), $s['id']]);
+    out(['survey' => u_meta(own_survey($u, (int)$s['id']))]);
+}
+case 'u_end': { // beenden: keine Antworten mehr; anonyme Umfragen mit Einmal-Codes zeigen erst jetzt Ergebnisse (endgültig)
+    $u = teacher(); $s = own_survey($u, (int)($in['id'] ?? 0));
+    db()->prepare('UPDATE surveys SET open = 0, ended = ?, updated = ? WHERE id = ?')->execute([time(), time(), $s['id']]);
+    out(['survey' => u_meta(own_survey($u, (int)$s['id']))]);
+}
+case 'u_delete': { $u = teacher(); $s = own_survey($u, (int)($in['id'] ?? 0)); db()->prepare('DELETE FROM surveys WHERE id = ?')->execute([$s['id']]); out([]); }
+/* Teilnehmende (ohne Anmeldung) */
+case 'u_info': {
+    $s = survey_by_code((string)($in['code'] ?? '')); $o = user((int)$s['owner_id']);
+    $doc = $s['open'] && $s['pub_doc'] ? json_decode($s['pub_doc'], true) : null;
+    out(['titel' => $s['titel'], 'gruppe' => $s['gruppe'], 'mode' => $s['mode'], 'open' => (bool)$s['open'] && (bool)$s['pub_doc'], 'ended' => (bool)$s['ended'],
+        'pub_key' => $o['pub_key'] ?? null, 'lehrkraft' => $o['name'] ?: $o['kuerzel'], 'doc' => $doc]);
+}
+case 'u_submit': {
+    $s = survey_by_code((string)($in['code'] ?? ''));
+    if (!$s['open'] || !$s['pub_doc']) fail('Die Umfrage ist geschlossen.', 409);
+    $enc = blob($in, 'answers_enc', 400_000); if (!$enc) fail('Antworten fehlen');
+    $pdo = db(); $tid = (string)($in['tid'] ?? '');
+    if ($s['mode'] !== 'tafel' && (!hexok($tid) || !in_array($tid, json_decode($s['tids'], true) ?: [], true))) fail('Dieser QR-Code gilt nicht (mehr). Sprich mit deiner Lehrkraft.', 403);
+    if ($s['mode'] === 'name') {
+        $pdo->prepare('INSERT INTO survey_answers (survey_id, k, answers_enc) VALUES (?,?,?) ON CONFLICT(survey_id, k) DO UPDATE SET answers_enc = excluded.answers_enc')
+            ->execute([$s['id'], 'p' . $tid, $enc]);
+        out([]);
+    }
+    if ($s['mode'] === 'tafel' && u_count((int)$s['id']) >= 3000) fail('Diese Umfrage nimmt keine Antworten mehr an.', 409);
+    $pdo->beginTransaction();
+    try {
+        if ($s['mode'] === 'einmal') {
+            $st = $pdo->prepare('INSERT OR IGNORE INTO survey_used (survey_id, tid) VALUES (?,?)'); $st->execute([$s['id'], $tid]);
+            if (!$st->rowCount()) { $pdo->rollBack(); fail('Dieser Code wurde schon benutzt. Jeder Code gilt nur einmal.', 409); }
+        }
+        $pdo->prepare('INSERT INTO survey_answers (survey_id, k, answers_enc) VALUES (?,?,?)')->execute([$s['id'], bin2hex(random_bytes(16)), $enc]);
+        $pdo->commit();
+    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
     out([]);
 }
 case 'cfg': { // öffentliche Einstellungen für die Oberfläche

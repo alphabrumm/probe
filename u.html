@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Probe · Umfrage</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="app/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="app/icon-180.png">
+<link rel="stylesheet" href="vendor/pathfinder/core/pathfinder.css">
+<link rel="stylesheet" href="app/student.css">
+<style>
+  /* Lumi: Nachthimmel mit Pixel-Sternen, Karten wie Papier mit hartem Schatten */
+  .screen { background: #221e44 var(--lumi-stars) repeat; background-size: 288px 288px; image-rendering: pixelated; }
+  .screen .card { background: #f6f4fc; border: 3px solid #191532; border-radius: 6px; box-shadow: 4px 4px 0 #191532; color: #2b2440; image-rendering: auto; }
+  .screen .owl { width: 78px; height: 78px; margin: 0 auto; display: block; image-rendering: pixelated; }
+  .screen .btn { background: #5648a8; border-radius: 6px; } .screen .btn.alt { background: #e6e2f5; color: #2b2440; }
+  .screen .help { color: #595380; } .screen .lock { color: #36735a; font-weight: 700; font-size: 14px; }
+</style>
+</head>
+<body class="pf-player">
+<div class="app" id="app" hidden><section class="lpwrap"><div class="lp-scroll" id="scroll"><div class="lp" id="lp"></div></div></section></div>
+<div class="screen" id="screen"><div class="card">lädt …</div></div>
+<script type="module" src="app/ustudent.js"></script>
+</body></html>

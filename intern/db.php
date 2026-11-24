@@ -217,4 +217,28 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 10;
         SQL);
     }
+    if ($v < 11) { // Umfragen: Fragebogen aus PathFinder (Befragung), anonym (Tafel-QR), anonym mit Einmal-Codes oder mit Namen
+        $pdo->exec(<<<SQL
+        CREATE TABLE surveys (
+            id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            schuljahr TEXT NOT NULL, gruppe TEXT NOT NULL DEFAULT '', titel TEXT NOT NULL DEFAULT '',
+            mode TEXT NOT NULL,                                               -- tafel | einmal | name
+            code TEXT NOT NULL UNIQUE, open INTEGER NOT NULL DEFAULT 0, ended INTEGER,
+            doc_enc TEXT,                                                     -- Fragebogen zum Bearbeiten, verschlüsselt für die Lehrkraft
+            pub_doc TEXT,                                                     -- veröffentlichter Fragebogen (nur Fragen, für die Teilnehmenden)
+            roster_enc TEXT, roster_n INTEGER NOT NULL DEFAULT 0,             -- Teilnehmende bzw. Einmal-Codes, verschlüsselt
+            tids TEXT NOT NULL DEFAULT '[]',                                  -- Prüfwerte der Codes (SHA-256)
+            created INTEGER NOT NULL, updated INTEGER NOT NULL
+        );
+        CREATE INDEX surveys_owner ON surveys(owner_id, schuljahr);
+        -- Antworten: verschlüsselt für die Lehrkraft. Anonyme Antworten tragen weder Code noch Zeit, ihre Kennung ist zufällig
+        -- (WITHOUT ROWID: gespeichert nach Kennung, nicht nach Eingang) – so lässt sich keine Antwort einem Code zuordnen.
+        CREATE TABLE survey_answers (survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE, k TEXT NOT NULL, answers_enc TEXT NOT NULL,
+            PRIMARY KEY (survey_id, k)) WITHOUT ROWID;
+        -- verbrauchte Einmal-Codes, getrennt von den Antworten
+        CREATE TABLE survey_used (survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE, tid TEXT NOT NULL,
+            PRIMARY KEY (survey_id, tid)) WITHOUT ROWID;
+        PRAGMA user_version = 11;
+        SQL);
+    }
 }

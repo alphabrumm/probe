@@ -25,7 +25,7 @@ const sjEnd = sj => new Date(+String(sj).slice(0, 4) + 1, 6, 15); // 15. Juli am
 const download = (name, text) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
 const safe = s => String(s).replace(/[^\wäöüÄÖÜß-]+/g, '_');
 
-export const tabsHtml = (on, S) => `<nav class="c-tabs"><a href="#/"${on === 'p' ? ' class="on"' : ''}>Prüfungen</a><a href="#/coaching"${on === 'c' ? ' class="on"' : ''}>Coaching</a>${S?.user?.is_berater || S?.user?.is_demo ? `<a href="#/berater"${on === 'b' ? ' class="on"' : ''}>Schulberatung</a>` : ''}</nav>`;
+export const tabsHtml = (on, S) => `<nav class="c-tabs"><a href="#/"${on === 'p' ? ' class="on"' : ''}>Prüfungen</a><a href="#/coaching"${on === 'c' ? ' class="on"' : ''}>Coaching</a><a href="#/umfragen"${on === 'u' ? ' class="on"' : ''}>Umfragen</a>${S?.user?.is_berater || S?.user?.is_demo ? `<a href="#/berater"${on === 'b' ? ' class="on"' : ''}>Schulberatung</a>` : ''}</nav>`;
 
 /* ---------- Daten eines Coachings laden und entschlüsseln ---------- */
 async function load(H, id) {

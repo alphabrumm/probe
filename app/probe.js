@@ -7,6 +7,7 @@ import { viewRespList, viewResp, viewArchiv, importArchive, respChip } from './r
 import { zugangText, zugangPdf } from './zugaenge.js';
 import { showPdf } from './pdf.js';
 import { viewCoachingList, viewCoaching, viewBerater, coachingHint, tabsHtml, purgeAll } from './coaching.js';
+import { viewSurveyList, viewSurvey } from './umfragen.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -53,7 +54,7 @@ async function boot() {
   S.csrf = st.csrf || ''; S.user = st.user; S.keys = st.keys; S.respOpen = st.resp_open || 0;
   drawWho();
   if (st.setup) return viewSetup();
-  if (!S.user) { S.cHint = false; S.cDemo = false; return viewLogin(); }
+  if (!S.user) { S.cHint = false; S.cDemo = false; S.uDemo = false; return viewLogin(); }
   if (S.user.must_setup) return viewKeySetup();
   if (!S.priv) return viewUnlock();
   route();
@@ -84,6 +85,8 @@ function route() {
   if (h === '/coaching') { stopLive(); return viewCoachingList(helpers()); }
   if ((m = h.match(/^\/c\/(\d+)$/))) { stopLive(); return viewCoaching(helpers(), +m[1]); }
   if (h === '/berater' && (S.user.is_berater || S.user.is_demo)) { stopLive(); return viewBerater(helpers()); }
+  if (h === '/umfragen') { stopLive(); return viewSurveyList(helpers()); }
+  if ((m = h.match(/^\/u\/(\d+)$/))) { stopLive(); return viewSurvey(helpers(), +m[1]); }
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
   if (h === '/archiv' || (m = h.match(/^\/archiv\/(\d+)$/))) { stopLive(); return viewArchiv(m ? +m[1] : null, helpers()); }
   if (S.user.fachleitung?.length && h === '/resp') { stopLive(); return viewRespList(helpers()); }
@@ -92,7 +95,7 @@ function route() {
   return viewDashboard();
 }
 /** Hilfen für die Ansichten in run.js und resp.js */
-function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, parseNames, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
+function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, parseNames, viewExam, cleanLocal, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
 /** Beispielprüfungen anlegen: beim ersten Mal von selbst, später über das Konto-Menü */
 async function demos(force) {
   S.demoTried = true;

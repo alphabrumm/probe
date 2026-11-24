@@ -78,6 +78,24 @@ Lerncoaching der Klassleitung (`app/coaching.js`, `app/cvorlagen.js`, Schülerse
   Löschen. Admin → Schuljahresende: Coaching-Daten aller Lehrkräfte löschen (dreimal nachfragen); lesen kann der Admin sie nicht.
 * KI-Funktionen haben keinen Zugriff auf Coaching-Daten. „Beispiel anlegen“ erzeugt eine erfundene Klasse zum Ausprobieren.
 
+## Umfragen
+
+Reiter **Umfragen**: Fragebogen im eingebetteten PathFinder gestalten (Art „Befragung“, Stil Lumi) – leer, aus einer Vorlage
+(Feedback zum Unterricht, Klassenklima, Stimmungsbarometer), mit der KI („Umfrage erstellen“) oder als Text einer anderen KI.
+Drei Arten der Teilnahme:
+
+- **Anonym – ein QR-Code für alle** (Tafel, Beamer, Moodle). Ergebnisse ab 5 Antworten.
+- **Anonym mit Einmal-Codes**: QR-Zettel (8 je A4-Seite) oder Links, mit oder ohne Namen. Jeder Code gilt einmal; verbrauchte
+  Codes (`survey_used`) liegen getrennt von den Antworten, Antworten tragen weder Code noch Uhrzeit und eine zufällige Kennung
+  (Tabellen `WITHOUT ROWID`). Ergebnisse erst nach dem Beenden (endgültig) und ab 5 Antworten.
+- **Mit Namen**: persönliche QR-Codes, die Lehrkraft sieht, wer was geantwortet hat; erneutes Abschicken ersetzt.
+
+Antworten, Teilnehmerliste und der Entwurf des Fragebogens sind mit dem Schlüssel der Lehrkraft verschlüsselt; im Klartext
+liegen nur Titel, Gruppe, Zähler und der veröffentlichte Fragebogen (die Fragen). Die Mindestzahl prüft der Server: Vorher
+liefert er die Antworten gar nicht aus. Auswertung je Frage (Mittelwert, Verteilung, Raster, Freitexte in zufälliger
+Reihenfolge), Druck. Teilnehmende: `u.html?u=<Code>` (Player von PathFinder); auf dem Gerät bleibt nach dem Abschicken nur der
+Vermerk „schon teilgenommen“ (IndexedDB, ohne Inhalt) bei anonymen Umfragen.
+
 ## Prüfungsformat und Claude-Skill
 
 Prüfungen sind Texte im PathFinder-Textformat mit `Art: Prüfung`. Format, Aufgabenarten und Bewertung stehen in

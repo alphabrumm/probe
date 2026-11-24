@@ -1,5 +1,6 @@
 // Probe – kleiner IndexedDB-Speicher für Zwischenstände, die noch nicht beim Server angekommen sind.
-// Hier liegt nie Klartext: Einträge sind vorher mit dem öffentlichen Schlüssel der Lehrkraft verschlüsselt.
+// Hier liegt nie Klartext: Einträge sind vorher mit dem öffentlichen Schlüssel der Lehrkraft verschlüsselt (Ausnahme: der Vermerk
+// „an Umfrage X schon teilgenommen“ ohne Inhalt, damit ein Gerät eine anonyme Umfrage nicht versehentlich doppelt ausfüllt).
 const DB = 'probe', VER = 1, STORE = 'pending';
 let dbp = null;
 const open = () => dbp || (dbp = new Promise((res, rej) => {
