@@ -47,6 +47,7 @@ function pwRules(p1, p2) { if (p1.length < 10) return 'Das Passwort braucht mind
 
 /* ---------- Start ---------- */
 async function boot() {
+  if (!window.isSecureContext || !crypto?.subtle) { main.innerHTML = `<div class="center"><div class="card narrow"><h2>Probe braucht HTTPS</h2><p>Die Verschlüsselung funktioniert im Browser nur auf sicheren Seiten. Rufe Probe mit <b>https://</b> auf${location.protocol === 'http:' ? ` – also <a href="${location.href.replace(/^http:/, 'https:')}">${location.href.replace(/^http:/, 'https:').replace(/[?#].*$/, '')}</a>` : ''}. Falls das nicht geht: beim Hoster für diese (Sub-)Domain ein SSL-Zertifikat einschalten.</p></div></div>`; return; }
   let st;
   try { st = await api('status'); } catch (e) { main.innerHTML = `<div class="center"><div class="card narrow"><h2>Probe ist nicht erreichbar</h2><p class="err">${esc(e.message)}</p></div></div>`; return; }
   S.csrf = st.csrf || ''; S.user = st.user; S.keys = st.keys; S.respOpen = st.resp_open || 0;

@@ -29,6 +29,7 @@ async function api(a, data = {}) {
 const tidOf = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('probe-coaching|' + t)))].map(x => x.toString(16).padStart(2, '0')).join('');
 
 async function boot() {
+  if (!window.isSecureContext || !crypto?.subtle) { card('<h2>Diese Seite braucht HTTPS</h2><p>Bitte gib deiner Lehrkraft Bescheid: Die Adresse muss mit <b>https://</b> beginnen.</p>'); return; }
   if (!code || !me) { card('<h2>Persönlicher QR-Code nötig</h2><p>Scanne den QR-Code auf deinem Blatt. Er gehört nur dir – gib ihn nicht weiter.</p>'); return; }
   let info;
   try { info = await api('c_info'); } catch (e) { card(`<h2>Das hat nicht geklappt</h2><p class="err">${esc(e.message)}</p>`); return; }
