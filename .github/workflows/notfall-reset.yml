@@ -31,9 +31,9 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
       - name: Per FTP ablegen, auslösen, prüfen
         env:
-          S: ${{ secrets.FTP_SERVER }}
-          U: ${{ secrets.FTP_USERNAME }}
-          P: ${{ secrets.FTP_PASSWORD }}
+          S: ${{ github.event.inputs.ziel == 'test' && secrets.FTP_SERVER_TEST || secrets.FTP_SERVER }}
+          U: ${{ github.event.inputs.ziel == 'test' && secrets.FTP_USERNAME_TEST || secrets.FTP_USERNAME }}
+          P: ${{ github.event.inputs.ziel == 'test' && secrets.FTP_PASSWORD_TEST || secrets.FTP_PASSWORD }}
           D: ${{ github.event.inputs.ziel == 'test' && secrets.FTP_DIR_TEST || secrets.FTP_DIR }}
           URL: ${{ github.event.inputs.adresse }}
           PROTO: ${{ vars.FTP_PROTOCOL || 'ftps' }}

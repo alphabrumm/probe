@@ -2,6 +2,7 @@ name: Probe auf den Webspace (FTP)
 # Push auf den Zweig „test“ → Test-Ordner (FTP_DIR_TEST), Push auf „live“ oder Tag „live-…“ → echter Ordner (FTP_DIR).
 # Ablauf: git push origin main:test → auf dem Webspace testen → git push origin main:live
 # Benötigt die Repository-Secrets FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_DIR, FTP_DIR_TEST (optional Variable FTP_PROTOCOL, Standard ftps).
+# Eigener FTP-Nutzer für die Testinstanz: zusätzlich FTP_USERNAME_TEST, FTP_PASSWORD_TEST (und FTP_SERVER_TEST, falls anderer Server).
 # Der Datenordner data/ und config.local.php auf dem Webspace werden nie überschrieben oder gelöscht.
 on:
   workflow_dispatch:
@@ -47,9 +48,10 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
       - name: Per FTP(S) übertragen
         env:
-          S: ${{ secrets.FTP_SERVER }}
-          U: ${{ secrets.FTP_USERNAME }}
-          P: ${{ secrets.FTP_PASSWORD }}
+          # Testinstanz: eigener FTP-Nutzer, falls angelegt (sonst derselbe wie live)
+          S: ${{ steps.ziel.outputs.ziel == 'test' && secrets.FTP_SERVER_TEST || secrets.FTP_SERVER }}
+          U: ${{ steps.ziel.outputs.ziel == 'test' && secrets.FTP_USERNAME_TEST || secrets.FTP_USERNAME }}
+          P: ${{ steps.ziel.outputs.ziel == 'test' && secrets.FTP_PASSWORD_TEST || secrets.FTP_PASSWORD }}
           D: ${{ steps.ziel.outputs.dir }}
           PROTO: ${{ vars.FTP_PROTOCOL || 'ftps' }}
         run: |
