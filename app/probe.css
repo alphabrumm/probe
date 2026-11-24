@@ -21,10 +21,9 @@ a { color: var(--a1); }
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--ink); }
 .brand img { width: 34px; height: 34px; border-radius: 0; }
-/* Schriftzug „pRoBe“ in der Pixelschrift von PathFinder (liegt bei, kein Abruf von außen), R gespiegelt */
+/* Schriftzug „probe“ in der Pixelschrift von PathFinder (liegt bei, kein Abruf von außen) */
 @font-face { font-family: "Pixelify Sans"; src: url(../vendor/pathfinder/fonts/PixelifySans.ttf) format("truetype"); font-weight: 400 700; font-display: swap; }
 .wm { font-family: "Pixelify Sans", "Courier New", monospace; font-weight: 700; letter-spacing: .03em; line-height: 1; }
-.wm .mr { display: inline-block; transform: scaleX(-1); color: var(--a1); }
 .brand .wm { font-size: 26px; }
 .hero-wm { font-size: 52px; margin: 2px 0 0; }
 .brand img, .hero-ic, .demo-btn img, .empty img, .screen .ic { image-rendering: pixelated; }

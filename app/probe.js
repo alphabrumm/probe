@@ -134,7 +134,7 @@ function viewSetup() {
   };
 }
 function viewLogin() {
-  main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc wm hero-wm" aria-label="Probe">p<span class="mr">R</span>oBe</h1><p class="help tc">Digitale Prüfungen – Anmeldung für Lehrkräfte</p>
+  main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc wm hero-wm" aria-label="Probe">probe</h1><p class="help tc">Digitale Prüfungen – Anmeldung für Lehrkräfte</p>
     ${field('Nutzername', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username" required>')}
     ${field('Passwort', '<input type="password" id="p" autocomplete="current-password" required>')}
     <div class="err" id="err"></div><button class="btn pri">Anmelden</button>
