@@ -79,8 +79,8 @@ function route() {
   drawWho();
   const h = location.hash.replace(/^#/, '') || '/';
   let m;
+  if (!S.cHint) { S.cHint = true; cleanLocal(); coachingHint(helpers()); } // nach der Anmeldung: Editor-Reste (Klartext mit Lösungen) entfernen, Coaching-Hinweise und -Zwischenstände // Coaching: ab 15. Juli bei jeder Anmeldung an Export/Löschen erinnern
   if (h === '/admin' && S.user.is_admin) return viewAdmin();
-  if (!S.cHint) { S.cHint = true; coachingHint(helpers()); } // Coaching: ab 15. Juli bei jeder Anmeldung an Export/Löschen erinnern
   if (h === '/coaching') { stopLive(); return viewCoachingList(helpers()); }
   if ((m = h.match(/^\/c\/(\d+)$/))) { stopLive(); return viewCoaching(helpers(), +m[1]); }
   if (h === '/berater' && (S.user.is_berater || S.user.is_demo)) { stopLive(); return viewBerater(helpers()); }

@@ -17,8 +17,27 @@ if (location.hash) history.replaceState(null, '', location.pathname + location.s
 const screen = $('#screen');
 let st = load(), info = null, ctx = null, skew = 0, deadline = null, auto = true, dirty = false, timer = null, sending = false, finished = false, lastOk = 0;
 
-function load() { try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch (e) { return {}; } }
-function keep() { try { localStorage.setItem(SK, JSON.stringify(st)); } catch (e) { } }
+/* Lokaler Zwischenstand (für Neuladen und WLAN-Ausfall während der Prüfung). Nach der Abgabe bleibt nur das Nötigste:
+   Vorname und Ergebniscode, 30 Tage – Antworten, Prüfung und Anmeldetoken werden gelöscht. */
+const DAY = 864e5;
+const slim = s => ({ done: true, rc: s.rc || null, v: s.v || '', ts: s.ts || Date.now() });
+function load() { sweep(); try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch (e) { return {}; } }
+function keep() { st.ts = Date.now(); if (st.done) { if (st.doc?.id) try { localStorage.removeItem('pathfinder.fortschritt.' + st.doc.id); } catch (e) { } st = slim(st); } try { localStorage.setItem(SK, JSON.stringify(st)); } catch (e) { } }
+/** alte Stände aufräumen: abgegebene nach 30 Tagen, liegengebliebene (nie abgegebene) nach 7 Tagen; Abgegebene auf das Nötigste kürzen */
+function sweep() {
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (!k.startsWith('probe.s.')) continue;
+      let o; try { o = JSON.parse(localStorage.getItem(k)) || {}; } catch (e) { localStorage.removeItem(k); continue; }
+      const age = Date.now() - (o.ts || 0);
+      if (o.done) { if (o.ts && age > 30 * DAY) localStorage.removeItem(k); else if (Object.keys(o).some(x => !['done', 'rc', 'v', 'ts'].includes(x))) localStorage.setItem(k, JSON.stringify(slim(o))); }
+      else if (o.ts && age > 7 * DAY) localStorage.removeItem(k);
+    }
+    // Fortschritt des Prüfungs-Players (enthält Antworten): nur behalten, solange eine Prüfung auf diesem Gerät läuft
+    const running = Object.keys(localStorage).some(k => { if (!k.startsWith('probe.s.')) return false; try { return !JSON.parse(localStorage.getItem(k)).done; } catch (e) { return false; } });
+    if (!running) for (const k of Object.keys(localStorage)) if (k.startsWith('pathfinder.fortschritt.')) localStorage.removeItem(k);
+  } catch (e) { }
+}
 class Offline extends Error { }
 async function api(a, data = {}) {
   let r, j;
@@ -34,11 +53,11 @@ const resultLink = () => new URL('e.html', location.href).href.replace(/[?#].*$/
 /* ---------- Start ---------- */
 async function boot() {
   if (!code) { show('<h2>Kein Prüfungscode</h2><p class="help">Scanne den QR-Code deiner Lehrkraft.</p>'); return; }
-  if (st.done) { done(); return; }
+  if (st.done) { done('', true); return; }
   try {
     if (st.token) {
       const r = await api('p_resume', { token: st.token });
-      if (r.status === 'abgegeben' || ['beendet', 'veroeffentlicht'].includes(r.exam_status)) { st.done = true; keep(); done(); return; }
+      if (r.status === 'abgegeben' || ['beendet', 'veroeffentlicht'].includes(r.exam_status)) { st.done = true; keep(); done('', true); return; }
       return run(r);
     }
     info = await api('p_info');
@@ -160,15 +179,22 @@ function offlineFinal() {
 }
 
 /* ---------- Nach der Abgabe ---------- */
-function done(note = '') {
+function done(note = '', later = false) {
   finished = true; $('#app').hidden = true; $('#sbar').hidden = true; ctx?.closeApp?.();
   const link = resultLink();
+  if (later && st.rc) { // erneuter Aufruf (vielleicht durch eine andere Person am selben iPad): Code erst auf Tipp zeigen
+    show(`<img class="ic" src="app/icon.svg" alt=""><h1>✓ Abgegeben</h1><p>${st.v ? `Diese Prüfung hat <b>${esc(st.v)}</b> auf diesem Gerät abgegeben.` : 'Diese Prüfung wurde auf diesem Gerät abgegeben.'}</p>
+      <div class="btns" style="display:grid;gap:10px"><button class="btn" id="showRc">${st.v ? `Ich bin ${esc(st.v)}: ` : ''}Ergebniscode anzeigen</button><button class="btn alt" id="other">${st.v ? `Nicht ${esc(st.v)}? ` : ''}Neu anmelden</button></div>`);
+    $('#showRc').onclick = () => done('', false);
+    $('#other').onclick = () => { try { localStorage.removeItem(SK); sessionStorage.removeItem(PK); } catch (e) { } location.reload(); };
+    return;
+  }
   show(`<img class="ic" src="app/icon.svg" alt=""><h1>✓ Abgegeben</h1>${note ? `<p class="help">${esc(note)}</p>` : ''}
     <p>${st.v ? `Danke, ${esc(st.v)}! ` : ''}Mit diesem <b>Ergebniscode</b> siehst du später deine Ergebnisse:</p>
     <div class="code">${esc(st.rc || '–')}</div>
     <div class="qr">${st.rc ? qrSvg(link) : ''}</div><div class="link">${esc(link)}</div>
     <div class="shot">📸 Mach jetzt einen Screenshot von diesem Bildschirm!</div>
-    <p class="help">Der Code ist nur auf diesem Gerät gespeichert. Ohne ihn kann niemand – auch nicht die Lehrkraft – deine Ergebnisseite öffnen.</p>`);
+    <p class="help">Der Code bleibt 30 Tage auf diesem Gerät gespeichert, deine Antworten nicht. Ohne den Code kann niemand – auch nicht die Lehrkraft – deine Ergebnisseite öffnen.</p>`);
 }
 
 /* ---------- Notfall: Abgabe als Datei, Vollbild ---------- */

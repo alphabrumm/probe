@@ -8,6 +8,7 @@
 import { VORLAGEN, REFLEXION, GESPRAECH, formHtml, readForm, viewHtml, printHtml, stats, statsHtml, anon, addStats, questions, answered } from './cvorlagen.js';
 import { Pdf, PAGE_W, PAGE_H, fit, wrap, showPdf } from './pdf.js';
 import { qrMatrix, qrSvg } from './qr.js';
+import { idbPut, idbDel, idbAll } from './idb.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -42,6 +43,27 @@ async function load(H, id) {
 }
 const people = D => [...D.R, ...D.extra];
 
+/* ---------- Zwischenstände nachladen (z. B. nach Stromausfall oder ohne WLAN geschrieben) ---------- */
+let syncing = null;
+async function syncPending(H, onlyId) {
+  if (syncing) return syncing;
+  syncing = (async () => {
+    const { S, api, K, toast } = H; let L = [];
+    try { L = (await idbAll()).filter(e => e.k.startsWith('cn|') && e.uid === S.user.id && (!onlyId || e.cid === onlyId)); } catch (e) { return; }
+    let n = 0;
+    for (const cid of [...new Set(L.map(e => e.cid))]) {
+      let r; try { r = await api('c_get', { id: cid }); } catch (e) { if (e.status === 404) for (const p of L.filter(p => p.cid === cid)) await idbDel(p.k).catch(() => { }); continue; }
+      for (const p of L.filter(p => p.cid === cid)) {
+        const srv = r.notes.find(x => x.tid === p.tid); let srvAt = 0;
+        if (srv) { try { srvAt = (await K.open(S.priv, srv.note_enc)).updated || 0; } catch (e) { } }
+        try { if (p.at > srvAt) { await api('c_note', { id: cid, tid: p.tid, note_enc: p.note_enc, done: p.done }); n++; } await idbDel(p.k); } catch (e) { }
+      }
+    }
+    if (n) toast(`🔒 ${n} Gesprächsnotiz${n === 1 ? '' : 'en'} vom Gerät nachgeladen`, 5000);
+  })();
+  try { await syncing; } finally { syncing = null; }
+}
+
 /* ---------- Übersicht ---------- */
 export async function viewCoachingList(H) {
   const { S, api, main, esc } = H;
@@ -65,6 +87,7 @@ export async function viewCoachingList(H) {
 
 /** nach der Anmeldung: ab dem 15. Juli bei jeder Anmeldung an Export/Löschen erinnern (nie selbst löschen) */
 export async function coachingHint(H) {
+  await syncPending(H);
   try { const L = (await H.api('c_list')).coachings, old = L.filter(c => Date.now() >= sjEnd(c.schuljahr)); if (old.length) yearEndDialog(H, old); } catch (e) { }
 }
 function yearEndDialog(H, old) {
@@ -114,6 +137,7 @@ async function coachingForm(H, D) {
 export async function viewCoaching(H, id) {
   const { S, api, main, esc, toast } = H;
   main.innerHTML = tabsHtml('c', S) + '<p class="help">entschlüsselt …</p>';
+  await syncPending(H, id);
   let D; try { D = await load(H, id); } catch (e) { main.innerHTML = tabsHtml('c', S) + `<p class="err">${esc(e.message)}</p>`; return; }
   const { c, rTpl, gTpl } = D, P = people(D);
   const subs = P.filter(x => x.sub), done = P.filter(x => x.note?.done), wieder = P.filter(x => x.note?.data?.wieder).sort((a, b) => a.note.data.wieder.localeCompare(b.note.data.wieder));
@@ -209,23 +233,30 @@ function talk(H, D, x) {
     <div class="panes"><div class="pane"><h2>Gesprächsnotizen</h2><p class="help">${esc(gTpl.label)} – speichert automatisch.</p><form class="cform" id="tf" autocomplete="off">${formHtml(gTpl, note.data, 'g_')}</form></div>
       <div class="pane right"><h2>Selbstreflexion von ${esc(x.v || x.n)}</h2>${x.sub ? `<p class="help">abgegeben am ${esc(deDate(new Date(x.sub.at)))}</p>${viewHtml(rTpl, x.sub.answers)}` : '<p class="help">Kein Fragebogen abgegeben.</p>'}</div></div>`;
   document.body.append(el); document.body.style.overflow = 'hidden';
-  let timer = null, saving = null, dirty = false;
+  let timer = null, saving = null, dirty = false, localAt = 0, localQ = Promise.resolve();
+  const LK = `cn|${S.user.id}|${c.id}|${x.tid}`;
+  // Sofort verschlüsselt auf dem Gerät sichern (IndexedDB) – übersteht Stromausfall und WLAN-Ausfall; gelöscht, sobald der Server es hat
+  const local = () => { collect(); const snap = { ...note, data: { ...note.data } }; localAt = snap.updated;
+    localQ = localQ.then(async () => { try { await idbPut({ k: LK, uid: S.user.id, cid: c.id, tid: x.tid, at: snap.updated, done: !!snap.done, note_enc: await K.seal(S.keys.pub_key, snap) }); } catch (e) { } }); };
   const collect = () => { note.data = readForm($('#tf', el), gTpl, 'g_'); note.datum = $('#tdat', el).value || today(); note.done = $('#tdone', el).checked; note.updated = Date.now(); };
   const save = async () => {
     clearTimeout(timer); timer = null; if (!dirty) return saving; dirty = false; collect();
     $('#tsv', el).textContent = 'speichert …';
     saving = (async () => {
-      try { await api('c_note', { id: c.id, tid: x.tid, note_enc: await K.seal(S.keys.pub_key, note), done: note.done }); x.note = { ...note }; $('#tsv', el).textContent = `🔒 gespeichert ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`; }
-      catch (e) { dirty = true; $('#tsv', el).innerHTML = `<span class="err">⚠ nicht gespeichert: ${esc(e.message)}</span>`; }
+      const sent = note.updated;
+      try { await api('c_note', { id: c.id, tid: x.tid, note_enc: await K.seal(S.keys.pub_key, note), done: note.done }); x.note = { ...note }; $('#tsv', el).textContent = `🔒 gespeichert ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+        await localQ; if (localAt <= sent) { try { await idbDel(LK); } catch (e) { } } }
+      catch (e) { dirty = true; $('#tsv', el).innerHTML = `<span class="err">⚠ nicht beim Server: ${esc(e.message)} – verschlüsselt auf diesem Gerät gesichert</span>`; }
     })();
     return saving;
   };
-  const later = () => { dirty = true; $('#tsv', el).textContent = '…'; clearTimeout(timer); timer = setTimeout(save, 1200); };
+  let ltimer = null;
+  const later = () => { dirty = true; $('#tsv', el).textContent = '…'; clearTimeout(timer); timer = setTimeout(save, 1200); clearTimeout(ltimer); ltimer = setTimeout(local, 250); };
   el.addEventListener('input', later); el.addEventListener('change', later);
   if (!x.note) { dirty = true; save(); } // Gespräch begonnen
   $('#tpr', el).onclick = async () => { await save(); printPeople(H, D, [x]); };
   $('#tok', el).onclick = async () => {
-    await save(); if (dirty) { if (!confirm('Die letzten Änderungen sind nicht gespeichert. Trotzdem schließen?')) return; }
+    await save(); await localQ; if (dirty && !confirm('Die letzten Änderungen sind noch nicht beim Server, aber verschlüsselt auf diesem Gerät gesichert. Probe lädt sie nach, sobald wieder Verbindung besteht. Schließen?')) return;
     el.remove(); document.body.style.overflow = ''; viewCoaching(H, c.id);
   };
 }
