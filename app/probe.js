@@ -53,7 +53,7 @@ async function boot() {
   S.csrf = st.csrf || ''; S.user = st.user; S.keys = st.keys; S.respOpen = st.resp_open || 0;
   drawWho();
   if (st.setup) return viewSetup();
-  if (!S.user) { S.cHint = false; return viewLogin(); }
+  if (!S.user) { S.cHint = false; S.cDemo = false; return viewLogin(); }
   if (S.user.must_setup) return viewKeySetup();
   if (!S.priv) return viewUnlock();
   route();

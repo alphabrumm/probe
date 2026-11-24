@@ -7,7 +7,7 @@
 // Probe löscht nie von selbst: Ab dem 15. Juli erinnert es bei jeder Anmeldung an Export oder Löschen.
 import { VORLAGEN, REFLEXION, GESPRAECH, formHtml, readForm, viewHtml, printHtml, stats, statsHtml, anon, addStats, questions, answered } from './cvorlagen.js';
 import { Pdf, PAGE_W, PAGE_H, fit, wrap, showPdf } from './pdf.js';
-import { qrMatrix } from './qr.js';
+import { qrMatrix, qrSvg } from './qr.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -34,7 +34,7 @@ async function load(H, id) {
   const by = new Map(R.map(x => [x.tid, x])), extra = [];
   for (const s of r.subs) {
     let idn = null, ans = null; try { idn = await K.open(S.priv, s.identity_enc); ans = await K.open(S.priv, s.answers_enc); } catch (e) { continue; }
-    const x = by.get(s.tid); const sub = { answers: ans.answers || {}, at: s.at * 1000, n: s.n };
+    const x = by.get(s.tid); const sub = { answers: ans.answers || {}, at: Math.min(+ans.at || Infinity, s.at * 1000), n: s.n }; // Zeit des Geräts (nie später als beim Server angekommen)
     if (x) x.sub = sub; else extra.push({ v: idn.v, n: idn.n, tid: s.tid, sub, unknown: true });
   }
   for (const n of r.notes) { const x = by.get(n.tid); if (!x) continue; try { x.note = await K.open(S.priv, n.note_enc); } catch (e) { } }
@@ -47,11 +47,12 @@ export async function viewCoachingList(H) {
   const { S, api, main, esc } = H;
   main.innerHTML = tabsHtml('c', S) + '<p class="help">lädt …</p>';
   let L; try { L = (await api('c_list')).coachings; } catch (e) { main.innerHTML = tabsHtml('c', S) + `<p class="err">${esc(e.message)}</p>`; return; }
+  if (S.user.is_demo && !L.length && !S.cDemo) { S.cDemo = true; try { await createExample(H, true); L = (await api('c_list')).coachings; } catch (e) { H.toast('⚠ ' + esc(e.message)); } }
   const old = L.filter(c => Date.now() >= sjEnd(c.schuljahr));
   const bySj = {}; for (const c of L) (bySj[c.schuljahr] = bySj[c.schuljahr] || []).push(c);
   main.innerHTML = `${tabsHtml('c', S)}<h1>Lerncoaching</h1><p class="sub">Selbstreflexion vor dem Gespräch, Gesprächsnotizen und Klassenüberblick – nur du kannst sie lesen.</p>
     ${old.length ? `<div class="c-hint"><b>⏰ Schuljahr vorbei:</b> ${old.length} Coaching${old.length === 1 ? '' : 's'} aus ${[...new Set(old.map(c => c.schuljahr))].join(', ')}. Bitte verschlüsselt exportieren oder löschen – Probe löscht nichts von selbst. <button class="btn sm" data-hint>Jetzt erledigen</button></div>` : ''}
-    <div class="bar"><button class="btn pri" id="neu">＋ Neues Coaching</button><button class="btn" id="open">📂 Datei öffnen</button><span class="sp"></span><button class="btn sm ghost" id="demo" title="Erfundene Klasse mit Beispielantworten zum Ausprobieren">Beispiel anlegen</button></div>
+    <div class="bar"><button class="btn pri" id="neu">＋ Neues Coaching</button><button class="btn" id="open">📂 Datei öffnen</button><span class="sp"></span><button class="btn sm ghost" id="demo" title="Erfundene Klasse mit Beispielantworten zum Ausprobieren">Demo-Coaching anlegen</button></div>
     ${L.length ? Object.keys(bySj).sort().reverse().map(sj => `<div class="klasse"><h2>${esc(sj)}</h2></div><div class="tiles">${bySj[sj].map(c => `<a class="tile" href="#/c/${c.id}">
       <span class="k">Klasse ${esc(c.klasse)}</span><span class="t">${esc(c.titel || 'Lerncoaching')}</span><span class="m">${esc(VORLAGEN[c.vorlage]?.label || c.vorlage)}</span>
       <span class="s"><span class="chip ${c.n_subs ? 'good' : ''}">📝 ${c.n_subs}/${c.roster_n} Fragebögen</span><span class="chip ${c.n_done ? 'good' : ''}">💬 ${c.n_done}/${c.roster_n} Gespräche</span>${c.open ? '' : '<span class="chip">geschlossen</span>'}${c.reported ? '<span class="chip good">✓ an Schulberatung</span>' : ''}${c.exported ? '<span class="chip">⇩ exportiert</span>' : ''}</span></a>`).join('')}</div>`).join('')
@@ -122,6 +123,10 @@ export async function viewCoaching(H, id) {
     <p class="sub">${esc(rTpl?.label)} · ${esc(gTpl?.label)} · Schuljahr ${esc(c.schuljahr)} <span class="c-lock">🔒 nur für dich lesbar</span></p>
     <div class="bar"><button class="btn pri" id="qr">QR-Codes (PDF)</button><label class="ck"><input type="checkbox" id="op"${c.open ? ' checked' : ''}> Fragebogen offen</label>
       <span class="sp"></span><button class="btn" id="pr">🖨 Drucken</button><button class="btn" id="ex">⇩ Export</button><button class="btn" id="ub">↪ Übergabe</button><button class="btn" id="sb">📊 An Schulberatung</button><button class="btn ghost" id="ed">Bearbeiten</button><button class="btn ghost danger" id="del">🗑</button></div>
+    ${S.user.is_demo && P.some(x => !x.sub && x.t) ? `<div class="c-hint"><b>Demo – so probierst du den ganzen Ablauf aus:</b><ol style="margin:6px 0 0">
+      <li>Tippe auf <b>${esc(fullName(P.find(x => !x.sub && x.t)))}</b> → <b>QR-Code anzeigen</b> und scanne ihn mit einem zweiten Gerät (Handy oder iPad).</li>
+      <li>Fülle dort die Selbstreflexion aus und schicke sie ab.</li><li>Hier <b>neu laden</b>, auf den Namen tippen → <b>Coachinggespräch starten</b>, Notizen machen, „Gespräch geführt“ ankreuzen.</li>
+      <li><b>📊 An Schulberatung</b> einreichen und im Tab <b>Schulberatung</b> ansehen, was dort ankommt.</li></ol></div>` : ''}
     <div class="c-grid">
       <div class="card" style="grid-column:1/-1"><h2 style="margin-top:0">Schüler:innen <span class="help">${subs.length}/${D.R.length} Fragebögen · ${done.length}/${D.R.length} Gespräche</span></h2>
         <div style="overflow:auto"><table class="c-table"><tr><th>Name</th><th>Fragebogen</th><th>Wohlbefinden</th><th>Gespräch</th><th>Wiedervorlage</th><th>Weitergabe</th></tr>${P.map(row).join('')}</table></div>
@@ -148,11 +153,12 @@ export async function viewCoaching(H, id) {
 function studentDialog(H, D, x) {
   const { dialog, esc, toast } = H, { c, rTpl } = D;
   const d = dialog(esc(fullName(x)), `
-    <div class="btns" style="margin-bottom:12px"><button class="btn pri" data-talk>💬 Coachinggespräch ${x.note ? 'fortsetzen' : 'starten'}</button><button class="btn" data-print>🖨 Drucken</button>${x.t ? '<button class="btn ghost sm" data-link title="Für ein Kind, das sein Blatt nicht hat">Persönlichen Link kopieren</button>' : ''}</div>
+    <div class="btns" style="margin-bottom:12px"><button class="btn pri" data-talk>💬 Coachinggespräch ${x.note ? 'fortsetzen' : 'starten'}</button><button class="btn" data-print>🖨 Drucken</button>${x.t ? '<button class="btn" data-qr>▦ QR-Code anzeigen</button><button class="btn ghost sm" data-link title="Für ein Kind, das sein Blatt nicht hat">Persönlichen Link kopieren</button>' : ''}</div>
     ${x.sub ? `<p class="help">Fragebogen abgegeben am ${esc(new Date(x.sub.at).toLocaleString('de-DE'))}${x.sub.n > 1 ? ` (${x.sub.n}× gesendet, der neueste zählt)` : ''}</p>${viewHtml(rTpl, x.sub.answers)}` : '<p class="help">Noch kein Fragebogen abgegeben.</p>'}`, { wide: true });
   d.el.onclick = async e => {
     if (e.target.closest('[data-talk]')) { d.close(); talk(H, D, x); }
     if (e.target.closest('[data-print]')) printPeople(H, D, [x]);
+    if (e.target.closest('[data-qr]')) dialog(`QR-Code für ${esc(fullName(x))}`, `<div style="text-align:center"><div class="qrbox" style="width:min(340px,80vw);margin:0 auto">${qrSvg(personalLink(c.code, x), { title: 'Persönlicher QR-Code' })}</div><p><b>${esc(fullName(x))}</b> · Klasse ${esc(c.klasse)}</p><p class="help">Nur diesem Kind zeigen – der Code öffnet seinen persönlichen Fragebogen.</p></div>`);
     if (e.target.closest('[data-link]')) { try { await navigator.clipboard.writeText(personalLink(c.code, x)); toast('📋 Link kopiert – nur an dieses Kind geben'); } catch (er) { prompt('Persönlicher Link:', personalLink(c.code, x)); } }
   };
 }
@@ -348,21 +354,40 @@ export async function purgeAll(H, alsoReports) {
   return H.api('c_purge_all', { confirm: 'COACHING LÖSCHEN', reports: !!alsoReports });
 }
 
-/* ---------- Beispiel zum Ausprobieren (erfundene Namen und Antworten) ---------- */
-async function createExample(H) {
+/* ---------- Beispiel / Demo: Klasse 7z mit 8 erfundenen Schüler:innen ----------
+   7 haben ihre Selbstreflexion abgegeben und das Gespräch ist geführt; Mia Sommer ist noch offen – für den Scan mit einem
+   Zweitgerät, danach Gespräch führen und die Zahlen bei der Schulberatung einreichen. */
+const DEMO = [
+  { v: 'Ada', n: 'Brenner', a: { wohl: 8, klasse: 'wohl / zugehörig', gut_belastet: 'Meine Freundinnen in der Klasse tun mir gut. Manchmal stressen mich die vielen Hausaufgaben.', zuversicht: 'meistens', schwer: ['Lernplanung', 'Prüfungsdruck'], faecher: 'Mathe', gut: 'Englisch und Vokabeln', thema: 'Wie ich mir vor Schulaufgaben die Zeit besser einteile.', wunsch: ['Tipps zum Lernen'], schritt: 'Einen Lernplan für die nächste Schulaufgabe schreiben' },
+    g: { wohl: 8, staerke: 'sehr gewissenhaft', thema: ['Planen'], schwierig: 'Lernt erst am Vortag, dann wird es zu viel.', hilfen: ['Lernplan / Lernslots'], vereinbarung: 'Vor jeder Schulaufgabe einen Lernplan mit 4 kurzen Lernslots.', wann: 'ab der Mathe-Schulaufgabe, Rückblick danach', weitergabe: 'Ja, das ist okay.' } },
+  { v: 'Ben', n: 'Crusius', a: { wohl: 5, klasse: 'teils / teils', gut_belastet: 'Fußball nach der Schule. In den Pausen stehe ich oft allein.', zuversicht: 'manchmal', schwer: ['Motivation / Anfangen', 'Konzentration'], faecher: 'Deutsch, Latein', gut: 'Sport, Bio', thema: 'Ich fange mit Hausaufgaben immer zu spät an.', wunsch: ['Tipps zum Lernen', 'Einfach reden'], schritt: 'Hausaufgaben direkt nach dem Essen anfangen' },
+    g: { wohl: 5, staerke: 'hilfsbereit im Sport', thema: ['Wohlbefinden / Miteinander', 'Planen'], schwierig: 'Anfangen fällt schwer, Handy lenkt ab.', hilfen: ['Lernplan / Lernslots', 'Vertrauensperson / weitere Beratung'], vereinbarung: 'Handy während der Hausaufgaben in die Küche. Gespräch mit der Beratungslehrkraft über die Pausensituation.', wann: 'täglich, Rückblick in 3 Wochen', weitergabe: 'Ja, das ist okay.' } },
+  { v: 'Clara', n: 'Demir', a: { wohl: 9, klasse: 'wohl / zugehörig', gut_belastet: 'Die Theater-AG.', zuversicht: 'meistens', schwer: ['Üben / Behalten'], faecher: 'Französisch', gut: 'Deutsch, Referate', thema: 'Französisch-Vokabeln bleiben nicht hängen.', wunsch: ['Hilfe in einem Fach'], schritt: 'Jeden Tag 10 Minuten Vokabeln mit Karteikarten' },
+    g: { wohl: 9, staerke: 'präsentiert sehr sicher', thema: ['Üben'], schwierig: 'Vokabeln nur einmal am Abend vor dem Test gelernt.', hilfen: ['Wiederholen / Selbstabfrage', 'Fachlehrkraft / Lernpartner'], vereinbarung: 'Karteikasten mit 3 Fächern, Lernpartnerin für die Abfrage.', wann: 'täglich 10 Minuten, Rückblick nach dem nächsten Test', weitergabe: 'Ja, das ist okay.' } },
+  { v: 'David', n: 'Engel', a: { wohl: 6, klasse: 'teils / teils', gut_belastet: 'Mein Hund. Belastet: Streit mit meinem Bruder.', zuversicht: 'manchmal', schwer: ['Lernstoff verstehen'], faecher: 'Mathe, Physik', gut: 'Geschichte', thema: 'In Mathe verstehe ich die Textaufgaben nicht.', wunsch: ['Hilfe in einem Fach'], schritt: 'Im Unterricht nachfragen, wenn ich etwas nicht verstehe' },
+    g: { wohl: 6, staerke: 'merkt sich Daten gut', thema: ['Verstehen'], schwierig: 'Textaufgaben: weiß nicht, was gerechnet werden soll.', hilfen: ['Fünf-Schritte-Lesemethode', 'Fachlehrkraft / Lernpartner'], vereinbarung: 'Textaufgaben mit der Fünf-Schritte-Methode lesen, Wichtiges markieren.', wann: 'bei jeder Textaufgabe, Rückblick in 4 Wochen', weitergabe: 'Nein, das möchte ich nicht.' } },
+  { v: 'Ella', n: 'Fuchs', a: { wohl: 7, klasse: 'wohl / zugehörig', gut_belastet: 'Musik machen.', zuversicht: 'meistens', schwer: ['Prüfungsdruck'], gut: 'Mathe, Musik', thema: 'Ich bin vor Schulaufgaben sehr nervös.', wunsch: ['Einfach reden', 'Tipps zum Lernen'], schritt: 'Am Vorabend nicht mehr lernen, sondern etwas Schönes machen' },
+    g: { wohl: 7, staerke: 'sehr gute Vorbereitung', thema: ['Wohlbefinden / Miteinander'], schwierig: 'Blackout in der Physik-Schulaufgabe.', hilfen: ['Wiederholen / Selbstabfrage', 'Vertrauensperson / weitere Beratung'], vereinbarung: 'Probe-Schulaufgabe zu Hause unter Zeitdruck; Atemübung vor dem Start.', wann: 'vor der nächsten Schulaufgabe', weitergabe: 'Ja, das ist okay.' } },
+  { v: 'Finn', n: 'Gruber', a: { wohl: 4, klasse: 'eher allein', gut_belastet: 'Zocken. Ich habe in der Klasse noch nicht so viele Freunde.', zuversicht: 'eher selten', schwer: ['Motivation / Anfangen', 'Lernplanung', 'Konzentration'], faecher: 'Englisch, Deutsch', gut: 'Informatik', thema: 'Ich weiß nicht, wie ich anfangen soll.', wunsch: ['Einfach reden'], schritt: 'Einmal in der Woche zur Hausaufgabenbetreuung gehen' },
+    g: { wohl: 4, staerke: 'sehr gut am Computer', thema: ['Wohlbefinden / Miteinander', 'Planen'], schwierig: 'Fühlt sich in der Klasse noch fremd, wenig Motivation.', hilfen: ['Vertrauensperson / weitere Beratung', 'Lernplan / Lernslots'], vereinbarung: 'Informatik-AG ausprobieren; Hausaufgabenbetreuung am Dienstag.', wann: 'ab nächster Woche, Folgegespräch in 3 Wochen', weitergabe: 'Ja, das ist okay.' } },
+  { v: 'Greta', n: 'Huber', a: { wohl: 8, klasse: 'wohl / zugehörig', gut_belastet: 'Reiten. Belastet nichts Besonderes.', zuversicht: 'meistens', schwer: ['Konzentration'], faecher: '', gut: 'Kunst, Bio', thema: 'Am Nachmittag kann ich mich schlecht konzentrieren.', wunsch: ['Tipps zum Lernen'], schritt: 'Nach 25 Minuten Lernen eine kurze Pause machen' },
+    g: { wohl: 8, staerke: 'kreativ, strukturiert', thema: ['Üben'], schwierig: 'Nach der Schule müde, lernt dann lange ohne Pause.', hilfen: ['Lernplan / Lernslots', 'Mindmap / Tabelle / Zeitstrahl'], vereinbarung: 'Lernen in 25-Minuten-Blöcken mit Pause; Mindmaps für Bio.', wann: 'ab sofort, Rückblick in 4 Wochen', weitergabe: 'Ja, das ist okay.' } },
+  { v: 'Mia', n: 'Sommer' }, // noch offen: Scan mit Zweitgerät
+];
+async function createExample(H, auto = false) {
   const { S, api, K, toast, withBusy } = H;
-  if (!confirm('Ein Beispiel-Coaching „7z“ mit erfundenen Schüler:innen und Antworten anlegen?')) return;
-  const N = [['Ada', 'Brenner'], ['Ben', 'Crusius'], ['Clara', 'Demir'], ['David', 'Engel'], ['Ella', 'Fuchs'], ['Finn', 'Gruber'], ['Greta', 'Huber'], ['Hannes', 'Iwanow']];
-  const R = N.map(([v, n]) => ({ v, n, t: newToken() })), rnd = a => a[Math.floor(Math.random() * a.length)];
-  await withBusy('legt Beispiel an …', async () => {
-    const c = (await api('c_save', { klasse: '7z', titel: 'Lerncoaching 1. Halbjahr (Beispiel)', vorlage: 'rf', gbogen: 'gf', roster_enc: await K.seal(S.keys.pub_key, R), roster_n: R.length, tids: await Promise.all(R.map(x => tidOf(x.t))) })).coaching;
-    const tpl = VORLAGEN.rf, txt = ['Mathe ist gerade schwierig, vor allem Textaufgaben.', 'Ich komme mit meinen Freunden gut klar.', 'Vokabeln lernen klappt nicht so gut.', 'Ich möchte besser planen, wann ich lerne.'];
-    for (const [i, x] of R.slice(0, 6).entries()) {
-      const a = { wohl: rnd([4, 5, 6, 7, 7, 8, 8, 9]), warum: rnd(txt), klasse: rnd(tpl.sections[1].qs[0].opts), reden: [rnd(['Mitschüler/in', 'zu Hause']), 'Lehrkraft'].filter((v, j, s) => s.indexOf(v) === j), schwer: rnd(txt), ziel: 'Mehr Ruhe vor Schulaufgaben', faehig: Object.fromEntries(tpl.sections[3].qs[0].items.map((_, j) => [j, rnd([3, 2, 1, -1, -2])])) };
-      await api('c_submit', { code: c.code, tid: await tidOf(x.t), identity_enc: await K.seal(S.keys.pub_key, { v: x.v, n: x.n, t: x.t }), answers_enc: await K.seal(S.keys.pub_key, { vorlage: 'rf', answers: a, at: Date.now() - i * 36e5 }) });
-      if (i < 3) await api('c_note', { id: c.id, tid: await tidOf(x.t), done: true, note_enc: await K.seal(S.keys.pub_key, { v: 1, gbogen: 'gf', datum: today(), done: true, data: { wohl: a.wohl, staerke: 'hilfsbereit', thema: [rnd(['Planen', 'Üben', 'Verstehen'])], hilfen: ['Lernplan / Lernslots'], vereinbarung: 'Jeden Montag einen Lernplan für die Woche schreiben.', wann: 'ab nächster Woche, Rückblick in 4 Wochen', wieder: new Date(Date.now() + (14 + i * 7) * 864e5).toISOString().slice(0, 10), weitergabe: i === 1 ? 'Nein, das möchte ich nicht.' : 'Ja, das ist okay.' } }) });
+  if (!auto && !confirm('Ein Beispiel-Coaching „7z“ mit 8 erfundenen Schüler:innen anlegen? 7 haben Fragebogen und Gespräch schon hinter sich, Mia Sommer ist noch offen.')) return;
+  const R = DEMO.map(d => ({ v: d.v, n: d.n, t: newToken() }));
+  const c = await withBusy('legt das Demo-Coaching an …', async () => {
+    const c = (await api('c_save', { klasse: '7z', titel: 'Lerncoaching 1. Halbjahr (Demo)', vorlage: 'rk', gbogen: 'gf', roster_enc: await K.seal(S.keys.pub_key, R), roster_n: R.length, tids: await Promise.all(R.map(x => tidOf(x.t))) })).coaching;
+    for (const [i, d] of DEMO.entries()) {
+      if (!d.a) continue;
+      const x = R[i], tid = await tidOf(x.t), tag = new Date(Date.now() - (10 - i) * 864e5).toISOString().slice(0, 10);
+      await api('c_submit', { code: c.code, tid, identity_enc: await K.seal(S.keys.pub_key, { v: x.v, n: x.n, t: x.t }), answers_enc: await K.seal(S.keys.pub_key, { vorlage: 'rk', answers: d.a, at: Date.now() - (12 - i) * 864e5 }) });
+      await api('c_note', { id: c.id, tid, done: true, note_enc: await K.seal(S.keys.pub_key, { v: 1, gbogen: 'gf', datum: tag, done: true, data: { ...d.g, wieder: new Date(Date.now() + (14 + i * 3) * 864e5).toISOString().slice(0, 10) } }) });
     }
-    location.hash = '#/c/' + c.id;
+    return c;
   });
-  toast('✓ Beispiel angelegt (erfundene Daten)');
+  if (auto) return c;
+  location.hash = '#/c/' + c.id; toast('✓ Demo-Coaching angelegt (erfundene Daten)');
 }
