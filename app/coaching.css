@@ -1,5 +1,6 @@
 /* Probe – Coaching: Fragebogen (Schüler und Lehrkraft), Gesprächsansicht, Statistik, Druckfassung */
-.c-tabs { display: flex; gap: 6px; margin: 0 0 14px; }
+.c-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; max-width: 100%; }
+@media (max-width: 600px) { .c-tabs { gap: 5px; } .c-tabs a { padding: 6px 11px; font-size: 14px; } }
 .c-tabs a { padding: 8px 14px; border-radius: 99px; text-decoration: none; color: var(--ink-2); font-weight: 700; border: 1.5px solid var(--line); background: var(--surface); }
 .c-tabs a.on { background: var(--a1); border-color: var(--a1); color: #fff; }
 .c-lock { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--good); background: var(--goods); padding: 3px 10px; border-radius: 99px; }
