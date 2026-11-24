@@ -20,9 +20,14 @@ a { color: var(--a1); }
 /* Kopf */
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--ink); }
-.brand img { width: 34px; height: 34px; border-radius: 9px; }
-.brand img.wm { width: auto; height: 38px; border-radius: 0; display: block; }
-.hero-wm { display: block; width: min(260px, 70%); height: auto; margin: 0 auto 4px; }
+.brand img { width: 34px; height: 34px; border-radius: 0; }
+/* Schriftzug „pRoBe“ in der Pixelschrift von PathFinder (liegt bei, kein Abruf von außen), R gespiegelt */
+@font-face { font-family: "Pixelify Sans"; src: url(../vendor/pathfinder/fonts/PixelifySans.ttf) format("truetype"); font-weight: 400 700; font-display: swap; }
+.wm { font-family: "Pixelify Sans", "Courier New", monospace; font-weight: 700; letter-spacing: .03em; line-height: 1; }
+.wm .mr { display: inline-block; transform: scaleX(-1); color: var(--a1); }
+.brand .wm { font-size: 26px; }
+.hero-wm { font-size: 52px; margin: 2px 0 0; }
+.brand img, .hero-ic, .demo-btn img, .empty img, .screen .ic { image-rendering: pixelated; }
 .top .sp { flex: 1; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: var(--surface-2); font-size: 13px; color: var(--ink-2); white-space: nowrap; }
 .chip.good { background: var(--goods); color: var(--good); } .chip.warn { background: var(--a2s); color: #9a5b00; } .chip.bad { background: var(--bads); color: var(--bad); }
@@ -58,7 +63,7 @@ h1 { font-size: 26px; margin: 4px 0 4px; } h2 { font-size: 19px; margin: 0 0 10p
 .cards { display: grid; gap: 16px; }
 .center { min-height: calc(100vh - 70px); display: grid; place-items: center; padding: 20px; }
 .narrow { width: min(440px, 100%); }
-.hero-ic { width: 72px; height: 72px; border-radius: 18px; display: block; margin: 0 auto 12px; }
+.hero-ic { width: 72px; height: 72px; border-radius: 0; display: block; margin: 0 auto 12px; }
 .tc { text-align: center; }
 
 /* Dashboard */
