@@ -21,10 +21,10 @@ a { color: var(--a1); }
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--ink); }
 .brand img { width: 34px; height: 34px; border-radius: 0; }
-/* Schriftzug „probe“ in der Pixelschrift von PathFinder (liegt bei, kein Abruf von außen) */
-@font-face { font-family: "Pixelify Sans"; src: url(../vendor/pathfinder/fonts/PixelifySans.ttf) format("truetype"); font-weight: 400 700; font-display: swap; }
-.wm { font-family: "Pixelify Sans", "Courier New", monospace; font-weight: 700; letter-spacing: .03em; line-height: 1; }
-.brand .wm { font-size: 26px; }
+/* Schriftzug „probe“ in der runden Systemschrift (wie die Lumi-Coaching-App): auf iPad, iPhone und Mac SF Pro Rounded,
+   sonst eine runde oder die normale Systemschrift – keine Schriftdatei, kein Abruf von außen */
+.wm { font-family: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", system-ui, sans-serif; font-weight: 800; letter-spacing: -.01em; line-height: 1; }
+.brand .wm { font-size: 27px; }
 .hero-wm { font-size: 52px; margin: 2px 0 0; }
 .brand img, .hero-ic, .demo-btn img, .empty img, .screen .ic { image-rendering: pixelated; }
 .top .sp { flex: 1; }
