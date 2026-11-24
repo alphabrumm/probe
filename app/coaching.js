@@ -90,13 +90,18 @@ async function coachingForm(H, D) {
     <div class="row">${field('Klasse', `<input type="text" id="kl" value="${esc(c?.klasse || '')}" placeholder="z. B. 7c">`)}${field('Titel', `<input type="text" id="ti" value="${esc(c?.titel || `Lerncoaching ${new Date().getMonth() >= 1 && new Date().getMonth() < 7 ? '2' : '1'}. Halbjahr`)}">`)}</div>
     <div class="row">${field('Selbstreflexion der Schüler:innen', `<select id="vo">${REFLEXION.map(v => `<option value="${v.id}"${(c?.vorlage || 'rk') === v.id ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`)}${field('Gesprächsbogen', `<select id="gb">${GESPRAECH.map(v => `<option value="${v.id}"${(c?.gbogen || 'gf') === v.id ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`)}</div>
     ${field('Klassenliste', `<textarea id="nl" rows="7" placeholder="Nachname, Vorname – je Zeile, oder CSV einfügen">${esc(names)}</textarea>`, 'Wird verschlüsselt gespeichert. Für jede:n entsteht ein persönlicher QR-Code; bei gleichen Namen bleiben gedruckte Codes gültig.')}
+    <div class="btns" style="margin:-4px 0 10px"><button class="btn sm" id="csvf">⤒ Klassenliste einlesen</button><span class="help">CSV oder Text aus der Schulverwaltung (z. B. ASV) oder aus Moodle</span></div>
     <div class="err" id="err"></div><button class="btn pri" id="go">${c ? 'Speichern' : 'Anlegen'}</button>`, { wide: true });
+  $('#csvf', d.el).onclick = () => H.pickFile('.csv,.txt,text/csv,text/plain', async f => { const L = parseNames(await f.text()); if (!L.length) { $('#err', d.el).textContent = 'In der Datei wurden keine Namen erkannt.'; return; } $('#nl', d.el).value = L.map(r => `${r.n}, ${r.v}`).join('\n'); $('#err', d.el).textContent = ''; toast(`✓ ${L.length} Namen eingelesen`); });
   $('#go', d.el).onclick = async () => {
     const klasse = $('#kl', d.el).value.trim(), L = parseNames($('#nl', d.el).value);
     if (!klasse) { $('#err', d.el).textContent = 'Bitte die Klasse angeben.'; return; }
     if (!L.length) { $('#err', d.el).textContent = 'Bitte die Klassenliste einfügen.'; return; }
     const old = new Map((D?.R || []).map(r => [`${r.n}|${r.v}`.toLowerCase(), r.t]));
     const R = L.map(r => ({ v: r.v, n: r.n, t: old.get(`${r.n}|${r.v}`.toLowerCase()) || newToken() }));
+    const keep = (D?.R || []).filter(r => (r.sub || r.note) && !R.some(x => x.t === r.t)); // wer schon Fragebogen oder Gespräch hat, bleibt
+    if (keep.length && !confirm(`${keep.map(fullName).join(', ')} ${keep.length === 1 ? 'steht' : 'stehen'} nicht mehr in der Liste, ${keep.length === 1 ? 'hat' : 'haben'} aber schon Fragebogen oder Gespräch – ${keep.length === 1 ? 'bleibt' : 'bleiben'} deshalb in der Liste. Weiter?`)) return;
+    R.push(...keep.map(r => ({ v: r.v, n: r.n, t: r.t })));
     try {
       const r = await withBusy('verschlüsselt …', async () => api('c_save', { id: c?.id, klasse, titel: $('#ti', d.el).value.trim(), vorlage: $('#vo', d.el).value, gbogen: $('#gb', d.el).value,
         roster_enc: await K.seal(S.keys.pub_key, R), roster_n: R.length, tids: await Promise.all(R.map(x => tidOf(x.t))) }));
@@ -130,7 +135,8 @@ export async function viewCoaching(H, id) {
     <div class="c-grid">
       <div class="card" style="grid-column:1/-1"><h2 style="margin-top:0">Schüler:innen <span class="help">${subs.length}/${D.R.length} Fragebögen · ${done.length}/${D.R.length} Gespräche</span></h2>
         <div style="overflow:auto"><table class="c-table"><tr><th>Name</th><th>Fragebogen</th><th>Wohlbefinden</th><th>Gespräch</th><th>Wiedervorlage</th><th>Weitergabe</th></tr>${P.map(row).join('')}</table></div>
-        <p class="help">Tippe auf einen Namen: Fragebogen ansehen und Coachinggespräch starten.</p></div>
+        <p class="help">Tippe auf einen Namen: Fragebogen ansehen, QR-Code zeigen und Coachinggespräch starten.</p>
+        <div class="bar" style="margin:10px 0 0"><input type="text" id="av" placeholder="Vorname" style="width:150px" autocomplete="off"><input type="text" id="an" placeholder="Nachname" style="width:170px" autocomplete="off"><button class="btn" id="add">＋ Schüler:in ergänzen</button><span class="sp"></span><button class="btn" id="csv">⤒ Klassenliste einlesen</button></div></div>
       <div class="card"><h2 style="margin-top:0">Klasse auf einen Blick <span class="help">aus ${subs.length} Fragebögen</span></h2>${statsHtml(rTpl, stats(rTpl, subs.map(x => x.sub.answers)))}</div>
       <div class="card"><h2 style="margin-top:0">Aus den Gesprächen <span class="help">${done.length} geführt</span></h2>${statsHtml(gTpl, stats(gTpl, P.filter(x => x.note).map(x => x.note.data || {})))}
         ${wieder.length ? `<h3>Wiedervorlagen</h3>${wieder.map(x => `<div class="st-b" style="grid-template-columns:110px 1fr"><b>${esc(deDate(x.note.data.wieder))}</b><span>${esc(fullName(x))}</span></div>`).join('')}` : ''}</div>
@@ -143,6 +149,15 @@ export async function viewCoaching(H, id) {
   $('#ub').onclick = () => handoverDialog(H, D);
   $('#sb').onclick = () => reportDialog(H, D);
   $('#ed').onclick = () => coachingForm(H, D);
+  const addOne = async () => {
+    const v = $('#av').value.trim(), n = $('#an').value.trim();
+    if (!v && !n) { $('#av').focus(); return; }
+    if (D.R.some(r => `${r.v}|${r.n}`.toLowerCase() === `${v}|${n}`.toLowerCase())) { toast(`⚠ ${esc(v)} ${esc(n)} steht schon in der Liste`); return; }
+    await saveRoster(H, D, [...D.R, { v, n, t: newToken() }].sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de')));
+    toast(`✓ ${esc(v)} ${esc(n)} ergänzt – QR-Code: auf den Namen tippen`, 5000); viewCoaching(H, c.id);
+  };
+  $('#add').onclick = addOne; $('#an').onkeydown = e => { if (e.key === 'Enter') addOne(); }; $('#av').onkeydown = e => { if (e.key === 'Enter') $('#an').focus(); };
+  $('#csv').onclick = () => H.pickFile('.csv,.txt,text/csv,text/plain', async f => { if (await importRoster(H, D, H.parseNames(await f.text()))) viewCoaching(H, c.id); });
   $('#del').onclick = async () => {
     if (!confirm(`Coaching ${c.klasse} „${c.titel}“ löschen?`)) return;
     if (!confirm(`Bist du sicher? Alle Fragebögen und Gesprächsnotizen werden endgültig gelöscht.${c.exported ? '' : '\n\nDu hast dieses Coaching noch nicht exportiert.'}`)) return;
@@ -150,15 +165,34 @@ export async function viewCoaching(H, id) {
   };
 }
 
+/** Klassenliste speichern (verschlüsselt); persönliche Schlüssel bleiben erhalten */
+async function saveRoster(H, D, R) {
+  const { S, api, K, withBusy } = H, c = D.c;
+  await withBusy('Klassenliste wird verschlüsselt …', async () => api('c_save', { id: c.id, klasse: c.klasse, titel: c.titel, vorlage: c.vorlage, gbogen: c.gbogen,
+    roster_enc: await K.seal(S.keys.pub_key, R.map(r => ({ v: r.v, n: r.n, t: r.t }))), roster_n: R.length, tids: await Promise.all(R.map(x => tidOf(x.t))) }));
+}
+/** Klassenliste aus der Schulverwaltung: gleiche Namen behalten ihren QR-Code; wer schon Fragebogen oder Notizen hat, bleibt immer */
+async function importRoster(H, D, L) {
+  const { toast } = H;
+  if (!L.length) { toast('⚠ In der Datei wurden keine Namen erkannt'); return false; }
+  const key = r => `${r.v}|${r.n}`.toLowerCase(), old = new Map(D.R.map(r => [key(r), r])), neu = new Set(L.map(key));
+  const keep = D.R.filter(r => !neu.has(key(r)) && (r.sub || r.note)), drop = D.R.filter(r => !neu.has(key(r)) && !r.sub && !r.note);
+  const add = L.filter(r => !old.has(key(r)));
+  if (!confirm(`Klassenliste einlesen: ${L.length} Namen.\n\n${add.length} neu${drop.length ? `, ${drop.length} entfallen (${drop.map(fullName).join(', ')})` : ''}${keep.length ? `\n${keep.length} bleiben, obwohl nicht in der Datei, weil schon Fragebogen oder Gespräch vorliegen (${keep.map(fullName).join(', ')})` : ''}.\n\nGedruckte QR-Codes bleiben für gleiche Namen gültig. Übernehmen?`)) return false;
+  const R = [...L.map(r => old.get(key(r)) || { v: r.v, n: r.n, t: newToken() }), ...keep].sort((a, b) => a.n.localeCompare(b.n, 'de') || a.v.localeCompare(b.v, 'de'));
+  await saveRoster(H, D, R); toast(`✓ Klassenliste übernommen${add.length ? ` – ${add.length} neu, QR-Codes über „QR-Codes (PDF)“ oder den Namen` : ''}`, 5000); return true;
+}
+
 function studentDialog(H, D, x) {
   const { dialog, esc, toast } = H, { c, rTpl } = D;
   const d = dialog(esc(fullName(x)), `
-    <div class="btns" style="margin-bottom:12px"><button class="btn pri" data-talk>💬 Coachinggespräch ${x.note ? 'fortsetzen' : 'starten'}</button><button class="btn" data-print>🖨 Drucken</button>${x.t ? '<button class="btn" data-qr>▦ QR-Code anzeigen</button><button class="btn ghost sm" data-link title="Für ein Kind, das sein Blatt nicht hat">Persönlichen Link kopieren</button>' : ''}</div>
+    <div class="btns" style="margin-bottom:12px"><button class="btn pri" data-talk>💬 Coachinggespräch ${x.note ? 'fortsetzen' : 'starten'}</button><button class="btn" data-print>🖨 Drucken</button>${x.t ? '<button class="btn" data-qr>▦ QR-Code anzeigen</button><button class="btn" data-qrpdf>QR-Blatt (PDF)</button><button class="btn ghost sm" data-link title="Für ein Kind, das sein Blatt nicht hat">Persönlichen Link kopieren</button>' : ''}</div>
     ${x.sub ? `<p class="help">Fragebogen abgegeben am ${esc(new Date(x.sub.at).toLocaleString('de-DE'))}${x.sub.n > 1 ? ` (${x.sub.n}× gesendet, der neueste zählt)` : ''}</p>${viewHtml(rTpl, x.sub.answers)}` : '<p class="help">Noch kein Fragebogen abgegeben.</p>'}`, { wide: true });
   d.el.onclick = async e => {
     if (e.target.closest('[data-talk]')) { d.close(); talk(H, D, x); }
     if (e.target.closest('[data-print]')) printPeople(H, D, [x]);
     if (e.target.closest('[data-qr]')) dialog(`QR-Code für ${esc(fullName(x))}`, `<div style="text-align:center"><div class="qrbox" style="width:min(340px,80vw);margin:0 auto">${qrSvg(personalLink(c.code, x), { title: 'Persönlicher QR-Code' })}</div><p><b>${esc(fullName(x))}</b> · Klasse ${esc(c.klasse)}</p><p class="help">Nur diesem Kind zeigen – der Code öffnet seinen persönlichen Fragebogen.</p></div>`);
+    if (e.target.closest('[data-qrpdf]')) showPdf(qrPdf(c, [x], H.S.user.name || H.S.user.kuerzel), `QR-Code_${safe(fullName(x))}.pdf`);
     if (e.target.closest('[data-link]')) { try { await navigator.clipboard.writeText(personalLink(c.code, x)); toast('📋 Link kopiert – nur an dieses Kind geben'); } catch (er) { prompt('Persönlicher Link:', personalLink(c.code, x)); } }
   };
 }
