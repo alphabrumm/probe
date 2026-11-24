@@ -241,4 +241,17 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 11;
         SQL);
     }
+    if ($v < 12) { // Coaching-Vorlagen der Schule: von der Schulberatung in PathFinder gestaltet (nur Fragen, keine Personendaten)
+        $pdo->exec(<<<SQL
+        CREATE TABLE ctemplates (
+            id INTEGER PRIMARY KEY, owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,                                               -- reflexion | gespraech
+            label TEXT NOT NULL DEFAULT '', doc TEXT NOT NULL, spec TEXT NOT NULL, -- PathFinder-Dokument, daraus die Vorlage
+            active INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, updated INTEGER NOT NULL
+        );
+        ALTER TABLE coachings ADD COLUMN rspec TEXT;                          -- Kopie der Schulvorlage (Selbstreflexion) beim Anlegen
+        ALTER TABLE coachings ADD COLUMN gspec TEXT;                          -- Kopie der Schulvorlage (Gesprächsbogen)
+        PRAGMA user_version = 12;
+        SQL);
+    }
 }

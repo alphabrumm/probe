@@ -118,11 +118,53 @@ export const VORLAGEN = {
 };
 export const REFLEXION = Object.values(VORLAGEN).filter(v => v.kind === 'reflexion');
 export const GESPRAECH = Object.values(VORLAGEN).filter(v => v.kind === 'gespraech');
-export const questions = tpl => [...tpl.sections.flatMap(s => s.qs), ...(tpl.consent ? [tpl.consent] : [])];
+export const questions = tpl => [...tpl.sections.flatMap(s => s.qs.filter(q => q.t !== 'info')), ...(tpl.consent ? [tpl.consent] : [])];
+/** Vorlage eines Coachings: Vorlage der Schule (Kopie im Coaching, aus PathFinder) oder eingebaute Vorlage */
+export const tplOf = (c, w) => (w === 'r' ? c.rspec : c.gspec) || VORLAGEN[w === 'r' ? c.vorlage : c.gbogen];
+
+/* ---------- Vorlagen der Schule (in PathFinder gestaltet) ---------- */
+/** aus surveySpec (PathFinder) eine Coaching-Vorlage machen; id = „x“ + Nummer der Schulvorlage */
+export function tplFromSpec(spec, kind, id, label) {
+  const T = (label || spec.title || 'Eigene Vorlage').trim();
+  return { id, kind, label: T, own: true, head: 'LERNCOACHING | ' + T.toUpperCase(), sub: spec.sub || '',
+    sections: spec.sections.map(s => ({ title: s.title || '', qs: s.qs })), ...(spec.consent ? { consent: { ...spec.consent, stat: true } } : {}) };
+}
+const sgn = x => x > 0 ? '+' + x : x < 0 ? '−' + -x : String(x);
+/** eingebaute Vorlage als PathFinder-Dokument (Startpunkt für eigene Vorlagen der Schulberatung) */
+export function vorlageDoc(tpl) {
+  let k = 0; const uid = () => 'v' + (++k).toString(36) + Math.random().toString(36).slice(2, 6);
+  const blk = q => {
+    const base = { id: uid(), q: q.q || '', ...(q.hint ? { hint: q.hint } : {}), ...(q.w ? { share: true } : {}) };
+    if (q.t === 'scale') return { ...base, type: 'scale', min: q.min, max: q.max, lo: q.lo || '', hi: q.hi || '' };
+    if (q.t === 'single' || q.t === 'multi' || q.t === 'consent') return { ...base, type: 'choice', opts: [...q.opts], ...(q.t === 'multi' ? { multi: true } : {}), ...(q.t === 'consent' ? { consent: true } : {}), ...(q.text ? { text: q.text } : {}) };
+    if (q.t === 'matrix') return { ...base, type: 'matrix', items: [...q.items], cols: q.cols ? [...q.cols] : q.vals.map(sgn) };
+    if (q.t === 'text' || q.t === 'line') return { ...base, type: 'open', rows: q.t === 'line' ? 1 : q.rows || 3 };
+    if (q.t === 'date') return { ...base, type: 'datefield' };
+    return null;
+  };
+  const stations = tpl.sections.map(s => ({ id: uid(), title: s.title, sub: '', blocks: s.qs.map(blk).filter(Boolean) }));
+  if (tpl.consent) stations[stations.length - 1].blocks.push(blk(tpl.consent));
+  return { id: uid(), form: 'befragung', title: tpl.label, subtitle: tpl.sub || '', kicker: 'Lerncoaching', pointsOn: false, cert: { on: false }, design: { theme: 'lumi', font: 'schlicht', shape: 'eckig' }, stations };
+}
+/** Hinweistexte aus PathFinder (Text, Infokasten, Bild, Tabelle) bereinigen: nur einfache Formatierung, Bilder nur als data: */
+const OK_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'BR', 'P', 'UL', 'OL', 'LI', 'SMALL', 'SUB', 'SUP', 'TABLE', 'TBODY', 'THEAD', 'TR', 'TD', 'TH', 'IMG', 'SPAN', 'DIV', 'H3', 'H4']);
+export function safeHtml(html) {
+  if (typeof DOMParser === 'undefined') return esc(String(html).replace(/<[^>]+>/g, ' '));
+  const d = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html'), root = d.body.firstChild;
+  const walk = el => { for (const c of [...el.children]) {
+    if (!OK_TAGS.has(c.tagName)) { c.replaceWith(...(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'TEMPLATE'].includes(c.tagName) ? [] : [...c.childNodes])); continue; }
+    for (const a of [...c.attributes]) if (!(c.tagName === 'IMG' && (a.name === 'alt' || (a.name === 'src' && /^data:image\/(png|gif|jpe?g|webp);/i.test(a.value))))) c.removeAttribute(a.name);
+    if (c.tagName === 'IMG' && !c.getAttribute('src')) { c.remove(); continue; }
+    walk(c);
+  } };
+  walk(root); walk(root); return root.innerHTML;
+}
+const mxLab = (q, x) => q.cols ? q.cols[q.vals.indexOf(x)] ?? sgn(x) : sgn(x);
 
 /* ---------- Formular (Ausfüllen) ---------- */
 const nm = (p, id) => `${p}${id}`;
 function qHtml(q, v, p) {
+  if (q.t === 'info') return `<div class="cq cq-info">${safeHtml(q.html || '')}</div>`;
   const name = nm(p, q.id), hint = q.hint ? `<span class="cq-hint">${esc(q.hint)}</span>` : '';
   const head = `<div class="cq-q">${esc(q.q)}${q.w ? ' <span class="cq-w" title="darf mit Einwilligung an die nächste Klassleitung">↪ Weitergabe</span>' : ''}</div>${hint}`;
   if (q.t === 'scale') return `<div class="cq" data-q="${q.id}">${head}<div class="cq-scale" role="radiogroup">${Array.from({ length: q.max - q.min + 1 }, (_, i) => q.min + i).map(n => `<label class="sc"><input type="radio" name="${name}" value="${n}"${+v === n ? ' checked' : ''}><span>${n}</span></label>`).join('')}</div><div class="cq-ends"><span>${q.min} = ${esc(q.lo)}</span><span>${q.max} = ${esc(q.hi)}</span></div></div>`;
@@ -133,7 +175,8 @@ function qHtml(q, v, p) {
   if (q.t === 'date') return `<div class="cq" data-q="${q.id}">${head}<input type="date" name="${name}" value="${esc(v || '')}" style="max-width:220px"></div>`;
   if (q.t === 'matrix') {
     const m = v && typeof v === 'object' ? v : {};
-    return `<div class="cq" data-q="${q.id}">${head}<div class="cq-matrix"><div class="mx-h"><span></span>${q.vals.map(x => `<b>${x > 0 ? '+' + x : '−' + -x}</b>`).join('')}</div>${q.items.map((it, i) => `<div class="mx-r"><span class="mx-t">${i + 1}. ${esc(it)}</span>${q.vals.map(x => `<label class="mx-c" title="${x > 0 ? '+' + x : '−' + -x}"><input type="radio" name="${name}_${i}" value="${x}"${+m[i] === x && m[i] !== undefined && m[i] !== '' ? ' checked' : ''}><span>${x > 0 ? '+' + x : '−' + -x}</span></label>`).join('')}</div>`).join('')}</div></div>`;
+    const L = x => esc(mxLab(q, x)), wide = q.cols && q.cols.some(c => c.length > 3);
+    return `<div class="cq" data-q="${q.id}">${head}<div class="cq-matrix${wide ? ' mx-wide' : ''}" style="--mxn:${q.vals.length}"><div class="mx-h"><span></span>${q.vals.map(x => `<b>${L(x)}</b>`).join('')}</div>${q.items.map((it, i) => `<div class="mx-r"><span class="mx-t">${i + 1}. ${esc(it)}</span>${q.vals.map(x => `<label class="mx-c" title="${L(x)}"><input type="radio" name="${name}_${i}" value="${x}"${+m[i] === x && m[i] !== undefined && m[i] !== '' ? ' checked' : ''}><span>${L(x)}</span></label>`).join('')}</div>`).join('')}</div></div>`;
   }
   return '';
 }
@@ -168,22 +211,23 @@ function valHtml(q, v) {
   if (q.t === 'single' || q.t === 'consent') return `<b>${esc(v)}</b>`;
   if (q.t === 'multi') return v.map(x => `<span class="cv-chip">${esc(x)}</span>`).join(' ');
   if (q.t === 'date') return esc(new Date(v + 'T12:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }));
-  if (q.t === 'matrix') return `<div class="cv-mx">${q.items.map((it, i) => v[i] === undefined ? '' : `<div><span class="cv-mxv ${v[i] > 0 ? 'pos' : 'neg'}">${sg(v[i])}</span>${esc(it)}</div>`).join('') || none}</div>`;
+  if (q.t === 'matrix') return `<div class="cv-mx">${q.items.map((it, i) => v[i] === undefined ? '' : `<div><span class="cv-mxv ${q.cols ? (q.vals.indexOf(v[i]) < q.vals.length / 2 ? 'pos' : 'neg') : v[i] > 0 ? 'pos' : 'neg'}">${esc(mxLab(q, v[i]))}</span>${esc(it)}</div>`).join('') || none}</div>`;
   return `<div class="cv-text">${esc(v).replace(/\n/g, '<br>')}</div>`;
 }
 export function viewHtml(tpl, v = {}) {
-  return tpl.sections.map((s, i) => `<section class="cv-s"><h4><span class="cs-n">${i + 1}</span>${esc(s.title)}</h4>${s.qs.map(q => `<div class="cv-q"><div class="cv-l">${esc(q.q)}</div>${valHtml(q, v[q.id])}</div>`).join('')}</section>`).join('')
+  return tpl.sections.map((s, i) => `<section class="cv-s"><h4><span class="cs-n">${i + 1}</span>${esc(s.title)}</h4>${s.qs.filter(q => q.t !== 'info').map(q => `<div class="cv-q"><div class="cv-l">${esc(q.q)}</div>${valHtml(q, v[q.id])}</div>`).join('')}</section>`).join('')
     + (tpl.consent ? `<section class="cv-s"><h4>✍︎ Weitergabe an die nächste Klassleitung</h4>${valHtml(tpl.consent, v.weitergabe)}</section>` : '');
 }
 
 /* ---------- Druckfassung (A4, wie die Papiervorlage) ---------- */
 const box = on => `<span class="pb${on ? ' on' : ''}">${on ? '✕' : ''}</span>`;
 function printQ(q, v) {
+  if (q.t === 'info') return `<div class="pq pq-info">${safeHtml(q.html || '')}</div>`;
   const lab = q.q ? `<div class="pq-l">${esc(q.q)}</div>` : '';
   if (q.t === 'scale') return `<div class="pq">${lab}<div class="pq-scale">${Array.from({ length: q.max - q.min + 1 }, (_, i) => q.min + i).map(n => `<span class="${n === +v ? 'on' : ''}">${n}</span>`).join('')}</div><div class="pq-ends">${q.min} = ${esc(q.lo)} · ${q.max} = ${esc(q.hi)}</div></div>`;
   if (q.t === 'single' || q.t === 'multi' || q.t === 'consent') { const a = Array.isArray(v) ? v : [v]; return `<div class="pq">${lab}${q.text ? `<p class="pq-t">${esc(q.text)}</p>` : ''}<div class="pq-opts">${q.opts.map(o => `<span>${box(a.includes(o))} ${esc(o)}</span>`).join('')}</div></div>`; }
   if (q.t === 'date') return `<div class="pq pq-inline">${lab}<span class="pq-line">${v ? esc(new Date(v + 'T12:00').toLocaleDateString('de-DE')) : ''}</span></div>`;
-  if (q.t === 'matrix') { const m = v || {}; return `<div class="pq">${lab}<table class="pq-mx"><tr><th></th>${q.vals.map(x => `<th>${sg(x)}</th>`).join('')}</tr>${q.items.map((it, i) => `<tr><td>${i + 1}. ${esc(it)}</td>${q.vals.map(x => `<td>${box(m[i] === x)}</td>`).join('')}</tr>`).join('')}</table></div>`; }
+  if (q.t === 'matrix') { const m = v || {}; return `<div class="pq">${lab}<table class="pq-mx"><tr><th></th>${q.vals.map(x => `<th>${esc(mxLab(q, x))}</th>`).join('')}</tr>${q.items.map((it, i) => `<tr><td>${i + 1}. ${esc(it)}</td>${q.vals.map(x => `<td>${box(m[i] === x)}</td>`).join('')}</tr>`).join('')}</table></div>`; }
   return `<div class="pq">${lab}<div class="pq-box" style="min-height:${(q.t === "line" ? 1 : Math.min(q.rows || 3, 4)) * 1.2}em">${esc(v || '').replace(/\n/g, '<br>')}</div></div>`;
 }
 /** Eine A4-Seite (oder mehr) für den Ausdruck; meta: { name, klasse, datum, coach } */
@@ -218,7 +262,11 @@ export function statsHtml(tpl, st) {
   return questions(tpl).filter(q => q.stat && st[q.id]).map(q => {
     const s = st[q.id];
     if (s.t === 'scale') return `<div class="st"><div class="st-q">${esc(q.q)} <span class="st-n">Ø ${fmt(s.mean)} · n = ${s.n}</span></div><div class="st-hist">${Object.entries(s.h).map(([k, c]) => `<div title="${k}: ${c < 0 ? '1–2' : c}"><i style="height:${s.n ? Math.round(100 * Math.max(0, c) / Math.max(...Object.values(s.h).map(x => Math.max(0, x)), 1)) : 0}%"></i><span>${k}</span></div>`).join('')}</div></div>`;
-    if (s.t === 'matrix') return `<div class="st"><div class="st-q">${esc(q.q.split('.')[0])} <span class="st-n">Mittelwerte von −3 bis +3 · n = ${s.n}</span></div>${q.items.map((it, i) => { const m = s.m[i]?.mean; return `<div class="st-b"><span class="st-l">${esc(it)}</span><span class="st-mx">${m == null ? '' : `<i class="${m >= 0 ? 'pos' : 'neg'}" style="${m >= 0 ? 'left:50%' : `left:${50 + m / 3 * 50}%`};width:${Math.abs(m) / 3 * 50}%"></i>`}</span><span class="st-c">${fmt(m)}</span></div>`; }).join('')}</div>`;
+    if (s.t === 'matrix') {
+      const lo = Math.min(...q.vals), hi = Math.max(...q.vals), mid = lo < 0 && hi > 0 ? 0 : lo, pc = x => (x - lo) / (hi - lo || 1) * 100;
+      const range = q.cols ? `Mittelwerte: ${esc(mxLab(q, hi))} = ${fmt(hi)} … ${esc(mxLab(q, lo))} = ${fmt(lo)}` : `Mittelwerte von ${sg(lo)} bis ${sg(hi)}`;
+      return `<div class="st"><div class="st-q">${esc(q.q.split('.')[0])} <span class="st-n">${range} · n = ${s.n}</span></div>${q.items.map((it, i) => { const m = s.m[i]?.mean; return `<div class="st-b"><span class="st-l">${esc(it)}</span><span class="st-mx">${m == null ? '' : `<i class="${m >= mid && (mid !== lo || m >= (lo + hi) / 2) ? 'pos' : 'neg'}" style="left:${Math.min(pc(m), pc(mid))}%;width:${Math.abs(pc(m) - pc(mid))}%"></i>`}</span><span class="st-c">${fmt(m)}</span></div>`; }).join('')}</div>`;
+    }
     return `<div class="st"><div class="st-q">${esc(q.q)} <span class="st-n">n = ${s.n}</span></div>${Object.entries(s.c).map(([o, c]) => bar(o, c, s.n)).join('')}</div>`;
   }).join('') || '<p class="help">Noch keine Antworten.</p>';
 }

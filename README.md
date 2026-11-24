@@ -78,6 +78,12 @@ Lerncoaching der Klassleitung (`app/coaching.js`, `app/cvorlagen.js`, Schülerse
   Löschen. Admin → Schuljahresende: Coaching-Daten aller Lehrkräfte löschen (dreimal nachfragen); lesen kann der Admin sie nicht.
 * KI-Funktionen haben keinen Zugriff auf Coaching-Daten. „Beispiel anlegen“ erzeugt eine erfundene Klasse zum Ausprobieren.
 
+**Vorlagen der Schule:** Die Schulberatung gestaltet Selbstreflexion und Gesprächsbogen im Reiter *Schulberatung* in
+PathFinder (neu, als Text oder ausgehend von einer eingebauten Vorlage) und gibt sie frei; Klassleitungen wählen sie beim Anlegen.
+Ein Coaching speichert eine Kopie der Vorlage (`coachings.rspec/gspec`) – spätere Änderungen betreffen nur neue Coachings.
+Vorlagen enthalten nur Fragen (Klartext, Tabelle `ctemplates`); Hinweistexte werden vor dem Anzeigen bereinigt. Skala, Auswahl
+und Raster gehen in die Statistik ein, Fragen mit „Weitergabe“ in die Übergabe, die Einwilligung bleibt `weitergabe`.
+
 ## Umfragen
 
 Reiter **Umfragen**: Fragebogen im eingebetteten PathFinder gestalten (Art „Befragung“, Stil Lumi) – leer, aus einer Vorlage

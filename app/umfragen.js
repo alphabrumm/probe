@@ -110,34 +110,26 @@ function surveyForm(H, D) {
   };
 }
 
-/* ---------- Fragebogen in PathFinder (eingebettet) ---------- */
-function surveyEditor(H, D, ro = false) {
-  const { S, api, K, toast, withBusy, esc } = H, s = D.s;
+/* ---------- Fragebogen in PathFinder (eingebettet) ----------
+   Allgemein (auch für die Coaching-Vorlagen der Schulberatung): o = { doc, ro, roLabel, kopf, vorlagen, vorlagenText,
+   save(d) (Zwischenstand), done(d) → true = schließen, close(), doneLabel, doneTitle } */
+export function befragungEditor(H, o) {
+  const { toast, esc } = H;
   const wrapEl = document.createElement('div'); wrapEl.className = 'editor';
-  const q = new URLSearchParams({ form: 'befragung', kopf: [s.gruppe, 'Umfrage'].filter(Boolean).join(' · ') });
-  wrapEl.innerHTML = `<iframe src="editor.html?${esc(q.toString())}" title="${ro ? 'Fragebogen ansehen' : 'Fragebogen gestalten'}"></iframe>`;
+  wrapEl.innerHTML = `<iframe src="editor.html?${esc(new URLSearchParams({ form: 'befragung', kopf: o.kopf || '' }).toString())}" title="Fragebogen gestalten"></iframe>`;
   document.body.appendChild(wrapEl); document.body.style.overflow = 'hidden';
   const fr = $('iframe', wrapEl);
   let timer = null, pending = null, saving = Promise.resolve();
-  const plainT = d => String(d.title || '').replace(/<[^>]*>/g, '').trim().slice(0, 160);
-  const save = async (d, pub) => api('u_doc', { id: s.id, doc_enc: await K.seal(S.keys.pub_key, d), titel: plainT(d), ...(pub ? { pub_doc: JSON.stringify(d) } : {}) });
-  const flush = () => { clearTimeout(timer); timer = null; if (!pending) return saving; const d = pending; pending = null; saving = saving.then(() => save(d)).catch(er => toast('⚠ Speichern fehlgeschlagen: ' + esc(er.message), 5000)); return saving; };
-  const close = () => { wrapEl.remove(); document.body.style.overflow = ''; H.cleanLocal?.(); viewSurvey(H, s.id); };
+  const flush = () => { clearTimeout(timer); timer = null; if (!pending || !o.save) return saving; const d = pending; pending = null; saving = saving.then(() => o.save(d)).catch(er => toast('⚠ Speichern fehlgeschlagen: ' + esc(er.message), 5000)); return saving; };
+  const close = () => { wrapEl.remove(); document.body.style.overflow = ''; H.cleanLocal?.(); o.close?.(); };
   const start = () => {
-    if (ro) return fr.contentWindow.probeEdit({ doc: D.doc, readOnly: true, readOnlyLabel: 'Nur ansehen – es gibt schon Antworten', host: { done: close, doneLabel: 'Schließen', doneTitle: 'Zurück zur Umfrage' } });
+    if (o.ro) return fr.contentWindow.probeEdit({ doc: o.doc, readOnly: true, readOnlyLabel: o.roLabel || 'Nur ansehen', host: { done: close, doneLabel: 'Schließen', doneTitle: 'Zurück' } });
     fr.contentWindow.probeEdit({
-      doc: D.doc || undefined, startDialog: !D.doc, vorlagen: VORLAGEN_U, vorlagenText: 'Feedback zum Unterricht, Klassenklima oder Stimmungsbarometer übernehmen und anpassen.',
+      doc: o.doc || undefined, startDialog: !o.doc, vorlagen: o.vorlagen, vorlagenText: o.vorlagenText,
       host: {
         saved: d => { pending = d; clearTimeout(timer); timer = setTimeout(flush, 1500); },
-        done: async d => {
-          clearTimeout(timer); pending = null; await saving;
-          const n = surveySpec(d).questions;
-          try {
-            if (!n) { await save(d); toast('Gespeichert – der Fragebogen hat aber noch keine Frage. Über ＋ Fragen einfügen.', 5000); close(); return; }
-            await withBusy('Fragebogen wird gespeichert …', () => save(d, true)); toast(`✓ Fragebogen fertig (${n} Frage${n === 1 ? '' : 'n'})`); close();
-          } catch (er) { toast('⚠ ' + esc(er.message), 6000); }
-        },
-        doneLabel: 'Fertig – zurück zu Probe', doneTitle: 'Fragebogen speichern und zurück zur Umfrage',
+        done: async d => { clearTimeout(timer); pending = null; await saving; try { if (await o.done(d) !== false) close(); } catch (er) { toast('⚠ ' + esc(er.message), 6000); } },
+        doneLabel: o.doneLabel || 'Fertig – zurück zu Probe', doneTitle: o.doneTitle || 'Speichern und zurück',
       }
     });
   };
@@ -145,7 +137,19 @@ function surveyEditor(H, D, ro = false) {
   addEventListener('message', onMsg);
   addEventListener('pagehide', flush, { once: true });
 }
-
+function surveyEditor(H, D, ro = false) {
+  const { S, api, K, toast, withBusy } = H, s = D.s;
+  const plainT = d => String(d.title || '').replace(/<[^>]*>/g, '').trim().slice(0, 160);
+  const save = async (d, pub) => api('u_doc', { id: s.id, doc_enc: await K.seal(S.keys.pub_key, d), titel: plainT(d), ...(pub ? { pub_doc: JSON.stringify(d) } : {}) });
+  befragungEditor(H, { doc: D.doc, ro, roLabel: 'Nur ansehen – es gibt schon Antworten', kopf: [s.gruppe, 'Umfrage'].filter(Boolean).join(' · '), vorlagen: VORLAGEN_U,
+    vorlagenText: 'Feedback zum Unterricht, Klassenklima oder Stimmungsbarometer übernehmen und anpassen.', save: d => save(d), close: () => viewSurvey(H, s.id),
+    doneTitle: 'Fragebogen speichern und zurück zur Umfrage',
+    done: async d => {
+      const n = surveySpec(d).questions;
+      if (!n) { await save(d); toast('Gespeichert – der Fragebogen hat aber noch keine Frage. Über ＋ Fragen einfügen.', 5000); return; }
+      await withBusy('Fragebogen wird gespeichert …', () => save(d, true)); toast(`✓ Fragebogen fertig (${n} Frage${n === 1 ? '' : 'n'})`);
+    } });
+}
 /* ---------- Eine Umfrage ---------- */
 export async function viewSurvey(H, id) {
   const { S, api, main, esc, toast, withBusy } = H;

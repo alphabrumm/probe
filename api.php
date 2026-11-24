@@ -151,9 +151,24 @@ function own_coaching(array $u, int $id): array {
 function c_meta(array $c): array {
     $n = fn(string $q) => (int)db()->query($q . (int)$c['id'])->fetchColumn();
     return ['id' => (int)$c['id'], 'schuljahr' => $c['schuljahr'], 'klasse' => $c['klasse'], 'titel' => $c['titel'], 'vorlage' => $c['vorlage'], 'gbogen' => $c['gbogen'],
+        'rspec' => $c['rspec'] ? json_decode($c['rspec'], true) : null, 'gspec' => $c['gspec'] ? json_decode($c['gspec'], true) : null,
         'code' => $c['code'], 'open' => (bool)$c['open'], 'roster_n' => (int)$c['roster_n'], 'exported' => $c['exported'] ? (int)$c['exported'] : null,
         'reported' => $c['reported'] ? (int)$c['reported'] : null, 'created' => (int)$c['created'], 'updated' => (int)$c['updated'],
         'n_subs' => $n('SELECT COUNT(*) FROM coaching_subs WHERE coaching_id = '), 'n_done' => $n('SELECT COUNT(*) FROM coaching_notes WHERE done = 1 AND coaching_id = ')];
+}
+/** Schulvorlagen, die diese Person sehen darf: echte Konten alle der Schule, Demo-Konten nur die eigenen */
+function ct_visible(array $u, int $id): ?array {
+    $st = db()->prepare('SELECT t.*, COALESCE(o.is_demo, 0) AS odemo FROM ctemplates t LEFT JOIN users o ON o.id = t.owner_id WHERE t.id = ?'); $st->execute([$id]); $t = $st->fetch();
+    if (!$t) return null;
+    return $u['is_demo'] ? ((int)$t['owner_id'] === (int)$u['id'] ? $t : null) : ((int)$t['odemo'] ? null : $t);
+}
+function ct_editor(array $u): void { if (!$u['is_berater'] && !$u['is_admin'] && !$u['is_demo']) fail('Nur für die Schulberatung', 403); }
+/** Vorlage für ein Coaching: eingebaut (Kürzel) oder Schulvorlage „x<id>“ → Kopie der Vorlage */
+function c_tpl(array $u, string $v, string $kind): ?string {
+    if (!preg_match('~^x(\d+)$~', $v, $m)) { if (!preg_match('~^[a-z0-9-]{1,12}$~', $v)) fail('Unbekannte Vorlage'); return null; }
+    $t = ct_visible($u, (int)$m[1]); if (!$t || $t['kind'] !== $kind) fail('Diese Vorlage gibt es nicht (mehr).');
+    $s = json_decode($t['spec'], true); $s['id'] = $v; $s['kind'] = $kind; $s['own'] = true; $s['label'] = $s['label'] ?? $t['label'];
+    return json_encode($s, JSON_UNESCAPED_UNICODE);
 }
 function new_ccode(): string {
     $A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -632,18 +647,19 @@ case 'c_save': { // anlegen oder ändern (Titel, Vorlagen, Klassenliste)
     $u = teacher(); if (!$u['pub_key']) fail('Kein Schlüssel');
     $id = (int)($in['id'] ?? 0); $klasse = str($in, 'klasse', 20, true); $titel = str($in, 'titel', 120);
     $vor = str($in, 'vorlage', 12, true); $gb = str($in, 'gbogen', 12, true);
-    if (!preg_match('~^[a-z0-9-]{1,12}$~', $vor) || !preg_match('~^[a-z0-9-]{1,12}$~', $gb)) fail('Unbekannte Vorlage');
     $roster = blob($in, 'roster_enc', 400_000); $n = max(0, min(200, (int)($in['roster_n'] ?? 0)));
     $tids = array_values(array_filter((array)($in['tids'] ?? []), fn($t) => is_string($t) && hexok($t)));
     if (count($tids) > 200) fail('Zu viele Schüler');
     $now = time(); $pdo = db();
     if ($id) {
         $c = own_coaching($u, $id);
-        $pdo->prepare('UPDATE coachings SET klasse = ?, titel = ?, vorlage = ?, gbogen = ?, roster_enc = COALESCE(?, roster_enc), roster_n = ?, tids = ?, updated = ? WHERE id = ?')
-            ->execute([$klasse, $titel, $vor, $gb, $roster, $roster !== null ? $n : (int)$c['roster_n'], $roster !== null ? json_encode($tids) : $c['tids'], $now, $id]);
+        // Schulvorlage: Kopie nur beim Wechsel neu ziehen – spätere Änderungen der Schulberatung verändern laufende Coachings nicht
+        $rs = $vor === $c['vorlage'] ? $c['rspec'] : c_tpl($u, $vor, 'reflexion'); $gs = $gb === $c['gbogen'] ? $c['gspec'] : c_tpl($u, $gb, 'gespraech');
+        $pdo->prepare('UPDATE coachings SET klasse = ?, titel = ?, vorlage = ?, gbogen = ?, rspec = ?, gspec = ?, roster_enc = COALESCE(?, roster_enc), roster_n = ?, tids = ?, updated = ? WHERE id = ?')
+            ->execute([$klasse, $titel, $vor, $gb, $rs, $gs, $roster, $roster !== null ? $n : (int)$c['roster_n'], $roster !== null ? json_encode($tids) : $c['tids'], $now, $id]);
     } else {
-        $pdo->prepare('INSERT INTO coachings (owner_id, schuljahr, klasse, titel, vorlage, gbogen, code, roster_enc, roster_n, tids, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-            ->execute([$u['id'], schuljahr(), $klasse, $titel, $vor, $gb, new_ccode(), $roster, $n, json_encode($tids), $now, $now]);
+        $pdo->prepare('INSERT INTO coachings (owner_id, schuljahr, klasse, titel, vorlage, gbogen, rspec, gspec, code, roster_enc, roster_n, tids, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$u['id'], schuljahr(), $klasse, $titel, $vor, $gb, c_tpl($u, $vor, 'reflexion'), c_tpl($u, $gb, 'gespraech'), new_ccode(), $roster, $n, json_encode($tids), $now, $now]);
         $id = (int)$pdo->lastInsertId();
     }
     out(['coaching' => c_meta(own_coaching($u, $id))]);
@@ -704,11 +720,41 @@ case 'c_purge_all': { // Admin: Coaching-Daten ALLER Lehrkräfte löschen (Frage
     db()->exec('VACUUM');
     out(['deleted' => $n]);
 }
+/* Vorlagen der Schule: Selbstreflexion und Gesprächsbogen, gestaltet von der Schulberatung in PathFinder */
+case 'ct_list': { // alle sichtbaren Vorlagen (für die Auswahl beim Anlegen nur freigegebene, für die Schulberatung alle)
+    $u = teacher();
+    $st = db()->prepare('SELECT t.id, t.kind, t.label, t.active, t.spec, t.updated, t.owner_id, COALESCE(NULLIF(o.name, \'\'), o.kuerzel, \'\') AS von FROM ctemplates t LEFT JOIN users o ON o.id = t.owner_id
+        WHERE ' . ($u['is_demo'] ? 't.owner_id = ?' : 'COALESCE(o.is_demo, 0) = 0 AND ? > 0') . ' ORDER BY t.kind DESC, t.label');
+    $st->execute([$u['id']]);
+    out(['templates' => array_map(fn($t) => ['id' => (int)$t['id'], 'kind' => $t['kind'], 'label' => $t['label'], 'active' => (bool)$t['active'], 'spec' => json_decode($t['spec'], true),
+        'updated' => (int)$t['updated'], 'von' => $t['von'], 'mine' => (int)$t['owner_id'] === (int)$u['id']], $st->fetchAll()), 'editor' => (bool)($u['is_berater'] || $u['is_admin'] || $u['is_demo'])]);
+}
+case 'ct_get': { $u = teacher(); ct_editor($u); $t = ct_visible($u, (int)($in['id'] ?? 0)) ?: fail('Vorlage nicht gefunden', 404); out(['doc' => json_decode($t['doc'], true)]); }
+case 'ct_save': { // Schulberatung: Vorlage anlegen oder ändern (PathFinder-Dokument und die daraus berechnete Vorlage)
+    $u = teacher(); ct_editor($u);
+    $id = (int)($in['id'] ?? 0); $kind = str($in, 'kind', 10, true); if (!in_array($kind, ['reflexion', 'gespraech'], true)) fail('Unbekannte Art');
+    $doc = blob($in, 'doc', 6_000_000); $spec = blob($in, 'spec', 400_000); if (!$doc || !$spec) fail('Inhalt fehlt');
+    $d = json_decode($doc, true); $s = json_decode($spec, true);
+    if (($d['form'] ?? '') !== 'befragung' || !is_array($s['sections'] ?? null)) fail('Das ist kein Fragebogen.');
+    $label = str($in, 'label', 120) ?: 'Eigene Vorlage'; $now = time(); $pdo = db();
+    if ($id) {
+        $t = ct_visible($u, $id) ?: fail('Vorlage nicht gefunden', 404);
+        $pdo->prepare('UPDATE ctemplates SET label = ?, doc = ?, spec = ?, updated = ? WHERE id = ?')->execute([$label, $doc, $spec, $now, $id]);
+    } else {
+        $pdo->prepare('INSERT INTO ctemplates (owner_id, kind, label, doc, spec, active, created, updated) VALUES (?,?,?,?,?,0,?,?)')->execute([$u['id'], $kind, $label, $doc, $spec, $now, $now]);
+        $id = (int)$pdo->lastInsertId();
+    }
+    out(['id' => $id]);
+}
+case 'ct_active': { $u = teacher(); ct_editor($u); $t = ct_visible($u, (int)($in['id'] ?? 0)) ?: fail('Vorlage nicht gefunden', 404); db()->prepare('UPDATE ctemplates SET active = ?, updated = ? WHERE id = ?')->execute([!empty($in['active']) ? 1 : 0, time(), $t['id']]); out([]); }
+case 'ct_delete': { // laufende Coachings behalten ihre Kopie der Vorlage
+    $u = teacher(); ct_editor($u); $t = ct_visible($u, (int)($in['id'] ?? 0)) ?: fail('Vorlage nicht gefunden', 404); db()->prepare('DELETE FROM ctemplates WHERE id = ?')->execute([$t['id']]); out([]);
+}
 /* Schüler (ohne Anmeldung, nur mit persönlichem QR-Code) */
 case 'c_info': {
     $c = coaching_by_code((string)($in['code'] ?? ''));
     $o = user((int)$c['owner_id']);
-    out(['klasse' => $c['klasse'], 'titel' => $c['titel'], 'vorlage' => $c['vorlage'], 'open' => (bool)$c['open'], 'pub_key' => $o['pub_key'] ?? null, 'lehrkraft' => $o['name'] ?: $o['kuerzel']]);
+    out(['klasse' => $c['klasse'], 'titel' => $c['titel'], 'vorlage' => $c['vorlage'], 'spec' => $c['rspec'] ? json_decode($c['rspec'], true) : null, 'open' => (bool)$c['open'], 'pub_key' => $o['pub_key'] ?? null, 'lehrkraft' => $o['name'] ?: $o['kuerzel']]);
 }
 case 'c_submit': {
     $c = coaching_by_code((string)($in['code'] ?? ''));

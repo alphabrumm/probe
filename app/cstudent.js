@@ -34,7 +34,7 @@ async function boot() {
   let info;
   try { info = await api('c_info'); } catch (e) { card(`<h2>Das hat nicht geklappt</h2><p class="err">${esc(e.message)}</p>`); return; }
   if (!info.open) { card(`<h2>Der Fragebogen ist geschlossen</h2><p>Sprich mit ${esc(info.lehrkraft)}, wenn du ihn noch ausfüllen möchtest.</p>`); return; }
-  const tpl = VORLAGEN[info.vorlage]; if (!tpl || !info.pub_key) { card('<h2>Dieser Fragebogen ist nicht eingerichtet.</h2>'); return; }
+  const tpl = info.spec || VORLAGEN[info.vorlage]; if (!tpl || !info.pub_key) { card('<h2>Dieser Fragebogen ist nicht eingerichtet.</h2>'); return; }
   let draft = {}; try { draft = JSON.parse(sessionStorage.getItem(DK) || '{}'); } catch (e) { }
   $('#lock').hidden = false;
   main.innerHTML = `<h1 style="margin:4px 0 4px">Hallo ${esc(me.v || me.n)}!</h1>

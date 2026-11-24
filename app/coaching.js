@@ -5,7 +5,9 @@
 // Schutz: Klassenliste, Fragebögen und Notizen sind mit dem Schlüssel der Lehrkraft verschlüsselt (ECDH P-256 + AES-256-GCM),
 // der Server sieht nur Klasse, Titel, Vorlagen und Zähler. Admins können Coaching-Daten löschen, aber nicht lesen.
 // Probe löscht nie von selbst: Ab dem 15. Juli erinnert es bei jeder Anmeldung an Export oder Löschen.
-import { VORLAGEN, REFLEXION, GESPRAECH, formHtml, readForm, viewHtml, printHtml, stats, statsHtml, anon, addStats, questions, answered } from './cvorlagen.js';
+import { VORLAGEN, REFLEXION, GESPRAECH, formHtml, readForm, viewHtml, printHtml, stats, statsHtml, anon, addStats, questions, answered, tplOf, tplFromSpec, vorlageDoc } from './cvorlagen.js';
+import { surveySpec } from '../vendor/pathfinder/core/pfsurvey.js';
+import { befragungEditor } from './umfragen.js';
 import { Pdf, PAGE_W, PAGE_H, fit, wrap, showPdf } from './pdf.js';
 import { qrMatrix, qrSvg } from './qr.js';
 import { idbPut, idbDel, idbAll } from './idb.js';
@@ -39,7 +41,7 @@ async function load(H, id) {
     if (x) x.sub = sub; else extra.push({ v: idn.v, n: idn.n, tid: s.tid, sub, unknown: true });
   }
   for (const n of r.notes) { const x = by.get(n.tid); if (!x) continue; try { x.note = await K.open(S.priv, n.note_enc); } catch (e) { } }
-  return { c, R, extra, rTpl: VORLAGEN[c.vorlage], gTpl: VORLAGEN[c.gbogen] };
+  return { c, R, extra, rTpl: tplOf(c, 'r'), gTpl: tplOf(c, 'g') };
 }
 const people = D => [...D.R, ...D.extra];
 
@@ -76,7 +78,7 @@ export async function viewCoachingList(H) {
     ${old.length ? `<div class="c-hint"><b>⏰ Schuljahr vorbei:</b> ${old.length} Coaching${old.length === 1 ? '' : 's'} aus ${[...new Set(old.map(c => c.schuljahr))].join(', ')}. Bitte verschlüsselt exportieren oder löschen – Probe löscht nichts von selbst. <button class="btn sm" data-hint>Jetzt erledigen</button></div>` : ''}
     <div class="bar"><button class="btn pri" id="neu">＋ Neues Coaching</button><button class="btn" id="open">📂 Datei öffnen</button><span class="sp"></span><button class="btn sm ghost" id="demo" title="Erfundene Klasse mit Beispielantworten zum Ausprobieren">Demo-Coaching anlegen</button></div>
     ${L.length ? Object.keys(bySj).sort().reverse().map(sj => `<div class="klasse"><h2>${esc(sj)}</h2></div><div class="tiles">${bySj[sj].map(c => `<a class="tile" href="#/c/${c.id}">
-      <span class="k">Klasse ${esc(c.klasse)}</span><span class="t">${esc(c.titel || 'Lerncoaching')}</span><span class="m">${esc(VORLAGEN[c.vorlage]?.label || c.vorlage)}</span>
+      <span class="k">Klasse ${esc(c.klasse)}</span><span class="t">${esc(c.titel || 'Lerncoaching')}</span><span class="m">${esc(tplOf(c, 'r')?.label || c.vorlage)}</span>
       <span class="s"><span class="chip ${c.n_subs ? 'good' : ''}">📝 ${c.n_subs}/${c.roster_n} Fragebögen</span><span class="chip ${c.n_done ? 'good' : ''}">💬 ${c.n_done}/${c.roster_n} Gespräche</span>${c.open ? '' : '<span class="chip">geschlossen</span>'}${c.reported ? '<span class="chip good">✓ an Schulberatung</span>' : ''}${c.exported ? '<span class="chip">⇩ exportiert</span>' : ''}</span></a>`).join('')}</div>`).join('')
       : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch kein Coaching</h2><p>Lege ein Coaching für deine Klasse an: Klassenliste einfügen, persönliche QR-Codes drucken – die Kinder füllen vor dem Gespräch ihre Selbstreflexion aus.</p></div>`}`;
   $('#neu').onclick = () => coachingForm(H, null);
@@ -106,12 +108,18 @@ function yearEndDialog(H, old) {
 }
 
 /* ---------- Anlegen und Bearbeiten ---------- */
+/** Vorlagen der Schule (freigegeben) als Auswahl; die gerade benutzte bleibt wählbar */
+async function schoolTpls(H) { try { return (await H.api('ct_list')).templates.filter(t => t.active).map(t => ({ ...tplFromSpec(t.spec, t.kind, 'x' + t.id, t.label), von: t.von })); } catch (e) { return []; } }
 async function coachingForm(H, D) {
   const { S, api, K, dialog, esc, field, toast, withBusy, parseNames } = H, c = D?.c;
+  const own = await schoolTpls(H), sel = (list, kind, cur, def) => {
+    const L = [...list, ...own.filter(t => t.kind === kind)]; if (cur && !L.some(v => v.id === cur)) L.push({ id: cur, label: (kind === 'reflexion' ? D.rTpl : D.gTpl)?.label || cur });
+    return L.map(v => `<option value="${v.id}"${(cur || def) === v.id ? ' selected' : ''}>${esc(v.label)}${v.own ? ' (Schule)' : ''}</option>`).join('');
+  };
   const names = D ? D.R.map(r => `${r.n}, ${r.v}`).join('\n') : '';
   const d = dialog(c ? `Coaching ${esc(c.klasse)} bearbeiten` : 'Neues Coaching', `
     <div class="row">${field('Klasse', `<input type="text" id="kl" value="${esc(c?.klasse || '')}" placeholder="z. B. 7c">`)}${field('Titel', `<input type="text" id="ti" value="${esc(c?.titel || `Lerncoaching ${new Date().getMonth() >= 1 && new Date().getMonth() < 7 ? '2' : '1'}. Halbjahr`)}">`)}</div>
-    <div class="row">${field('Selbstreflexion der Schüler:innen', `<select id="vo">${REFLEXION.map(v => `<option value="${v.id}"${(c?.vorlage || 'rk') === v.id ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`)}${field('Gesprächsbogen', `<select id="gb">${GESPRAECH.map(v => `<option value="${v.id}"${(c?.gbogen || 'gf') === v.id ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`)}</div>
+    <div class="row">${field('Selbstreflexion der Schüler:innen', `<select id="vo">${sel(REFLEXION, 'reflexion', c?.vorlage, 'rk')}</select>`)}${field('Gesprächsbogen', `<select id="gb">${sel(GESPRAECH, 'gespraech', c?.gbogen, 'gf')}</select>`)}</div>
     ${field('Klassenliste', `<textarea id="nl" rows="7" placeholder="Nachname, Vorname – je Zeile, oder CSV einfügen">${esc(names)}</textarea>`, 'Wird verschlüsselt gespeichert. Für jede:n entsteht ein persönlicher QR-Code; bei gleichen Namen bleiben gedruckte Codes gültig.')}
     <div class="btns" style="margin:-4px 0 10px"><button class="btn sm" id="csvf">⤒ Klassenliste einlesen</button><span class="help">CSV oder Text aus der Schulverwaltung (z. B. ASV) oder aus Moodle</span></div>
     <div class="err" id="err"></div><button class="btn pri" id="go">${c ? 'Speichern' : 'Anlegen'}</button>`, { wide: true });
@@ -140,12 +148,13 @@ export async function viewCoaching(H, id) {
   await syncPending(H, id);
   let D; try { D = await load(H, id); } catch (e) { main.innerHTML = tabsHtml('c', S) + `<p class="err">${esc(e.message)}</p>`; return; }
   const { c, rTpl, gTpl } = D, P = people(D);
-  const subs = P.filter(x => x.sub), done = P.filter(x => x.note?.done), wieder = P.filter(x => x.note?.data?.wieder).sort((a, b) => a.note.data.wieder.localeCompare(b.note.data.wieder));
+  const sq = questions(rTpl).find(q => q.t === 'scale'), wq = questions(gTpl).find(q => q.t === 'date'), wid = wq?.id || 'wieder', wv = x => x.note?.data?.[wid];
+  const subs = P.filter(x => x.sub), done = P.filter(x => x.note?.done), wieder = P.filter(wv).sort((a, b) => wv(a).localeCompare(wv(b)));
   const row = (x, i) => `<tr class="click" data-p="${i}"><td><b>${esc(fullName(x))}</b>${x.unknown ? ' <span class="chip warn" title="Nicht in der Klassenliste">?</span>' : ''}</td>
     <td>${x.sub ? `<span class="chip good">✓ ${esc(deDate(new Date(x.sub.at)))}</span>` : '<span class="help">–</span>'}</td>
-    <td>${x.sub?.answers?.wohl ? `<b>${x.sub.answers.wohl}</b>/10` : '<span class="help">–</span>'}</td>
+    <td>${sq && x.sub?.answers?.[sq.id] != null ? `<b>${x.sub.answers[sq.id]}</b>/${sq.max}` : '<span class="help">–</span>'}</td>
     <td>${x.note?.done ? `<span class="chip good">💬 ${esc(deDate(x.note.datum))}</span>` : x.note ? '<span class="chip warn">begonnen</span>' : '<span class="help">offen</span>'}</td>
-    <td>${x.note?.data?.wieder ? esc(deDate(x.note.data.wieder)) : ''}</td>
+    <td>${wv(x) ? esc(deDate(wv(x))) : ''}</td>
     <td>${x.note?.data?.weitergabe ? (x.note.data.weitergabe.startsWith('Ja') ? '<span class="chip good">Ja</span>' : '<span class="chip">Nein</span>') : ''}</td></tr>`;
   main.innerHTML = `${tabsHtml('c', S)}<p><a href="#/coaching">‹ Alle Coachings</a></p>
     <h1>Klasse ${esc(c.klasse)} · ${esc(c.titel || 'Lerncoaching')}</h1>
@@ -158,12 +167,12 @@ export async function viewCoaching(H, id) {
       <li><b>📊 An Schulberatung</b> einreichen und im Tab <b>Schulberatung</b> ansehen, was dort ankommt.</li></ol></div>` : ''}
     <div class="c-grid">
       <div class="card" style="grid-column:1/-1"><h2 style="margin-top:0">Schüler:innen <span class="help">${subs.length}/${D.R.length} Fragebögen · ${done.length}/${D.R.length} Gespräche</span></h2>
-        <div style="overflow:auto"><table class="c-table"><tr><th>Name</th><th>Fragebogen</th><th>Wohlbefinden</th><th>Gespräch</th><th>Wiedervorlage</th><th>Weitergabe</th></tr>${P.map(row).join('')}</table></div>
+        <div style="overflow:auto"><table class="c-table"><tr><th>Name</th><th>Fragebogen</th><th>${esc(sq ? (sq.q.length > 22 ? sq.q.slice(0, 20) + '…' : sq.q) : 'Skala')}</th><th>Gespräch</th><th>Wiedervorlage</th><th>Weitergabe</th></tr>${P.map(row).join('')}</table></div>
         <p class="help">Tippe auf einen Namen: Fragebogen ansehen, QR-Code zeigen und Coachinggespräch starten.</p>
         <div class="bar" style="margin:10px 0 0"><input type="text" id="av" placeholder="Vorname" style="width:150px" autocomplete="off"><input type="text" id="an" placeholder="Nachname" style="width:170px" autocomplete="off"><button class="btn" id="add">＋ Schüler:in ergänzen</button><span class="sp"></span><button class="btn" id="csv">⤒ Klassenliste einlesen</button></div></div>
       <div class="card"><h2 style="margin-top:0">Klasse auf einen Blick <span class="help">aus ${subs.length} Fragebögen</span></h2>${statsHtml(rTpl, stats(rTpl, subs.map(x => x.sub.answers)))}</div>
       <div class="card"><h2 style="margin-top:0">Aus den Gesprächen <span class="help">${done.length} geführt</span></h2>${statsHtml(gTpl, stats(gTpl, P.filter(x => x.note).map(x => x.note.data || {})))}
-        ${wieder.length ? `<h3>Wiedervorlagen</h3>${wieder.map(x => `<div class="st-b" style="grid-template-columns:110px 1fr"><b>${esc(deDate(x.note.data.wieder))}</b><span>${esc(fullName(x))}</span></div>`).join('')}` : ''}</div>
+        ${wieder.length ? `<h3>Wiedervorlagen</h3>${wieder.map(x => `<div class="st-b" style="grid-template-columns:110px 1fr"><b>${esc(deDate(wv(x)))}</b><span>${esc(fullName(x))}</span></div>`).join('')}` : ''}</div>
     </div>`;
   main.onclick = e => { const tr = e.target.closest('[data-p]'); if (tr) studentDialog(H, D, P[+tr.dataset.p]); };
   $('#qr').onclick = () => showPdf(qrPdf(c, D.R, S.user.name || S.user.kuerzel), `QR-Codes_Coaching_${safe(c.klasse)}.pdf`);
@@ -361,7 +370,7 @@ function openFile(H) {
     if (data.probe !== 'coaching') { toast('⚠ Das ist keine Coaching-Datei'); return; }
     const d = dialog('📂 Coaching-Export', data.items.map((it, i) => `<h3>Klasse ${esc(it.meta.klasse)} · ${esc(it.meta.titel)} <span class="help">${esc(it.meta.schuljahr)}</span> <button class="btn sm" data-pi="${i}">🖨 Drucken</button></h3>
       <table class="c-table">${it.people.map(p => `<tr><td>${esc(fullName(p))}</td><td>${p.sub ? '📝 Fragebogen' : ''}</td><td>${p.note ? `💬 ${esc(deDate(p.note.datum))}` : ''}</td></tr>`).join('')}</table>`).join(''), { wide: true });
-    d.el.onclick = e => { const b = e.target.closest('[data-pi]'); if (!b) return; const it = data.items[+b.dataset.pi]; printPeople(H, { c: it.meta, rTpl: VORLAGEN[it.meta.vorlage], gTpl: VORLAGEN[it.meta.gbogen] }, it.people.filter(p => p.sub || p.note)); };
+    d.el.onclick = e => { const b = e.target.closest('[data-pi]'); if (!b) return; const it = data.items[+b.dataset.pi]; printPeople(H, { c: it.meta, rTpl: tplOf(it.meta, 'r'), gTpl: tplOf(it.meta, 'g') }, it.people.filter(p => p.sub || p.note)); };
   });
 }
 
@@ -370,7 +379,8 @@ function reportData(D) {
   const { c, rTpl, gTpl } = D, P = people(D);
   return { v: 1, klasse: c.klasse, schuljahr: c.schuljahr, vorlage: c.vorlage, gbogen: c.gbogen, n: D.R.length,
     n_subs: P.filter(x => x.sub).length, n_done: P.filter(x => x.note?.done).length,
-    refl: anon(stats(rTpl, P.filter(x => x.sub).map(x => x.sub.answers))), gespr: anon(stats(gTpl, P.filter(x => x.note?.done).map(x => x.note.data || {}))) };
+    refl: anon(stats(rTpl, P.filter(x => x.sub).map(x => x.sub.answers))), gespr: anon(stats(gTpl, P.filter(x => x.note?.done).map(x => x.note.data || {}))),
+    ...(rTpl.own ? { rspec: rTpl } : {}), ...(gTpl.own ? { gspec: gTpl } : {}) };
 }
 async function reportDialog(H, D) {
   const { api, K, dialog, esc, toast, withBusy } = H, { c, rTpl, gTpl } = D;
@@ -395,22 +405,53 @@ export async function viewBerater(H) {
   main.innerHTML = tabsHtml('b', S) + '<p class="help">entschlüsselt …</p>';
   let L; try { L = (await api('c_reports')).reports; } catch (e) { main.innerHTML = tabsHtml('b', S) + `<p class="err">${esc(e.message)}</p>`; return; }
   const all = []; for (const r of L) { try { all.push({ ...r, d: await K.open(S.priv, r.enc) }); } catch (e) { } }
+  let T = []; try { T = (await api('ct_list')).templates; } catch (e) { }
+  // Vorlage zu einem Kürzel: eingebaut oder die Schulvorlage, die im Bericht mitkam
+  const tv = v => VORLAGEN[v] || all.find(r => r.d.vorlage === v && r.d.rspec)?.d.rspec, tg = g => VORLAGEN[g] || all.find(r => r.d.gbogen === g && r.d.gspec)?.d.gspec;
   const sjs = [...new Set(all.map(r => r.schuljahr))].sort().reverse(); let sj = H.S.bsj && sjs.includes(H.S.bsj) ? H.S.bsj : sjs[0];
   const draw = () => {
     const R = all.filter(r => r.schuljahr === sj), jg = [...new Set(R.map(r => r.jgst))].sort((a, b) => a - b);
-    main.innerHTML = `${tabsHtml('b', S)}<h1>Schulberatung: Lerncoaching</h1><p class="sub">Anonymisierte Zahlen der Klassleitungen – keine Namen, keine Freitexte. „1–2“ = kleine Gruppen, nicht genauer angegeben.</p>
+    main.innerHTML = `${tabsHtml('b', S)}<h1>Schulberatung: Lerncoaching</h1><p class="sub">Vorlagen der Schule und anonymisierte Zahlen der Klassleitungen – keine Namen, keine Freitexte.</p>
+      <section class="card" style="margin-bottom:18px"><div class="bar"><h2 style="margin:0">Vorlagen der Schule</h2><span class="sp"></span><button class="btn" data-ctnew="reflexion">＋ Selbstreflexion</button><button class="btn" data-ctnew="gespraech">＋ Gesprächsbogen</button></div>
+        <p class="help">Bögen in PathFinder gestalten – neu oder ausgehend von einer eingebauten Vorlage. Freigegebene Vorlagen stehen allen Klassleitungen beim Anlegen eines Coachings zur Wahl. Laufende Coachings behalten die Fassung, mit der sie angelegt wurden. Fragen mit „↪ Weitergabe“ darf die Klassleitung mit Einwilligung an die nächste Klassleitung übergeben; Skalen, Auswahl und Raster gehen anonymisiert in diese Zahlen ein, Freitexte nie.</p>
+        <div class="ct-list">${T.length ? T.map(t => `<div class="ct"><span class="chip">${t.kind === 'reflexion' ? '📝 Selbstreflexion' : '💬 Gesprächsbogen'}</span><b>${esc(t.label)}</b><span class="help">${t.spec.sections.reduce((n, s) => n + s.qs.filter(q => q.t !== 'info').length, 0) + (t.spec.consent ? 1 : 0)} Fragen · ${esc(t.von || '')} · ${esc(deDate(new Date(t.updated * 1000)))}</span>
+          <label class="ck"><input type="checkbox" data-ctact="${t.id}"${t.active ? ' checked' : ''}> freigegeben</label><button class="btn sm" data-ctedit="${t.id}">✎ Bearbeiten</button><button class="btn sm ghost danger" data-ctdel="${t.id}" title="Löschen">🗑</button></div>`).join('')
+          : '<p class="help">Noch keine eigenen Vorlagen – die Klassleitungen wählen aus den eingebauten Bögen.</p>'}</div></section>
       ${sjs.length ? `<div class="bar"><select id="bsj" style="width:auto">${sjs.map(s => `<option${s === sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="help">${R.length} Klassen eingereicht</span></div>` : '<div class="empty"><h2>Noch keine Auswertungen</h2><p>Sobald Klassleitungen ihre Coaching-Zahlen einreichen, erscheinen sie hier nach Jahrgangsstufen.</p></div>'}
       ${jg.map(j => {
         const G = R.filter(r => r.jgst === j), vs = [...new Set(G.map(r => r.d.vorlage))], gs = [...new Set(G.map(r => r.d.gbogen))];
         const sum = k => G.reduce((s, r) => s + (r.d[k] || 0), 0);
         return `<div class="klasse"><h2>Jahrgangsstufe ${j || '?'}</h2><span class="help">${G.map(r => esc(r.klasse)).join(', ')} · ${sum('n_subs')} Fragebögen · ${sum('n_done')} Gespräche bei ${sum('n')} Schüler:innen</span></div>
-          <div class="c-grid">${vs.map(v => `<div class="card"><h3 style="margin-top:0">${esc(VORLAGEN[v]?.label || v)}</h3>${statsHtml(VORLAGEN[v], addStats(G.filter(r => r.d.vorlage === v).map(r => r.d.refl)))}</div>`).join('')}
-          ${gs.map(g => `<div class="card"><h3 style="margin-top:0">Gespräche · ${esc(VORLAGEN[g]?.label || g)}</h3>${statsHtml(VORLAGEN[g], addStats(G.filter(r => r.d.gbogen === g).map(r => r.d.gespr)))}</div>`).join('')}</div>`;
+          <div class="c-grid">${vs.map(v => `<div class="card"><h3 style="margin-top:0">${esc(tv(v)?.label || v)}</h3>${tv(v) ? statsHtml(tv(v), addStats(G.filter(r => r.d.vorlage === v).map(r => r.d.refl))) : ''}</div>`).join('')}
+          ${gs.map(g => `<div class="card"><h3 style="margin-top:0">Gespräche · ${esc(tg(g)?.label || g)}</h3>${tg(g) ? statsHtml(tg(g), addStats(G.filter(r => r.d.gbogen === g).map(r => r.d.gespr))) : ''}</div>`).join('')}</div>`;
       }).join('')}
       ${R.length ? `<h2>Eingereicht</h2><table class="c-table"><tr><th>Klasse</th><th>Klassleitung</th><th>Fragebögen</th><th>Gespräche</th><th>am</th></tr>${R.map(r => `<tr><td>${esc(r.klasse)}</td><td>${esc(r.lehrkraft)}</td><td>${r.d.n_subs}/${r.d.n}</td><td>${r.d.n_done}</td><td>${esc(deDate(new Date(r.created * 1000)))}</td></tr>`).join('')}</table>` : ''}`;
     $('#bsj') && ($('#bsj').onchange = e => { sj = H.S.bsj = e.target.value; draw(); });
+    main.onclick = async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.ctnew) return tplEditor(H, null, b.dataset.ctnew);
+      if (b.dataset.ctedit) { const t = T.find(x => x.id === +b.dataset.ctedit); try { const r = await api('ct_get', { id: t.id }); tplEditor(H, { ...t, doc: r.doc }, t.kind); } catch (er) { H.toast('⚠ ' + esc(er.message)); } return; }
+      if (b.dataset.ctdel) { const t = T.find(x => x.id === +b.dataset.ctdel); if (!confirm(`Vorlage „${t.label}“ löschen? Laufende Coachings behalten ihre Fassung.`)) return; await api('ct_delete', { id: t.id }); viewBerater(H); }
+    };
+    main.onchange = async e => { const x = e.target.closest('[data-ctact]'); if (!x) return; try { await api('ct_active', { id: +x.dataset.ctact, active: x.checked ? 1 : 0 }); H.toast(x.checked ? '✓ freigegeben – Klassleitungen können die Vorlage wählen' : 'nicht mehr zur Wahl'); } catch (er) { H.toast('⚠ ' + esc(er.message)); x.checked = !x.checked; } };
   };
   draw();
+}
+
+/* ---------- Schulberatung: Vorlage in PathFinder gestalten ---------- */
+function tplEditor(H, t, kind) {
+  const { api, toast, withBusy } = H; let id = t?.id || 0, busy = Promise.resolve();
+  const builtin = (kind === 'reflexion' ? REFLEXION : GESPRAECH).map(v => ({ title: v.label, sub: 'eingebaute Vorlage – übernehmen und anpassen', doc: vorlageDoc(v) }));
+  const label = d => String(d.title || '').replace(/<[^>]*>/g, '').trim().slice(0, 120) || (kind === 'reflexion' ? 'Selbstreflexion' : 'Gesprächsbogen');
+  const save = d => (busy = busy.then(async () => {
+    const r = await api('ct_save', { id, kind, label: label(d), doc: JSON.stringify(d), spec: JSON.stringify(tplFromSpec(surveySpec(d), kind, '', label(d))) }); id = r.id;
+  }));
+  befragungEditor(H, { doc: t?.doc || null, kopf: 'Lerncoaching', vorlagen: builtin, vorlagenText: kind === 'reflexion' ? 'Selbstreflexion kompakt oder mit Fähigkeiten übernehmen und anpassen.' : 'Gesprächsbogen Fokus, flexibel oder offen übernehmen und anpassen.',
+    save, close: () => viewBerater(H), doneTitle: 'Vorlage speichern und zurück zur Schulberatung',
+    done: async d => {
+      const n = surveySpec(d).questions; if (!n) { toast('Die Vorlage hat noch keine Frage – über ＋ Fragen einfügen.', 5000); return false; }
+      await withBusy('Vorlage wird gespeichert …', () => save(d)); toast(t?.active ? '✓ gespeichert – neue Coachings bekommen diese Fassung' : '✓ gespeichert – zum Freigeben „freigegeben“ ankreuzen', 6000);
+    } });
 }
 
 /* ---------- Admin: Coaching-Daten aller Lehrkräfte löschen ---------- */
