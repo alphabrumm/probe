@@ -123,3 +123,15 @@
 .cq-info { color: var(--ink-2); } .cq-info img, .pq-info img { max-width: 100%; height: auto; } .cq-info table, .pq-info table { border-collapse: collapse; } .cq-info td, .cq-info th, .pq-info td, .pq-info th { border: 1px solid var(--line); padding: 4px 8px; }
 .ct-list .ct { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
 .ct-list .ct b { flex: 1; min-width: 200px; }
+/* Gespräche */
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.seg button { padding: 6px 12px; border-radius: 99px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--a1); border-color: var(--a1); color: #fff; }
+.t-row { display: grid; grid-template-columns: 150px minmax(160px, 1.2fr) minmax(0, 2fr) auto; gap: 12px; align-items: center; padding: 10px 6px; border-top: 1px solid var(--line); cursor: pointer; }
+.t-row:first-of-type { border-top: 0; } .t-row:hover { background: var(--surface-2); }
+@media (max-width: 700px) { .t-row { grid-template-columns: 1fr; gap: 2px; } }
+.t-ed .t-form { max-width: 980px; margin: 0 auto; padding: 18px; overflow: auto; display: grid; gap: 12px; }
+.t-ed header .seg button { padding: 5px 10px; font-size: 13px; }
+.t-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
+.t-grid .t-wide { grid-column: span 2; }
+@media (max-width: 520px) { .t-grid .t-wide { grid-column: auto; } }

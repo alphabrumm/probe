@@ -254,4 +254,15 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 12;
         SQL);
     }
+    if ($v < 13) { // Gespräche: einzelne Gesprächsnotizen (Schüler:in, Eltern, Kollegium …) – alles verschlüsselt für die Lehrkraft
+        $pdo->exec(<<<SQL
+        CREATE TABLE talks (
+            id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            schuljahr TEXT NOT NULL, enc TEXT NOT NULL,                       -- wer, wann, wo, Thema, Ziele, Notizen, Vereinbarungen: nur verschlüsselt
+            exported INTEGER, created INTEGER NOT NULL, updated INTEGER NOT NULL
+        );
+        CREATE INDEX talks_owner ON talks(owner_id, schuljahr);
+        PRAGMA user_version = 13;
+        SQL);
+    }
 }

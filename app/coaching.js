@@ -27,7 +27,7 @@ const sjEnd = sj => new Date(+String(sj).slice(0, 4) + 1, 6, 15); // 15. Juli am
 const download = (name, text) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
 const safe = s => String(s).replace(/[^\wäöüÄÖÜß-]+/g, '_');
 
-export const tabsHtml = (on, S) => `<nav class="c-tabs"><a href="#/"${on === 'p' ? ' class="on"' : ''}>Prüfungen</a><a href="#/coaching"${on === 'c' ? ' class="on"' : ''}>Coaching</a><a href="#/umfragen"${on === 'u' ? ' class="on"' : ''}>Umfragen</a>${S?.user?.is_berater || S?.user?.is_demo ? `<a href="#/berater"${on === 'b' ? ' class="on"' : ''}>Schulberatung</a>` : ''}</nav>`;
+export const tabsHtml = (on, S) => `<nav class="c-tabs"><a href="#/"${on === 'p' ? ' class="on"' : ''}>Prüfungen</a><a href="#/coaching"${on === 'c' ? ' class="on"' : ''}>Coaching</a><a href="#/gespraeche"${on === 'g' ? ' class="on"' : ''}>Gespräche</a><a href="#/umfragen"${on === 'u' ? ' class="on"' : ''}>Umfragen</a>${S?.user?.is_berater || S?.user?.is_demo ? `<a href="#/berater"${on === 'b' ? ' class="on"' : ''}>Schulberatung</a>` : ''}</nav>`;
 
 /* ---------- Daten eines Coachings laden und entschlüsseln ---------- */
 async function load(H, id) {
@@ -456,7 +456,7 @@ function tplEditor(H, t, kind) {
 
 /* ---------- Admin: Coaching-Daten aller Lehrkräfte löschen ---------- */
 export async function purgeAll(H, alsoReports) {
-  for (let i = 1; i <= 3; i++) if (!confirm(`${i}/3 · Bist du dir wirklich sicher?!!!\n\nAlle Coaching-Daten ALLER Lehrkräfte werden endgültig gelöscht: Klassenlisten, Fragebögen der Schüler:innen und Gesprächsnotizen${alsoReports ? ' – und die anonymisierten Auswertungen der Schulberatung' : ''}. Das lässt sich nicht rückgängig machen.`)) return null;
+  for (let i = 1; i <= 3; i++) if (!confirm(`${i}/3 · Bist du dir wirklich sicher?!!!\n\nAlle Coaching-Daten ALLER Lehrkräfte werden endgültig gelöscht: Klassenlisten, Fragebögen der Schüler:innen, Gesprächsnotizen aus Coaching und „Gespräche“${alsoReports ? ' – und die anonymisierten Auswertungen der Schulberatung' : ''}. Das lässt sich nicht rückgängig machen.`)) return null;
   return H.api('c_purge_all', { confirm: 'COACHING LÖSCHEN', reports: !!alsoReports });
 }
 

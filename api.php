@@ -715,11 +715,32 @@ case 'c_reports': { // Schulberatung: alle eingereichten Auswertungen, je mit de
 case 'c_purge_all': { // Admin: Coaching-Daten ALLER Lehrkräfte löschen (Fragebögen, Notizen, Klassenlisten); optional auch die Auswertungen der Schulberatung
     admin(); if (($in['confirm'] ?? '') !== 'COACHING LÖSCHEN') fail('Bestätigung fehlt');
     $n = (int)db()->query('SELECT COUNT(*) FROM coachings')->fetchColumn();
-    db()->exec('DELETE FROM coachings');
+    db()->exec('DELETE FROM coachings'); db()->exec('DELETE FROM talks'); // Gesprächsnotizen gehören dazu
     if (!empty($in['reports'])) db()->exec('DELETE FROM coaching_reports');
     db()->exec('VACUUM');
     out(['deleted' => $n]);
 }
+/* ---------- Gespräche: einzelne Gesprächsnotizen ----------
+   Der Server sieht nur Schuljahr und Zeitpunkte; mit wem, wann, wo, Thema und Inhalt verschlüsselt der Browser der Lehrkraft
+   für sie selbst (wie die Coaching-Notizen). Probe löscht nie von selbst. */
+case 't_list': {
+    $u = teacher(); $st = db()->prepare('SELECT id, schuljahr, enc, exported, created, updated FROM talks WHERE owner_id = ? ORDER BY id'); $st->execute([$u['id']]);
+    out(['talks' => array_map(fn($t) => ['id' => (int)$t['id'], 'schuljahr' => $t['schuljahr'], 'enc' => $t['enc'], 'exported' => $t['exported'] ? (int)$t['exported'] : null, 'created' => (int)$t['created'], 'updated' => (int)$t['updated']], $st->fetchAll())]);
+}
+case 't_save': {
+    $u = teacher(); $id = (int)($in['id'] ?? 0); $enc = blob($in, 'enc', 400_000); if (!$enc) fail('Notiz fehlt');
+    $now = time(); $sj = schuljahr(preg_match('~^\d{4}-\d{2}-\d{2}$~', (string)($in['datum'] ?? '')) ? $in['datum'] : null);
+    if ($id) {
+        $st = db()->prepare('UPDATE talks SET enc = ?, schuljahr = ?, updated = ? WHERE id = ? AND owner_id = ?'); $st->execute([$enc, $sj, $now, $id, $u['id']]);
+        if (!$st->rowCount()) fail('Gespräch nicht gefunden', 404);
+    } else {
+        $n = db()->prepare('SELECT COUNT(*) FROM talks WHERE owner_id = ?'); $n->execute([$u['id']]); if ((int)$n->fetchColumn() >= 3000) fail('Zu viele Gesprächsnotizen – bitte alte exportieren und löschen.');
+        db()->prepare('INSERT INTO talks (owner_id, schuljahr, enc, created, updated) VALUES (?,?,?,?,?)')->execute([$u['id'], $sj, $enc, $now, $now]); $id = (int)db()->lastInsertId();
+    }
+    out(['id' => $id, 'updated' => $now, 'schuljahr' => $sj]);
+}
+case 't_delete': { $u = teacher(); foreach ((array)($in['ids'] ?? []) as $i) db()->prepare('DELETE FROM talks WHERE id = ? AND owner_id = ?')->execute([(int)$i, $u['id']]); out([]); }
+case 't_exported': { $u = teacher(); foreach ((array)($in['ids'] ?? []) as $i) db()->prepare('UPDATE talks SET exported = ? WHERE id = ? AND owner_id = ?')->execute([time(), (int)$i, $u['id']]); out([]); }
 /* Vorlagen der Schule: Selbstreflexion und Gesprächsbogen, gestaltet von der Schulberatung in PathFinder */
 case 'ct_list': { // alle sichtbaren Vorlagen (für die Auswahl beim Anlegen nur freigegebene, für die Schulberatung alle)
     $u = teacher();

@@ -8,6 +8,7 @@ import { zugangText, zugangPdf } from './zugaenge.js';
 import { showPdf } from './pdf.js';
 import { viewCoachingList, viewCoaching, viewBerater, coachingHint, tabsHtml, purgeAll } from './coaching.js';
 import { viewSurveyList, viewSurvey } from './umfragen.js';
+import { viewTalks, talksHint } from './gespraeche.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -54,7 +55,7 @@ async function boot() {
   S.csrf = st.csrf || ''; S.user = st.user; S.keys = st.keys; S.respOpen = st.resp_open || 0;
   drawWho();
   if (st.setup) return viewSetup();
-  if (!S.user) { S.cHint = false; S.cDemo = false; S.uDemo = false; return viewLogin(); }
+  if (!S.user) { S.cHint = false; S.cDemo = false; S.uDemo = false; S.tDemo = false; return viewLogin(); }
   if (S.user.must_setup) return viewKeySetup();
   if (!S.priv) return viewUnlock();
   route();
@@ -80,11 +81,12 @@ function route() {
   drawWho();
   const h = location.hash.replace(/^#/, '') || '/';
   let m;
-  if (!S.cHint) { S.cHint = true; cleanLocal(); coachingHint(helpers()); } // nach der Anmeldung: Editor-Reste (Klartext mit Lösungen) entfernen, Coaching-Hinweise und -Zwischenstände // Coaching: ab 15. Juli bei jeder Anmeldung an Export/Löschen erinnern
+  if (!S.cHint) { S.cHint = true; cleanLocal(); coachingHint(helpers()).then(() => talksHint(helpers())); } // nach der Anmeldung: Editor-Reste (Klartext mit Lösungen) entfernen, Coaching-Hinweise und -Zwischenstände // Coaching: ab 15. Juli bei jeder Anmeldung an Export/Löschen erinnern
   if (h === '/admin' && S.user.is_admin) return viewAdmin();
   if (h === '/coaching') { stopLive(); return viewCoachingList(helpers()); }
   if ((m = h.match(/^\/c\/(\d+)$/))) { stopLive(); return viewCoaching(helpers(), +m[1]); }
   if (h === '/berater' && (S.user.is_berater || S.user.is_demo)) { stopLive(); return viewBerater(helpers()); }
+  if (h === '/gespraeche') { stopLive(); return viewTalks(helpers()); }
   if (h === '/umfragen') { stopLive(); return viewSurveyList(helpers()); }
   if ((m = h.match(/^\/u\/(\d+)$/))) { stopLive(); return viewSurvey(helpers(), +m[1]); }
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
@@ -536,7 +538,7 @@ async function viewAdmin() {
     ${D.exams.length ? `<table class="t"><tr><th>Schuljahr</th><th>Prüfungen</th></tr>${D.exams.map(x => `<tr><td>${esc(x.schuljahr)}</td><td>${x.n}</td></tr>`).join('')}</table>` : '<p class="help">Es sind keine Prüfungen gespeichert.</p>'}
     <div class="row" style="margin-top:14px">${field('Löschen', `<select id="pj"><option value="">alle Prüfungen</option>${D.exams.map(x => `<option>${esc(x.schuljahr)}</option>`).join('')}</select>`)}${field('Zur Bestätigung LÖSCHEN eintippen', '<input type="text" id="pc" autocapitalize="characters" autocomplete="off">')}</div>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-purge>Endgültig löschen</button></div>
-    <h2 style="margin-top:28px">Coaching-Daten aller Lehrkräfte</h2><p>Gesprächsnotizen und Fragebögen gehören nach einem Schuljahr gelöscht oder verschlüsselt exportiert. Lehrkräfte werden ab dem 15. Juli bei jeder Anmeldung erinnert. Hier löschst du die Coaching-Daten <b>aller</b> Lehrkräfte – lesen kann der Admin sie nicht.</p>
+    <h2 style="margin-top:28px">Coaching-Daten und Gespräche aller Lehrkräfte</h2><p>Gesprächsnotizen (Coaching und Gespräche) und Fragebögen gehören nach einem Schuljahr gelöscht oder verschlüsselt exportiert. Lehrkräfte werden ab dem 15. Juli bei jeder Anmeldung erinnert. Hier löschst du die Coaching-Daten <b>aller</b> Lehrkräfte – lesen kann der Admin sie nicht.</p>
     <label class="ck"><input type="checkbox" id="pcr"> auch die anonymisierten Auswertungen der Schulberatung</label>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-cpurge>Coaching-Daten aller Lehrkräfte löschen</button></div>`;
   if (adminTab === 'si') h += `<h2>Sicherheit</h2><div id="sec">wird geprüft …</div>`;
