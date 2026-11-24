@@ -6,6 +6,7 @@ import { viewLive, viewEval, stopLive } from './run.js';
 import { viewRespList, viewResp, viewArchiv, importArchive, respChip } from './resp.js';
 import { zugangText, zugangPdf } from './zugaenge.js';
 import { showPdf } from './pdf.js';
+import { viewCoachingList, viewCoaching, viewBerater, coachingHint, tabsHtml, purgeAll } from './coaching.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -51,7 +52,7 @@ async function boot() {
   S.csrf = st.csrf || ''; S.user = st.user; S.keys = st.keys; S.respOpen = st.resp_open || 0;
   drawWho();
   if (st.setup) return viewSetup();
-  if (!S.user) return viewLogin();
+  if (!S.user) { S.cHint = false; return viewLogin(); }
   if (S.user.must_setup) return viewKeySetup();
   if (!S.priv) return viewUnlock();
   route();
@@ -78,6 +79,10 @@ function route() {
   const h = location.hash.replace(/^#/, '') || '/';
   let m;
   if (h === '/admin' && S.user.is_admin) return viewAdmin();
+  if (!S.cHint) { S.cHint = true; coachingHint(helpers()); } // Coaching: ab 15. Juli bei jeder Anmeldung an Export/Löschen erinnern
+  if (h === '/coaching') { stopLive(); return viewCoachingList(helpers()); }
+  if ((m = h.match(/^\/c\/(\d+)$/))) { stopLive(); return viewCoaching(helpers(), +m[1]); }
+  if (h === '/berater' && (S.user.is_berater || S.user.is_demo)) { stopLive(); return viewBerater(helpers()); }
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
   if (h === '/archiv' || (m = h.match(/^\/archiv\/(\d+)$/))) { stopLive(); return viewArchiv(m ? +m[1] : null, helpers()); }
   if (S.user.fachleitung?.length && h === '/resp') { stopLive(); return viewRespList(helpers()); }
@@ -86,7 +91,7 @@ function route() {
   return viewDashboard();
 }
 /** Hilfen für die Ansichten in run.js und resp.js */
-function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
+function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, parseNames, viewExam, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
 /** Beispielprüfungen anlegen: beim ersten Mal von selbst, später über das Konto-Menü */
 async function demos(force) {
   S.demoTried = true;
@@ -273,7 +278,7 @@ async function viewDashboard() {
   try { C = await catalog(); L = (await api('exam_list', { schuljahr: S.sj })).exams; } catch (e) { main.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const by = {}; for (const e of L) (by[e.klasse] = by[e.klasse] || []).push(e);
   const klassen = Object.keys(by).sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
-  main.innerHTML = `<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
+  main.innerHTML = `${tabsHtml('p', S)}<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
     <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
     ${klassen.length ? klassen.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${by[k].length} Prüfung${by[k].length === 1 ? '' : 'en'}</span></div><div class="tiles">${by[k].map(e => `<a class="tile" href="#/p/${e.id}"><button class="tdel" data-tdel="${e.id}" title="Prüfung löschen" aria-label="Prüfung löschen">🗑</button><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`).join('')}</div>`).join('')
       : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch keine Prüfung in ${esc(S.sj)}</h2><p>Lege eine Prüfung an: Klasse, Fach, Datum, Art – den Inhalt baust du danach mit PathFinder.</p></div>`}`;
@@ -516,7 +521,7 @@ async function viewAdmin() {
   let h = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Admin</h1><p class="sub">Lehrkräfte, Fachschaften und Fächer. Prüfungsinhalte und Schülernamen sieht der Admin nicht.</p>
     <div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" aria-pressed="${adminTab === k}">${n}</button>`).join('')}</div><section class="card">`;
   if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn" data-umany id="umany" disabled>🔑 Passwörter zurücksetzen</button><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th style="width:2.2em"><input type="checkbox" id="uall" aria-label="alle auswählen" title="alle auswählen"></th><th>Nutzername</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
-    ${D.users.map(u => `<tr><td>${u.id === S.user.id ? '' : `<input type="checkbox" data-usel="${u.id}" aria-label="${esc(u.kuerzel)} auswählen">`}</td><td><b>${esc(u.kuerzel)}</b></td><td>${esc(u.name)}</td><td class="help">${D.faecher.filter(f => u.faecher.includes(+f.id)).map(f => esc(f.name)).join(', ') || '–'}</td><td><span class="fl">${+u.is_admin ? '<span class="chip">Admin</span>' : ''}${u.fachleitung.map(f => `<span class="chip">Fachleitung ${esc(FS[f]?.name)}</span>`).join('')}</span></td>
+    ${D.users.map(u => `<tr><td>${u.id === S.user.id ? '' : `<input type="checkbox" data-usel="${u.id}" aria-label="${esc(u.kuerzel)} auswählen">`}</td><td><b>${esc(u.kuerzel)}</b></td><td>${esc(u.name)}</td><td class="help">${D.faecher.filter(f => u.faecher.includes(+f.id)).map(f => esc(f.name)).join(', ') || '–'}</td><td><span class="fl">${+u.is_admin ? '<span class="chip">Admin</span>' : ''}${+u.is_berater ? '<span class="chip">Schulberatung</span>' : ''}${u.fachleitung.map(f => `<span class="chip">Fachleitung ${esc(FS[f]?.name)}</span>`).join('')}</span></td>
     <td>${+u.must_setup ? '<span class="chip warn">Startpasswort</span>' : '<span class="chip good">eingerichtet</span>'}</td><td class="act"><button class="btn sm" data-uedit="${u.id}">Bearbeiten</button> <button class="btn sm" data-ureset="${u.id}">Startpasswort</button> <button class="btn sm danger" data-udel="${u.id}" ${u.id === S.user.id ? 'disabled' : ''}>Löschen</button></td></tr>`).join('')}</table></div>`;
   if (adminTab === 'fs') h += `<div class="bar"><h2 style="margin:0">Fachschaften</h2><span class="sp"></span><button class="btn" data-fsauto>Fachschaften für gewählte Fächer anlegen</button><button class="btn pri" data-fsadd>＋ Fachschaft</button></div>
     ${D.fachschaften.length ? `<table class="t"><tr><th>Fachschaft</th><th>Fächer</th><th>Fachleitung</th><th></th></tr>${D.fachschaften.map(f => `<tr><td><b>${esc(f.name)}</b></td><td><span class="fl">${D.faecher.filter(x => +x.fachschaft_id === +f.id).map(x => `<span class="chip">${esc(x.name)}</span>`).join('') || '<span class="help">keine</span>'}</span></td><td>${D.users.filter(u => u.fachleitung.includes(+f.id)).map(u => esc(u.kuerzel)).join(', ') || '<span class="help">keine</span>'}</td><td class="act"><button class="btn sm" data-fsedit="${f.id}">Bearbeiten</button> <button class="btn sm danger" data-fsdel="${f.id}">Löschen</button></td></tr>`).join('')}</table>` : '<p class="help">Noch keine Fachschaft. Eine Fachschaft (z. B. „Physik“ oder „Naturwissenschaften“) bündelt Fächer; ihre Fachleitung bekommt die Prüfungen zur Respizienz.</p>'}`;
@@ -526,7 +531,10 @@ async function viewAdmin() {
     <p class="help">Die Respizienz-Einträge werden mitgelöscht. Fachleitungen sollten vorher unter „Respizienz“ ein <b>Archiv exportieren</b>. Archive lassen sich auch mit deinem Admin-Schlüssel öffnen: <button class="btn sm" data-arch>📂 Respizienz-Archiv öffnen</button></p>
     ${D.exams.length ? `<table class="t"><tr><th>Schuljahr</th><th>Prüfungen</th></tr>${D.exams.map(x => `<tr><td>${esc(x.schuljahr)}</td><td>${x.n}</td></tr>`).join('')}</table>` : '<p class="help">Es sind keine Prüfungen gespeichert.</p>'}
     <div class="row" style="margin-top:14px">${field('Löschen', `<select id="pj"><option value="">alle Prüfungen</option>${D.exams.map(x => `<option>${esc(x.schuljahr)}</option>`).join('')}</select>`)}${field('Zur Bestätigung LÖSCHEN eintippen', '<input type="text" id="pc" autocapitalize="characters" autocomplete="off">')}</div>
-    <div class="btns" style="margin-top:12px"><button class="btn danger" data-purge>Endgültig löschen</button></div>`;
+    <div class="btns" style="margin-top:12px"><button class="btn danger" data-purge>Endgültig löschen</button></div>
+    <h2 style="margin-top:28px">Coaching-Daten aller Lehrkräfte</h2><p>Gesprächsnotizen und Fragebögen gehören nach einem Schuljahr gelöscht oder verschlüsselt exportiert. Lehrkräfte werden ab dem 15. Juli bei jeder Anmeldung erinnert. Hier löschst du die Coaching-Daten <b>aller</b> Lehrkräfte – lesen kann der Admin sie nicht.</p>
+    <label class="ck"><input type="checkbox" id="pcr"> auch die anonymisierten Auswertungen der Schulberatung</label>
+    <div class="btns" style="margin-top:12px"><button class="btn danger" data-cpurge>Coaching-Daten aller Lehrkräfte löschen</button></div>`;
   if (adminTab === 'si') h += `<h2>Sicherheit</h2><div id="sec">wird geprüft …</div>`;
   main.innerHTML = h + '</section>';
   main.onclick = async ev => {
@@ -548,6 +556,7 @@ async function viewAdmin() {
     }
     if (d.fsdel) { if (!confirm('Fachschaft löschen? Die Fächer bleiben.')) return; await api('fachschaft_delete', { id: +d.fsdel }); viewAdmin(); return; }
     if (d.faadd != null || d.faren) { const f = d.faren ? D.faecher.find(x => x.id === +d.faren) : null; const n = prompt(f ? 'Neuer Name des Fachs' : 'Name des neuen Fachs', f?.name || ''); if (!n?.trim()) return; await api('fach_save', { id: f?.id, name: n.trim(), aktiv: f ? +f.aktiv : 1 }).catch(e => toast('⚠ ' + esc(e.message))); viewAdmin(); return; }
+    if (d.cpurge != null) { try { const r = await purgeAll(helpers(), $('#pcr').checked); if (r) toast(`✓ Coaching-Daten gelöscht (${r.deleted} Coaching${r.deleted === 1 ? '' : 's'})`); } catch (e) { toast('⚠ ' + esc(e.message)); } return; }
     if (d.purge != null) {
       const sj = $('#pj').value;
       try { const r = await api('purge_exams', { confirm: $('#pc').value.trim(), schuljahr: sj }); toast(`✓ ${r.deleted} Prüfung${r.deleted === 1 ? '' : 'en'} gelöscht`); S.catalog = null; viewAdmin(); } catch (e) { toast('⚠ ' + esc(e.message)); }
@@ -612,11 +621,12 @@ function userForm(D, u) {
     <div class="row">${field('Nutzername', `<input type="text" id="k" value="${esc(u?.kuerzel || '')}" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">`, 'Damit meldet sich die Lehrkraft an, z. B. ihr Kürzel.')}${field('Name', `<input type="text" id="n" value="${esc(u?.name || '')}" placeholder="optional">`)}</div>
     <div><b>Unterrichtet</b><div class="row" style="gap:0 12px">${D.faecher.filter(f => +f.aktiv || u?.faecher.includes(+f.id)).map(f => `<label class="ck"><input type="checkbox" data-uf="${f.id}"${u?.faecher.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('')}</div><span class="help">Nur diese Fächer stehen der Lehrkraft beim Anlegen einer Prüfung zur Wahl; weitere kann sie selbst ergänzen.</span></div>
     <label class="ck"><input type="checkbox" id="ad"${+u?.is_admin ? ' checked' : ''}>Admin (verwaltet Lehrkräfte, Fachschaften und Fächer)</label>
+    <label class="ck"><input type="checkbox" id="be"${+u?.is_berater ? ' checked' : ''}>Schulberatung (erhält anonymisierte Coaching-Auswertungen der Klassleitungen)</label>
     <div><b>Fachleitung für</b>${D.fachschaften.length ? D.fachschaften.map(f => `<label class="ck"><input type="checkbox" data-fl="${f.id}"${u?.fachleitung.includes(+f.id) ? ' checked' : ''}>${esc(f.name)}</label>`).join('') : '<p class="help">Noch keine Fachschaften angelegt.</p>'}</div>
     ${u ? '' : '<p class="help">Probe erzeugt ein Startpasswort, das du der Lehrkraft gibst.</p>'}
     <div class="err" id="err"></div><button class="btn pri" id="go">${u ? 'Speichern' : 'Anlegen'}</button>`);
   $('#go', d.el).onclick = async () => {
-    const data = { id: u?.id, kuerzel: $('#k', d.el).value.trim(), name: $('#n', d.el).value.trim(), is_admin: $('#ad', d.el).checked, fachleitung: $$('[data-fl]', d.el).filter(x => x.checked).map(x => +x.dataset.fl), faecher: $$('[data-uf]', d.el).filter(x => x.checked).map(x => +x.dataset.uf) };
+    const data = { id: u?.id, kuerzel: $('#k', d.el).value.trim(), name: $('#n', d.el).value.trim(), is_admin: $('#ad', d.el).checked, is_berater: $('#be', d.el).checked, fachleitung: $$('[data-fl]', d.el).filter(x => x.checked).map(x => +x.dataset.fl), faecher: $$('[data-uf]', d.el).filter(x => x.checked).map(x => +x.dataset.uf) };
     try {
       let pw = null;
       if (!u) { pw = K.startPassword(); const salt = K.randomSalt(), { auth } = await withBusy('Startpasswort …', () => K.fromPassword(pw, salt)); Object.assign(data, { salt, auth }); }

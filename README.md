@@ -59,6 +59,25 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
 * **Beispielprüfungen** für jede Lehrkraft (`app/demo.js`: Physik 7d geschrieben, Physik 7p und Englisch 6a vorbereitet – `app/demo-englisch.js`)
   und ein **Demo-Modus** ohne Konto (nach 4 Stunden gelöscht).
 
+## Coaching (Prototyp)
+
+Lerncoaching der Klassleitung (`app/coaching.js`, `app/cvorlagen.js`, Schülerseite `c.html` + `app/cstudent.js`, DB v10):
+
+* **Anlegen:** Klasse, Titel, Selbstreflexion (kompakt oder mit Fähigkeiten-Raster) und Gesprächsbogen (Fokus, flexibel, offen/Oberstufe)
+  nach den Herrschinger Arbeitsentwürfen; Klassenliste verschlüsselt. Je Schüler:in ein persönlicher QR-Code (A4-PDF).
+* **Fragebogen:** `c.html?c=<Code>#p=…` – Name und Schlüssel nur im Link-Teil nach `#` (geht nie an den Server). Das iPad verschlüsselt
+  Name und Antworten für die Klassleitung; der Server prüft nur einen nicht umkehrbaren Prüfwert (SHA-256) des persönlichen Schlüssels.
+* **Dashboard:** Stand je Kind (Fragebogen, Gespräch, Wiedervorlage, Einwilligung), Klassenstatistik der Ankreuzfragen.
+* **Coachinggespräch:** links Gesprächsbogen (speichert automatisch, verschlüsselt), rechts die Selbstreflexion.
+* **Drucken** für den Schul-Safe (A4 im Layout der Vorlagen, mit Unterschriftsfeldern für die Einwilligung).
+* **Export** (Datei mit Passphrase und eigenem Schlüssel), **Übergabe** an die nächste Klassleitung: nur bei „Ja“ und nur die
+  Weitergabe-Felder (Ziele, Hilfen, Vereinbarung, Ergebnis) – für deren Probe-Konto oder mit Passphrase verschlüsselt.
+* **Schulberatung** (Rolle im Admin): bekommt nur Zahlen (Häufigkeiten 1–2 als „1–2“, Mittelwerte ab 3 Antworten), für sie
+  verschlüsselt; Ansicht nach Jahrgangsstufen.
+* **Aufbewahrung:** Probe löscht nie selbst. Ab dem 15. Juli nach Schuljahresende erinnert es bei jeder Anmeldung an Export oder
+  Löschen. Admin → Schuljahresende: Coaching-Daten aller Lehrkräfte löschen (dreimal nachfragen); lesen kann der Admin sie nicht.
+* KI-Funktionen haben keinen Zugriff auf Coaching-Daten. „Beispiel anlegen“ erzeugt eine erfundene Klasse zum Ausprobieren.
+
 ## Prüfungsformat und Claude-Skill
 
 Prüfungen sind Texte im PathFinder-Textformat mit `Art: Prüfung`. Format, Aufgabenarten und Bewertung stehen in

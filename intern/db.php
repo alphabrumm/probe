@@ -185,4 +185,36 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 9;
         SQL);
     }
+    if ($v < 10) { // Coaching: Fragebogen der Schüler (verschlüsselt für die Klassleitung), Gesprächsnotizen, anonymisierte Auswertung für die Schulberatung
+        $pdo->exec(<<<SQL
+        ALTER TABLE users ADD COLUMN is_berater INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE coachings (
+            id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            schuljahr TEXT NOT NULL, klasse TEXT NOT NULL, titel TEXT NOT NULL DEFAULT '',
+            vorlage TEXT NOT NULL, gbogen TEXT NOT NULL,                     -- Reflexionsbogen der Schüler, Gesprächsbogen der Lehrkraft
+            code TEXT NOT NULL UNIQUE, open INTEGER NOT NULL DEFAULT 1,       -- Fragebogen annehmen?
+            roster_enc TEXT, roster_n INTEGER NOT NULL DEFAULT 0,             -- Klassenliste mit persönlichen Schlüsseln, verschlüsselt
+            tids TEXT NOT NULL DEFAULT '[]',                                  -- Prüfwerte der persönlichen Schlüssel (SHA-256), nicht umkehrbar
+            exported INTEGER, reported INTEGER, created INTEGER NOT NULL, updated INTEGER NOT NULL
+        );
+        CREATE INDEX coachings_owner ON coachings(owner_id, schuljahr);
+        CREATE TABLE coaching_subs (
+            coaching_id INTEGER NOT NULL REFERENCES coachings(id) ON DELETE CASCADE, tid TEXT NOT NULL,
+            identity_enc TEXT NOT NULL, answers_enc TEXT NOT NULL, at INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (coaching_id, tid)
+        );
+        CREATE TABLE coaching_notes (
+            coaching_id INTEGER NOT NULL REFERENCES coachings(id) ON DELETE CASCADE, tid TEXT NOT NULL,
+            note_enc TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL,
+            PRIMARY KEY (coaching_id, tid)
+        );
+        CREATE TABLE coaching_reports (
+            id INTEGER PRIMARY KEY, coaching_id INTEGER UNIQUE REFERENCES coachings(id) ON DELETE SET NULL,
+            owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL, lehrkraft TEXT NOT NULL DEFAULT '',
+            schuljahr TEXT NOT NULL, klasse TEXT NOT NULL, jgst INTEGER NOT NULL DEFAULT 0, vorlage TEXT NOT NULL DEFAULT '',
+            enc TEXT NOT NULL, created INTEGER NOT NULL                       -- JSON { user_id: verschlüsselte Zahlen } – nur die Schulberatung kann lesen
+        );
+        PRAGMA user_version = 10;
+        SQL);
+    }
 }

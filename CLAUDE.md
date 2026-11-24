@@ -9,3 +9,4 @@
 - Testinstanz: `git push origin <zweig>:test` (eigener Ordner `FTP_DIR_TEST`, eigene Datenbank). Neue Funktionen dort zeigen lassen, bevor `live`.
   Der Test-Deploy schreibt `config.deploy.php` (Programmier-Aufgaben öffnen die Test-Fassung von JPad auf GitHub Pages).
 - Programmier-Aufgaben (Typ `app`, JPad …): Protokoll und Anbindung weiterer Apps in `vendor/pathfinder/docs/APP-AUFGABEN.md`.
+- **Coaching** (`app/coaching.js`, `app/cvorlagen.js`, `c.html`): Gesprächsnotizen und Fragebögen sind besonders schützenswert – nie im Klartext an den Server, nie an eine KI, nie automatisch löschen (nur Hinweis ab 15. Juli). Übergabe nur mit Einwilligung und nur Felder mit `w: true`.

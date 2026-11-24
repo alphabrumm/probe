@@ -86,7 +86,7 @@ function ufields(array $u): array {
     $fl = db()->prepare('SELECT f.id, f.name FROM fachleitungen l JOIN fachschaften f ON f.id = l.fachschaft_id WHERE l.user_id = ? ORDER BY f.name');
     $fl->execute([$u['id']]);
     return ['id' => (int)$u['id'], 'kuerzel' => $u['kuerzel'], 'name' => $u['name'], 'is_admin' => (bool)$u['is_admin'], 'must_setup' => (bool)$u['must_setup'],
-        'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'is_demo' => (bool)$u['is_demo'], 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id'])];
+        'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'is_demo' => (bool)$u['is_demo'], 'is_berater' => (bool)($u['is_berater'] ?? 0), 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id'])];
 }
 function user_faecher(int $id): array {
     $st = db()->prepare('SELECT fach_id FROM user_faecher WHERE user_id = ?'); $st->execute([$id]);
@@ -142,6 +142,30 @@ function deadline(array $e, array $p): ?int { return (int)$e['dauer'] > 0 && $e[
 function cutoff(array $e, array $p): ?int {
     $dl = deadline($e, $p); if (!$dl || !$e['auto_abgabe']) return null;
     return max($dl, (int)$e['auto_set']) + 120; // wird die automatische Abgabe nach Ablauf wieder eingeschaltet, zählt der Zeitpunkt des Einschaltens
+}
+/* Coaching */
+function own_coaching(array $u, int $id): array {
+    $st = db()->prepare('SELECT * FROM coachings WHERE id = ? AND owner_id = ?'); $st->execute([$id, $u['id']]);
+    return $st->fetch() ?: fail('Coaching nicht gefunden', 404);
+}
+function c_meta(array $c): array {
+    $n = fn(string $q) => (int)db()->query($q . (int)$c['id'])->fetchColumn();
+    return ['id' => (int)$c['id'], 'schuljahr' => $c['schuljahr'], 'klasse' => $c['klasse'], 'titel' => $c['titel'], 'vorlage' => $c['vorlage'], 'gbogen' => $c['gbogen'],
+        'code' => $c['code'], 'open' => (bool)$c['open'], 'roster_n' => (int)$c['roster_n'], 'exported' => $c['exported'] ? (int)$c['exported'] : null,
+        'reported' => $c['reported'] ? (int)$c['reported'] : null, 'created' => (int)$c['created'], 'updated' => (int)$c['updated'],
+        'n_subs' => $n('SELECT COUNT(*) FROM coaching_subs WHERE coaching_id = '), 'n_done' => $n('SELECT COUNT(*) FROM coaching_notes WHERE done = 1 AND coaching_id = ')];
+}
+function new_ccode(): string {
+    $A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    for ($t = 0; $t < 50; $t++) {
+        $c = 'C'; for ($i = 0; $i < 9; $i++) $c .= $A[random_int(0, strlen($A) - 1)];
+        $st = db()->prepare('SELECT 1 FROM coachings WHERE code = ?'); $st->execute([$c]); if (!$st->fetchColumn()) return $c;
+    }
+    fail('Kein freier Code');
+}
+function coaching_by_code(string $code): array {
+    $st = db()->prepare('SELECT * FROM coachings WHERE code = ?'); $st->execute([strtoupper(preg_replace('~[^A-Za-z0-9]~', '', $code))]);
+    return $st->fetch() ?: fail('Diesen Fragebogen gibt es nicht (mehr). Prüfe den QR-Code.', 404);
 }
 /** Respizienz-Eintrag, auf den diese Fachleitung Zugriff hat (mit ihrem verschlüsselten Paket) */
 function resp_for(array $u, int $rid): array {
@@ -275,7 +299,7 @@ case 'change_password': {
 /* ---------- Admin ---------- */
 case 'admin_list': {
     admin(); $pdo = db();
-    $users = $pdo->query('SELECT id, kuerzel, name, is_admin, must_setup, pub_key IS NOT NULL AS has_keys, last_login FROM users WHERE is_demo = 0 ORDER BY kuerzel')->fetchAll();
+    $users = $pdo->query('SELECT id, kuerzel, name, is_admin, is_berater, must_setup, pub_key IS NOT NULL AS has_keys, last_login FROM users WHERE is_demo = 0 ORDER BY kuerzel')->fetchAll();
     $fl = $pdo->query('SELECT user_id, fachschaft_id FROM fachleitungen')->fetchAll();
     foreach ($users as &$x) { $x['fachleitung'] = array_values(array_map(fn($r) => (int)$r['fachschaft_id'], array_filter($fl, fn($r) => (int)$r['user_id'] === (int)$x['id']))); $x['faecher'] = user_faecher((int)$x['id']); }
     unset($x);
@@ -287,16 +311,16 @@ case 'user_save': {
     admin(); $pdo = db();
     $id = (int)($in['id'] ?? 0); $k = str($in, 'kuerzel', 20, true); $name = str($in, 'name', 80);
     if (!preg_match('~^[\p{L}0-9._-]{2,20}$~u', $k)) fail('Nutzername: 2–20 Buchstaben, Ziffern oder . _ -');
-    $isAdmin = !empty($in['is_admin']) ? 1 : 0;
+    $isAdmin = !empty($in['is_admin']) ? 1 : 0; $isBer = !empty($in['is_berater']) ? 1 : 0;
     $pdo->beginTransaction();
     try {
         if ($id) {
             if (!$isAdmin && (int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1 AND id <> ' . $id)->fetchColumn() === 0) fail('Mindestens ein Admin muss bleiben');
-            $pdo->prepare('UPDATE users SET kuerzel = ?, name = ?, is_admin = ? WHERE id = ?')->execute([$k, $name, $isAdmin, $id]);
+            $pdo->prepare('UPDATE users SET kuerzel = ?, name = ?, is_admin = ?, is_berater = ? WHERE id = ?')->execute([$k, $name, $isAdmin, $isBer, $id]);
         } else { // Startpasswort: Salz und Login-Wert rechnet der Browser des Admins aus
             $salt = str($in, 'salt', 64, true); $auth = str($in, 'auth', 64, true); if (!b64ok($salt) || !hexok($auth)) fail('Ungültiges Startpasswort');
-            $pdo->prepare('INSERT INTO users (kuerzel, name, is_admin, salt, login_hash, must_setup, created) VALUES (?,?,?,?,?,1,?)')
-                ->execute([$k, $name, $isAdmin, $salt, password_hash($auth, PASSWORD_DEFAULT), time()]);
+            $pdo->prepare('INSERT INTO users (kuerzel, name, is_admin, is_berater, salt, login_hash, must_setup, created) VALUES (?,?,?,?,?,?,1,?)')
+                ->execute([$k, $name, $isAdmin, $isBer, $salt, password_hash($auth, PASSWORD_DEFAULT), time()]);
             $id = (int)$pdo->lastInsertId();
         }
         $pdo->prepare('DELETE FROM fachleitungen WHERE user_id = ?')->execute([$id]);
@@ -566,6 +590,108 @@ case 'exam_delete': { // endgültig: Inhalt, Abgaben, Bewertung, Ergebnisseiten,
     out([]);
 }
 /* ---------- Schüler: ohne Konto, mit Prüfungscode und Gerätetoken ---------- */
+/* ---------- Coaching ----------
+   Schüler füllen vor dem Coachinggespräch einen Fragebogen aus (persönlicher QR-Code). Name und Antworten verschlüsselt ihr
+   iPad für die Klassleitung; die Gesprächsnotizen verschlüsselt der Browser der Lehrkraft für sie selbst. Der Server sieht nur
+   Klasse, Titel, Vorlagen und Zähler. Die Schulberatung bekommt nur Zahlen ohne Namen (für sie verschlüsselt). */
+case 'c_list': {
+    $u = teacher(); $sj = str($in, 'schuljahr', 9);
+    $st = db()->prepare('SELECT c.*, (SELECT COUNT(*) FROM coaching_subs s WHERE s.coaching_id = c.id) AS n_subs,
+        (SELECT COUNT(*) FROM coaching_notes n WHERE n.coaching_id = c.id AND n.done = 1) AS n_done FROM coachings c WHERE owner_id = ?' . ($sj ? ' AND schuljahr = ?' : '') . ' ORDER BY klasse, created');
+    $st->execute($sj ? [$u['id'], $sj] : [$u['id']]);
+    out(['coachings' => array_map('c_meta', $st->fetchAll())]);
+}
+case 'c_save': { // anlegen oder ändern (Titel, Vorlagen, Klassenliste)
+    $u = teacher(); if (!$u['pub_key']) fail('Kein Schlüssel');
+    $id = (int)($in['id'] ?? 0); $klasse = str($in, 'klasse', 20, true); $titel = str($in, 'titel', 120);
+    $vor = str($in, 'vorlage', 12, true); $gb = str($in, 'gbogen', 12, true);
+    if (!preg_match('~^[a-z0-9-]{1,12}$~', $vor) || !preg_match('~^[a-z0-9-]{1,12}$~', $gb)) fail('Unbekannte Vorlage');
+    $roster = blob($in, 'roster_enc', 400_000); $n = max(0, min(200, (int)($in['roster_n'] ?? 0)));
+    $tids = array_values(array_filter((array)($in['tids'] ?? []), fn($t) => is_string($t) && hexok($t)));
+    if (count($tids) > 200) fail('Zu viele Schüler');
+    $now = time(); $pdo = db();
+    if ($id) {
+        $c = own_coaching($u, $id);
+        $pdo->prepare('UPDATE coachings SET klasse = ?, titel = ?, vorlage = ?, gbogen = ?, roster_enc = COALESCE(?, roster_enc), roster_n = ?, tids = ?, updated = ? WHERE id = ?')
+            ->execute([$klasse, $titel, $vor, $gb, $roster, $roster !== null ? $n : (int)$c['roster_n'], $roster !== null ? json_encode($tids) : $c['tids'], $now, $id]);
+    } else {
+        $pdo->prepare('INSERT INTO coachings (owner_id, schuljahr, klasse, titel, vorlage, gbogen, code, roster_enc, roster_n, tids, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$u['id'], schuljahr(), $klasse, $titel, $vor, $gb, new_ccode(), $roster, $n, json_encode($tids), $now, $now]);
+        $id = (int)$pdo->lastInsertId();
+    }
+    out(['coaching' => c_meta(own_coaching($u, $id))]);
+}
+case 'c_get': { // alles zu einem Coaching (verschlüsselt)
+    $u = teacher(); $c = own_coaching($u, (int)($in['id'] ?? 0));
+    $s = db()->prepare('SELECT tid, identity_enc, answers_enc, at, n FROM coaching_subs WHERE coaching_id = ? ORDER BY at'); $s->execute([$c['id']]);
+    $n = db()->prepare('SELECT tid, note_enc, done, updated FROM coaching_notes WHERE coaching_id = ?'); $n->execute([$c['id']]);
+    out(['coaching' => c_meta($c), 'roster_enc' => $c['roster_enc'], 'subs' => $s->fetchAll(), 'notes' => $n->fetchAll()]);
+}
+case 'c_open': { $u = teacher(); $c = own_coaching($u, (int)($in['id'] ?? 0)); db()->prepare('UPDATE coachings SET open = ?, updated = ? WHERE id = ?')->execute([!empty($in['open']) ? 1 : 0, time(), $c['id']]); out([]); }
+case 'c_note': { // Gesprächsnotiz speichern (verschlüsselt für die Lehrkraft selbst)
+    $u = teacher(); $c = own_coaching($u, (int)($in['id'] ?? 0));
+    $tid = str($in, 'tid', 64, true); if (!hexok($tid)) fail('Ungültige Kennung');
+    $enc = blob($in, 'note_enc', 400_000); if (!$enc) fail('Notiz fehlt');
+    db()->prepare('INSERT INTO coaching_notes (coaching_id, tid, note_enc, done, updated) VALUES (?,?,?,?,?) ON CONFLICT(coaching_id, tid) DO UPDATE SET note_enc = excluded.note_enc, done = excluded.done, updated = excluded.updated')
+        ->execute([$c['id'], $tid, $enc, !empty($in['done']) ? 1 : 0, time()]);
+    out(['updated' => time()]);
+}
+case 'c_delete': { $u = teacher(); $c = own_coaching($u, (int)($in['id'] ?? 0)); db()->prepare('DELETE FROM coachings WHERE id = ?')->execute([$c['id']]); out([]); }
+case 'c_exported': { $u = teacher(); foreach ((array)($in['ids'] ?? []) as $i) db()->prepare('UPDATE coachings SET exported = ? WHERE id = ? AND owner_id = ?')->execute([time(), (int)$i, $u['id']]); out([]); }
+case 'c_colleagues': { // öffentliche Schlüssel der Kolleg:innen (Übergabe an die nächste Klassleitung)
+    $u = teacher(); if ($u['is_demo']) out(['users' => []]);
+    out(['users' => db()->query('SELECT id, kuerzel, name, pub_key FROM users WHERE is_demo = 0 AND must_setup = 0 AND pub_key IS NOT NULL AND id <> ' . (int)$u['id'] . ' ORDER BY kuerzel')->fetchAll()]);
+}
+case 'c_berater': { // Schulberatung: Empfänger der anonymisierten Auswertung
+    $u = teacher();
+    // Demo-Konto: Es ist selbst die Schulberatung (zum Ausprobieren), echte Empfänger sieht es nicht
+    if ($u['is_demo']) out(['users' => [['id' => (int)$u['id'], 'kuerzel' => $u['kuerzel'], 'name' => 'Schulberatung (Demo)', 'pub_key' => $u['pub_key']]]]);
+    $st = db()->prepare('SELECT id, kuerzel, name, pub_key FROM users WHERE is_berater = 1 AND pub_key IS NOT NULL AND must_setup = 0 AND is_demo = 0 ORDER BY kuerzel'); $st->execute();
+    out(['users' => $st->fetchAll()]);
+}
+case 'c_report': { // anonymisierte Auswertung (nur Zahlen) an die Schulberatung; erneutes Einreichen ersetzt sie
+    $u = teacher(); $c = own_coaching($u, (int)($in['id'] ?? 0));
+    $enc = $in['enc'] ?? null; if (!is_array($enc) || !$enc) fail('Keine Empfänger');
+    $ok = []; foreach ($enc as $k => $v) { if (!is_string($v) || strlen($v) > 200_000) fail('Daten zu groß'); $ok[(string)(int)$k] = $v; }
+    preg_match('~\d+~', $c['klasse'], $m); $jg = (int)($m[0] ?? 0);
+    db()->prepare('INSERT INTO coaching_reports (coaching_id, owner_id, lehrkraft, schuljahr, klasse, jgst, vorlage, enc, created) VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(coaching_id) DO UPDATE SET enc = excluded.enc, created = excluded.created, klasse = excluded.klasse, jgst = excluded.jgst, vorlage = excluded.vorlage')
+        ->execute([$c['id'], $u['id'], $u['name'] ?: $u['kuerzel'], $c['schuljahr'], $c['klasse'], $jg, $c['vorlage'], json_encode($ok), time()]);
+    db()->prepare('UPDATE coachings SET reported = ? WHERE id = ?')->execute([time(), $c['id']]);
+    out([]);
+}
+case 'c_reports': { // Schulberatung: alle eingereichten Auswertungen, je mit dem für sie verschlüsselten Teil
+    $u = teacher(); if (!$u['is_berater'] && !$u['is_demo']) fail('Nur für die Schulberatung', 403);
+    $out = [];
+    foreach (db()->query('SELECT id, lehrkraft, schuljahr, klasse, jgst, vorlage, enc, created FROM coaching_reports ORDER BY schuljahr DESC, jgst, klasse')->fetchAll() as $r) {
+        $e = json_decode($r['enc'], true); if (!isset($e[(string)$u['id']])) continue;
+        $r['enc'] = $e[(string)$u['id']]; $out[] = $r;
+    }
+    out(['reports' => $out]);
+}
+case 'c_purge_all': { // Admin: Coaching-Daten ALLER Lehrkräfte löschen (Fragebögen, Notizen, Klassenlisten); optional auch die Auswertungen der Schulberatung
+    admin(); if (($in['confirm'] ?? '') !== 'COACHING LÖSCHEN') fail('Bestätigung fehlt');
+    $n = (int)db()->query('SELECT COUNT(*) FROM coachings')->fetchColumn();
+    db()->exec('DELETE FROM coachings');
+    if (!empty($in['reports'])) db()->exec('DELETE FROM coaching_reports');
+    db()->exec('VACUUM');
+    out(['deleted' => $n]);
+}
+/* Schüler (ohne Anmeldung, nur mit persönlichem QR-Code) */
+case 'c_info': {
+    $c = coaching_by_code((string)($in['code'] ?? ''));
+    $o = user((int)$c['owner_id']);
+    out(['klasse' => $c['klasse'], 'titel' => $c['titel'], 'vorlage' => $c['vorlage'], 'open' => (bool)$c['open'], 'pub_key' => $o['pub_key'] ?? null, 'lehrkraft' => $o['name'] ?: $o['kuerzel']]);
+}
+case 'c_submit': {
+    $c = coaching_by_code((string)($in['code'] ?? ''));
+    if (!$c['open']) fail('Der Fragebogen ist geschlossen. Sprich mit deiner Klassleitung.', 409);
+    $tid = (string)($in['tid'] ?? ''); if (!hexok($tid) || !in_array($tid, json_decode($c['tids'], true) ?: [], true)) fail('Dieser QR-Code gilt nicht (mehr). Sprich mit deiner Klassleitung.', 403);
+    $id = blob($in, 'identity_enc', 20_000); $an = blob($in, 'answers_enc', 300_000); if (!$id || !$an) fail('Daten fehlen');
+    db()->prepare('INSERT INTO coaching_subs (coaching_id, tid, identity_enc, answers_enc, at) VALUES (?,?,?,?,?) ON CONFLICT(coaching_id, tid) DO UPDATE SET identity_enc = excluded.identity_enc, answers_enc = excluded.answers_enc, at = excluded.at, n = n + 1')
+        ->execute([$c['id'], $tid, $id, $an, time()]);
+    out([]);
+}
 case 'cfg': { // öffentliche Einstellungen für die Oberfläche
     out(['apps' => apps_cfg()]);
 }
