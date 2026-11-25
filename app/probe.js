@@ -9,6 +9,7 @@ import { showPdf } from './pdf.js';
 import { viewCoachingList, viewCoaching, viewBerater, coachingHint, tabsHtml, purgeAll } from './coaching.js';
 import { viewSurveyList, viewSurvey } from './umfragen.js';
 import { viewTalks, talksHint } from './gespraeche.js';
+import { viewClass, classForm, loadClass } from './klassen.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -65,7 +66,7 @@ function drawNav() {
   const n = $('#topnav'); if (!n) return;
   if (!S.user || !S.priv) { n.innerHTML = ''; return; }
   const h = location.hash.replace(/^#/, '') || '/';
-  const on = /^\/resp/.test(h) ? 'r' : /^\/(notizen|gespraeche)/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
+  const on = /^\/k\//.test(h) ? 'p' : /^\/resp/.test(h) ? 'r' : /^\/(notizen|gespraeche)/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
   const a = (k, href, t, extra = '') => `<a href="${href}"${on === k ? ' class="on" aria-current="page"' : ''}>${t}${extra}</a>`, sep = '<span class="nsep" aria-hidden="true"></span>';
   n.innerHTML = `<a href="https://pathfinder.pandapy.de" target="_blank" rel="noopener" title="PathFinder in neuem Tab öffnen">PathFinder</a>${sep}
     ${a('p', '#/', 'Prüfungen')}${S.user.fachleitung?.length ? a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '') : ''}${sep}
@@ -100,6 +101,7 @@ function route() {
   if (h === '/coaching') { stopLive(); return viewCoachingList(helpers()); }
   if ((m = h.match(/^\/c\/(\d+)$/))) { stopLive(); return viewCoaching(helpers(), +m[1]); }
   if (h === '/berater' && (S.user.is_berater || S.user.is_demo)) { stopLive(); return viewBerater(helpers()); }
+  if ((m = h.match(/^\/k\/(\d+)$/))) { stopLive(); return viewClass(helpers(), +m[1]); }
   if (h === '/notizen' || h === '/gespraeche') { stopLive(); return viewTalks(helpers()); }
   if (h === '/umfragen') { stopLive(); return viewSurveyList(helpers()); }
   if ((m = h.match(/^\/u\/(\d+)$/))) { stopLive(); return viewSurvey(helpers(), +m[1]); }
@@ -111,7 +113,7 @@ function route() {
   return viewDashboard();
 }
 /** Hilfen für die Ansichten in run.js und resp.js */
-function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, parseNames, viewExam, cleanLocal, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
+function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, parseNames, viewExam, cleanLocal, examForm, statusChip, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
 /** Beispielprüfungen anlegen: beim ersten Mal von selbst, später über das Konto-Menü */
 async function demos(force) {
   S.demoTried = true;
@@ -294,17 +296,35 @@ const statusChip = e => e.status !== 'entwurf' ? `<span class="chip ${STATUS[e.s
   : e.fertig ? `<span class="chip good">✓ bereit · ${e.aufgaben} Aufgaben · ${fmtPts(e.punkte)} P.</span>` : `<span class="chip warn">Entwurf · ${e.aufgaben} Aufgaben</span>`;
 async function viewDashboard() {
   main.innerHTML = '<p class="help">lädt …</p>';
-  let C, L;
-  try { C = await catalog(); L = (await api('exam_list', { schuljahr: S.sj })).exams; } catch (e) { main.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
-  const by = {}; for (const e of L) (by[e.klasse] = by[e.klasse] || []).push(e);
-  const klassen = Object.keys(by).sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
+  let C, L, CL;
+  try { C = await catalog(); [L, CL] = await Promise.all([api('exam_list', { schuljahr: S.sj }).then(r => r.exams), api('cl_list', { schuljahr: S.sj }).then(r => r.classes)]); } catch (e) { main.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  // Prüfungen nach Klassen: angelegte Klassen zuerst (mit Noten), dann Prüfungen ohne Klasse nach Klassenname
+  const inC = new Map(CL.map(c => [c.id, []])), loose = {};
+  for (const e of L) if (e.class_id && inC.has(e.class_id)) inC.get(e.class_id).push(e); else (loose[e.klasse] = loose[e.klasse] || []).push(e);
+  const sortK = (a, b) => a.localeCompare(b, 'de', { numeric: true });
+  const tile = e => `<a class="tile" href="#/p/${e.id}"><button class="tdel" data-tdel="${e.id}" title="Prüfung löschen" aria-label="Prüfung löschen">🗑</button><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`;
+  const n = k => `${k} Prüfung${k === 1 ? '' : 'en'}`;
+  const cls = CL.slice().sort((a, b) => sortK(a.name, b.name) || sortK(a.fach, b.fach)).map(c => `<div class="klasse"><h2><a href="#/k/${c.id}">${esc(c.name)}${c.fach ? ` <span class="help">${esc(c.fach)}</span>` : ''}</a></h2><span class="help">${c.roster_n} Schüler:innen · ${n(inC.get(c.id).length)}</span><span class="sp"></span><a class="btn sm" href="#/k/${c.id}">📊 Noten</a><button class="btn sm" data-cx="${c.id}">＋ Prüfung</button></div>
+    ${inC.get(c.id).length ? `<div class="tiles">${inC.get(c.id).map(tile).join('')}</div>` : '<p class="help" style="margin:0 0 8px">Noch keine Prüfung.</p>'}`).join('');
+  const lk = Object.keys(loose).sort(sortK);
+  const rest = lk.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${n(loose[k].length)} · ohne Klasse</span><span class="sp"></span><button class="btn sm ghost" data-mk="${esc(k)}">＋ Als Klasse anlegen</button></div><div class="tiles">${loose[k].map(tile).join('')}</div>`).join('');
   main.innerHTML = `${tabsHtml('p', S)}<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
-    <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
-    ${klassen.length ? klassen.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${by[k].length} Prüfung${by[k].length === 1 ? '' : 'en'}</span></div><div class="tiles">${by[k].map(e => `<a class="tile" href="#/p/${e.id}"><button class="tdel" data-tdel="${e.id}" title="Prüfung löschen" aria-label="Prüfung löschen">🗑</button><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`).join('')}</div>`).join('')
-      : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch keine Prüfung in ${esc(S.sj)}</h2><p>Lege eine Prüfung an: Klasse, Fach, Datum, Art – den Inhalt baust du danach mit PathFinder.</p></div>`}`;
+    <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn" id="neuk">＋ Neue Klasse</button><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
+    ${CL.length || lk.length ? cls + rest
+      : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch keine Klasse und keine Prüfung in ${esc(S.sj)}</h2><p>Lege zuerst eine Klasse an (Name und Schülerliste) – ihre Prüfungen übernehmen die Namen, und unter „Noten“ siehst du alle Ergebnisse. Oder lege direkt eine Prüfung an.</p></div>`}`;
   $('#sj').onchange = e => { S.sj = e.target.value; viewDashboard(); };
   $('#neu').onclick = () => examForm(null);
+  $('#neuk').onclick = () => classForm(helpers(), null);
   main.onclick = async ev => {
+    const cx = ev.target.closest('[data-cx]');
+    if (cx) { try { const D = await loadClass(helpers(), +cx.dataset.cx); examForm(null, { ...D.c, roster: D.roster }); } catch (er) { toast('⚠ ' + esc(er.message)); } return; }
+    const mk = ev.target.closest('[data-mk]');
+    if (mk) { // Klasse aus vorhandenen Prüfungen: Namensliste der jüngsten Prüfung mit Liste übernehmen
+      const G = loose[mk.dataset.mk] || [], src = G.filter(e => e.roster_n).sort((a, b) => b.datum.localeCompare(a.datum))[0];
+      let roster = []; if (src) { try { roster = (await loadExam(src.id)).roster.map(r => ({ n: r.n, v: r.v })); } catch (er) { } }
+      const fids = [...new Set(G.map(e => e.fach_id))];
+      classForm(helpers(), null, { name: mk.dataset.mk, fach_id: fids.length === 1 ? fids[0] : '', roster }); return;
+    }
     const b = ev.target.closest('[data-tdel]'); if (!b) return;
     ev.preventDefault(); ev.stopPropagation();
     const e = L.find(x => x.id === +b.dataset.tdel);
@@ -322,12 +342,13 @@ async function deleteExam(e) {
 }
 
 /* ---------- Prüfung anlegen und Rahmenbedingungen ---------- */
-async function examForm(e) {
+async function examForm(e, cls = null) {
   const C = await catalog();
   const klassen = [...new Set((await api('exam_list', { schuljahr: S.sj })).exams.map(x => x.klasse))];
   const F = [...C.faecher]; if (e?.fach_id && !F.some(f => +f.id === +e.fach_id)) F.push({ id: e.fach_id, name: e.fach });
-  const v = e || { klasse: '', fach_id: F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'AKL', erwartet: 0, dauer: 20, pin_on: true, skala: 'noten' };
-  const d = dialog(e ? 'Rahmenbedingungen' : 'Neue Prüfung', `
+  const v = e || { klasse: cls?.name || '', fach_id: cls?.fach_id || F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'AKL', erwartet: 0, dauer: 20, pin_on: true, skala: 'noten' };
+  const d = dialog(e ? 'Rahmenbedingungen' : cls ? `Neue Prüfung · ${esc(cls.name)}` : 'Neue Prüfung', `
+    ${cls ? `<p class="help">Die Namensliste der Klasse (${cls.roster?.length || 0} Schüler:innen) wird übernommen.</p>` : ''}
     <div class="row">${field('Klasse', `<input type="text" id="kl" list="kll" value="${esc(v.klasse)}" placeholder="z. B. 8b" autocapitalize="off"><datalist id="kll">${klassen.map(k => `<option value="${esc(k)}">`).join('')}</datalist>`)}
     ${field('Fach', `<select id="fa">${F.map(f => `<option value="${f.id}"${+f.id === +v.fach_id ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`, C.eigene ? 'Deine Fächer – weitere über deinen Namen oben rechts → Meine Fächer.' : 'Lege über deinen Namen oben rechts → Meine Fächer fest, welche Fächer du unterrichtest.')}</div>
     <div class="row">${field('Datum', `<input type="date" id="da" value="${esc(v.datum)}">`)}${field('Art', `<select id="ar">${Object.entries(ARTEN).map(([k, n]) => `<option value="${esc(k)}"${k === v.art ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`)}</div>
@@ -337,12 +358,15 @@ async function examForm(e) {
     <label class="ck"><input type="checkbox" id="pin"${v.pin_on ? ' checked' : ''}>Einlass-PIN: Schüler geben zusätzlich zum QR-Code eine PIN ein, die nur am Beamer steht.</label>
     <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">${e ? 'Speichern' : 'Anlegen und Inhalt bauen'}</button></div>`);
   $('#go', d.el).onclick = async () => {
-    const data = { id: e?.id, klasse: $('#kl', d.el).value.trim(), fach_id: +$('#fa', d.el).value, datum: $('#da', d.el).value, art: $('#ar', d.el).value, dauer: +$('#du', d.el).value || 0, erwartet: +$('#er', d.el).value || 0, skala: $('#sk', d.el).value, pin_on: $('#pin', d.el).checked };
+    const data = { id: e?.id, ...(cls ? { class_id: cls.id } : {}), klasse: $('#kl', d.el).value.trim(), fach_id: +$('#fa', d.el).value, datum: $('#da', d.el).value, art: $('#ar', d.el).value, dauer: +$('#du', d.el).value || 0, erwartet: +$('#er', d.el).value || 0, skala: $('#sk', d.el).value, pin_on: $('#pin', d.el).checked };
     if (!data.klasse) { $('#err', d.el).textContent = 'Bitte die Klasse eintragen.'; return; }
     try {
       const r = await api('exam_save', data); d.close(); S.catalog = null;
       if (e) { toast('✓ gespeichert'); viewExam(e.id); }
-      else { S.sj = r.exam.schuljahr; location.hash = '#/p/' + r.exam.id; openEditor(r.exam, null); }
+      else {
+        if (cls?.roster?.length) await api('exam_roster', { id: r.exam.id, roster_enc: await K.seal(S.keys.pub_key, cls.roster.map(x => ({ n: x.n, v: x.v, sid: x.sid }))), roster_n: cls.roster.length });
+        S.sj = r.exam.schuljahr; location.hash = '#/p/' + r.exam.id; openEditor(r.exam, null);
+      }
     } catch (er) { $('#err', d.el).textContent = er.message; }
   };
 }
@@ -371,9 +395,9 @@ async function viewExam(id) {
         ${e.draft ? `<p class="help">${e.fertig ? 'Übernommen' : 'Zwischengespeichert'} am ${new Date(e.updated * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}.${e.fertig ? '' : ' Im Editor oben rechts auf „✓ Fertig – zurück zu Probe“ tippen, dann ist die Prüfung bereit.'}</p>` : ''}
         <div class="btns"><button class="btn pri" id="edit">✎ ${e.draft ? 'Prüfung bearbeiten' : 'Inhalt bauen'}</button></div>
         <details class="help" style="margin-top:12px"><summary>Prüfung woanders gebaut?</summary><p>Hast du die Prüfung im normalen PathFinder gebaut (nicht hier in Probe), speichere sie dort unter ⋯ → Export → „Prüfungsdatei für Probe“ und lade die Datei hier.</p><button class="btn sm" id="imp">⤒ Prüfungsdatei laden</button></details></section>
-      <section class="card"><h2>Klassenliste</h2>
+      <section class="card"><h2>Klassenliste${e.class_id ? ` <a class="help" href="#/k/${e.class_id}">aus der Klasse ›</a>` : ''}</h2>
         ${R.length ? `<p>${R.length} Schüler · während der Prüfung siehst du, wer fehlt.</p><ul class="names">${R.map(s => `<li>${esc(s.n)}, ${esc(s.v)}</li>`).join('')}</ul>` : '<p class="help">Optional: Mit einer Liste der Vor- und Nachnamen erkennt Probe, wer bei der Prüfung fehlt. Die Namen werden verschlüsselt gespeichert.</p>'}
-        <div class="btns" style="margin-top:10px"><button class="btn" id="csv">⤒ Klassenliste einlesen</button><button class="btn" id="paste">Namen einfügen</button>${R.length ? '<button class="btn danger" id="rdel">Liste entfernen</button>' : ''}</div>
+        <div class="btns" style="margin-top:10px"><button class="btn" id="csv">⤒ Klassenliste einlesen</button><button class="btn" id="paste">Namen einfügen</button>${e.class_id ? '<button class="btn" id="fromcl">⟳ aus der Klasse übernehmen</button>' : ''}${R.length ? '<button class="btn danger" id="rdel">Liste entfernen</button>' : ''}</div>
         <button class="linkbtn" data-tip="klasse">Woher bekomme ich die?</button></section>
     </div><div class="cards">
       <section class="card"><h2>Rahmenbedingungen</h2>
@@ -414,6 +438,7 @@ async function viewExam(id) {
     const d = dialog('Namen einfügen', `${field('Eine Zeile pro Schüler', '<textarea id="t" rows="10" placeholder="Muster;Max&#10;Beispiel;Erika&#10;oder: Max Muster"></textarea>', 'Aus Excel oder der Schulverwaltung kopieren: Nachname und Vorname in zwei Spalten, oder „Nachname, Vorname“, oder „Vorname Nachname“.')}<button class="btn pri" id="go">Übernehmen</button>`);
     $('#go', d.el).onclick = () => { const L = parseNames($('#t', d.el).value); d.close(); saveRoster(e, L); };
   };
+  $('#fromcl') && ($('#fromcl').onclick = async () => { try { const D = await loadClass(helpers(), e.class_id); saveRoster(e, D.roster.map(x => ({ n: x.n, v: x.v, sid: x.sid }))); } catch (er) { toast('⚠ ' + esc(er.message)); } });
   $('#rdel') && ($('#rdel').onclick = async () => { if (!confirm('Klassenliste entfernen?')) return; await api('exam_roster', { id: e.id, roster_enc: null, roster_n: 0 }); viewExam(e.id); });
   $('#del').onclick = async () => { if (await deleteExam(e)) location.hash = '#/'; };
 }

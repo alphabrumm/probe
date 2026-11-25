@@ -265,4 +265,20 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 13;
         SQL);
     }
+    if ($v < 14) { // Klassen: Lerngruppe der Lehrkraft mit Namensliste (verschlüsselt); Prüfungen und Coachings übernehmen sie
+        $pdo->exec(<<<SQL
+        CREATE TABLE classes (
+            id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            schuljahr TEXT NOT NULL, name TEXT NOT NULL, fach_id INTEGER REFERENCES faecher(id) ON DELETE SET NULL, fach TEXT NOT NULL DEFAULT '',
+            roster_enc TEXT, roster_n INTEGER NOT NULL DEFAULT 0,             -- Namen (mit fester Kennung je Schüler), verschlüsselt
+            gewicht INTEGER NOT NULL DEFAULT 2,                               -- große : kleine Leistungsnachweise = gewicht : 1
+            created INTEGER NOT NULL, updated INTEGER NOT NULL
+        );
+        CREATE INDEX classes_owner ON classes(owner_id, schuljahr);
+        ALTER TABLE exams ADD COLUMN class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL;
+        ALTER TABLE exams ADD COLUMN notes_enc TEXT;                         -- Notenübersicht der Auswertung (für die Klasse), verschlüsselt
+        ALTER TABLE coachings ADD COLUMN class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL;
+        PRAGMA user_version = 14;
+        SQL);
+    }
 }

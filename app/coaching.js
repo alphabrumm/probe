@@ -117,12 +117,20 @@ async function coachingForm(H, D) {
     return L.map(v => `<option value="${v.id}"${(cur || def) === v.id ? ' selected' : ''}>${esc(v.label)}${v.own ? ' (Schule)' : ''}</option>`).join('');
   };
   const names = D ? D.R.map(r => `${r.n}, ${r.v}`).join('\n') : '';
+  let CL = []; try { CL = (await api('cl_list')).classes.filter(x => x.roster_n); } catch (e) { }
+  let classId = c?.class_id ?? null;
   const d = dialog(c ? `Coaching ${esc(c.klasse)} bearbeiten` : 'Neues Coaching', `
+    ${CL.length ? field('Aus meinen Klassen', `<select id="ccl"><option value="">– Namen selbst eintragen –</option>${CL.map(x => `<option value="${x.id}"${x.id === classId ? ' selected' : ''}>${esc(x.name)}${x.fach ? ' · ' + esc(x.fach) : ''} (${x.roster_n} Namen, ${esc(x.schuljahr)})</option>`).join('')}</select>`, 'Übernimmt Klasse und Namensliste; danach kannst du noch Namen ändern.') : ''}
     <div class="row">${field('Klasse', `<input type="text" id="kl" value="${esc(c?.klasse || '')}" placeholder="z. B. 7c">`)}${field('Titel', `<input type="text" id="ti" value="${esc(c?.titel || `Lerncoaching ${new Date().getMonth() >= 1 && new Date().getMonth() < 7 ? '2' : '1'}. Halbjahr`)}">`)}</div>
     <div class="row">${field('Selbstreflexion der Schüler:innen', `<select id="vo">${sel(REFLEXION, 'reflexion', c?.vorlage, 'rk')}</select>`)}${field('Gesprächsbogen', `<select id="gb">${sel(GESPRAECH, 'gespraech', c?.gbogen, 'gf')}</select>`)}</div>
     ${field('Klassenliste', `<textarea id="nl" rows="7" placeholder="Nachname, Vorname – je Zeile, oder CSV einfügen">${esc(names)}</textarea>`, 'Wird verschlüsselt gespeichert. Für jede:n entsteht ein persönlicher QR-Code; bei gleichen Namen bleiben gedruckte Codes gültig.')}
     <div class="btns" style="margin:-4px 0 10px"><button class="btn sm" id="csvf">⤒ Klassenliste einlesen</button><span class="help">CSV oder Text aus der Schulverwaltung (z. B. ASV) oder aus Moodle</span></div>
     <div class="err" id="err"></div><button class="btn pri" id="go">${c ? 'Speichern' : 'Anlegen'}</button>`, { wide: true });
+  $('#ccl', d.el) && ($('#ccl', d.el).onchange = async ev => {
+    classId = +ev.target.value || null; if (!classId) return;
+    try { const { loadClass } = await import('./klassen.js'), K2 = await loadClass(H, classId); $('#kl', d.el).value = K2.c.name; $('#nl', d.el).value = K2.roster.map(r => `${r.n}, ${r.v}`).join('\n'); }
+    catch (er) { toast('⚠ ' + esc(er.message)); }
+  });
   $('#csvf', d.el).onclick = () => H.pickFile('.csv,.txt,text/csv,text/plain', async f => { const L = parseNames(await f.text()); if (!L.length) { $('#err', d.el).textContent = 'In der Datei wurden keine Namen erkannt.'; return; } $('#nl', d.el).value = L.map(r => `${r.n}, ${r.v}`).join('\n'); $('#err', d.el).textContent = ''; toast(`✓ ${L.length} Namen eingelesen`); });
   $('#go', d.el).onclick = async () => {
     const klasse = $('#kl', d.el).value.trim(), L = parseNames($('#nl', d.el).value);
@@ -135,7 +143,7 @@ async function coachingForm(H, D) {
     R.push(...keep.map(r => ({ v: r.v, n: r.n, t: r.t })));
     try {
       const r = await withBusy('verschlüsselt …', async () => api('c_save', { id: c?.id, klasse, titel: $('#ti', d.el).value.trim(), vorlage: $('#vo', d.el).value, gbogen: $('#gb', d.el).value,
-        roster_enc: await K.seal(S.keys.pub_key, R), roster_n: R.length, tids: await Promise.all(R.map(x => tidOf(x.t))) }));
+        roster_enc: await K.seal(S.keys.pub_key, R), roster_n: R.length, tids: await Promise.all(R.map(x => tidOf(x.t))), class_id: classId || 0 }));
       d.close(); toast('✓ gespeichert'); if (location.hash === '#/c/' + r.coaching.id) viewCoaching(H, r.coaching.id); else location.hash = '#/c/' + r.coaching.id;
     } catch (e) { $('#err', d.el).textContent = e.message; }
   };

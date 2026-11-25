@@ -84,6 +84,15 @@ Ein Coaching speichert eine Kopie der Vorlage (`coachings.rspec/gspec`) – spä
 Vorlagen enthalten nur Fragen (Klartext, Tabelle `ctemplates`); Hinweistexte werden vor dem Anzeigen bereinigt. Skala, Auswahl
 und Raster gehen in die Statistik ein, Fragen mit „Weitergabe“ in die Übergabe, die Einwilligung bleibt `weitergabe`.
 
+## Klassen
+
+Unter **Prüfungen** legt die Lehrkraft Klassen an (Name, optional Fach, Namensliste eintippen oder Klassenliste einlesen;
+„＋ Als Klasse anlegen“ übernimmt eine Gruppe vorhandener Prüfungen samt Namensliste). Die Namensliste ist verschlüsselt
+(`classes.roster_enc`), jede:r hat eine feste Kennung (`sid`). Neue Prüfungen einer Klasse bekommen Klasse, Fach und
+Namensliste; Coachings können eine Klasse übernehmen. **Noten** (`#/k/<id>`): Jede Auswertung legt eine verschlüsselte
+Notenübersicht ab (`exams.notes_enc`); der Browser rechnet Ø große (Schulaufgaben), Ø kleine (Kurzarbeiten, AKL) und Gesamt
+(Gewichtung je Klasse, Standard 2 : 1). Übungsprüfungen zählen nicht. Das Löschen eines Schuljahres löscht auch seine Klassen.
+
 ## Notizen
 
 Bereich **Notizen** (intern `talks`, früher „Gespräche“): einzelne Gesprächsnotizen mit Schüler:innen, Eltern, Kolleg:innen oder frei – mit wem, Klasse, wann,

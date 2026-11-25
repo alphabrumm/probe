@@ -155,6 +155,7 @@ export async function viewEval(e, helpers) {
   buildPeople();
   try { S2.resp = await respState(S2.e, X); } catch (er) { }
   drawEval();
+  if (!r.notes_enc && S2.e.class_id) saveGrading(); // Noten für die Klassenübersicht nachtragen
 }
 /* ---------- Namen: Klassenliste zuordnen, doppelte Anmeldungen zusammenführen ----------
  * Alles steht in der (verschlüsselten) Bewertung g und lässt sich jederzeit ändern – an den Abgaben selbst ändert sich nichts.
@@ -193,7 +194,7 @@ function buildPeople() {
     const R = matchRoster(roster, people.map(p => ({ id: p.id, v: p.typed.v, n: p.typed.n })), fixed);
     for (const p of people) {
       const m = R.byPerson.get(p.id);
-      if (m) { const r = roster[m.idx]; p.v = r.v; p.n = r.n; p.m = m.manual ? 'manual' : m.exact ? 'exact' : 'approx'; }
+      if (m) { const r = roster[m.idx]; p.v = r.v; p.n = r.n; p.sid = r.sid || null; p.m = m.manual ? 'manual' : m.exact ? 'exact' : 'approx'; }
       else p.m = fixed.get(p.id) === -1 ? 'outside' : 'none';
     }
     S2.missing = R.missing;
@@ -274,9 +275,15 @@ function noteTrend(x) {
   return (up ? `<span class="trend up" title="Ein halber Punkt mehr ergibt ${unit} ${at(total + 0.5)}">▲</span>` : '')
     + (down ? `<span class="trend down" title="Ein halber Punkt weniger ergibt ${unit} ${at(total - 0.5)}">▼</span>` : '');
 }
+/** Notenübersicht für die Klasse (Dashboard): je Person Note und Prozent – verschlüsselt wie die Bewertung */
+function notesSummary() {
+  const RS = results(), { e } = S2;
+  return { v: 1, skala: e.skala, art: e.art, datum: e.datum, max: RS[0]?.R.max || 0, at: Date.now(),
+    rows: RS.filter(x => x.p.m !== 'outside').map(x => ({ sid: x.p.sid || null, n: x.p.n, v: x.p.v, note: x.note, pct: Math.round(x.R.pct * 10) / 10, pending: x.R.pending || 0 })) };
+}
 function saveGrading() {
   clearTimeout(S2.saveT);
-  S2.saveT = setTimeout(async () => { try { await X.api('exam_grading', { id: S2.e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, S2.g) }); } catch (er) { X.toast('⚠ Bewertung nicht gespeichert: ' + X.esc(er.message), 5000); } }, 600);
+  S2.saveT = setTimeout(async () => { try { await X.api('exam_grading', { id: S2.e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, S2.g), notes_enc: await X.K.seal(X.S.keys.pub_key, notesSummary()) }); } catch (er) { X.toast('⚠ Bewertung nicht gespeichert: ' + X.esc(er.message), 5000); } }, 600);
 }
 function drawEval() {
   const { esc, main, fmtPts } = X, { e, key, g, comments } = S2, RS = results(), pts = e.skala === 'punkte';

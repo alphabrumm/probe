@@ -115,9 +115,16 @@ function exam_meta(array $e): array {
         'fertig' => (bool)$e['fertig'], 'has_draft' => (bool)$e['draft_enc'], 'updated' => (int)$e['updated'],
         'code' => $e['code'], 'pin' => $e['pin'], 'join_open' => (bool)$e['join_open'], 'opened' => $e['opened'] ? (int)$e['opened'] : null,
         'ended' => $e['ended'] ? (int)$e['ended'] : null, 'expires' => $e['expires'] ? (int)$e['expires'] : null,
-        'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'], 'pqr' => (bool)($e['pqr'] ?? 0),
+        'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'], 'pqr' => (bool)($e['pqr'] ?? 0), 'class_id' => $e['class_id'] ? (int)$e['class_id'] : null,
         'resp' => db()->query('SELECT status FROM respizienz WHERE exam_id = ' . (int)$e['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn() ?: null,
         'teilnehmer' => (int)(db()->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn())];
+}
+/* Klassen */
+function own_class(array $u, int $id): array { $st = db()->prepare('SELECT * FROM classes WHERE id = ? AND owner_id = ?'); $st->execute([$id, $u['id']]); return $st->fetch() ?: fail('Klasse nicht gefunden', 404); }
+function class_meta(array $c): array {
+    $n = db()->prepare('SELECT COUNT(*) FROM exams WHERE class_id = ?'); $n->execute([$c['id']]);
+    return ['id' => (int)$c['id'], 'schuljahr' => $c['schuljahr'], 'name' => $c['name'], 'fach_id' => $c['fach_id'] ? (int)$c['fach_id'] : null, 'fach' => $c['fach'],
+        'roster_n' => (int)$c['roster_n'], 'gewicht' => (int)$c['gewicht'], 'n_exams' => (int)$n->fetchColumn(), 'created' => (int)$c['created'], 'updated' => (int)$c['updated']];
 }
 const STATES = ['entwurf', 'offen', 'geschlossen', 'beendet', 'veroeffentlicht'];
 function new_code(): string {
@@ -151,7 +158,7 @@ function own_coaching(array $u, int $id): array {
 function c_meta(array $c): array {
     $n = fn(string $q) => (int)db()->query($q . (int)$c['id'])->fetchColumn();
     return ['id' => (int)$c['id'], 'schuljahr' => $c['schuljahr'], 'klasse' => $c['klasse'], 'titel' => $c['titel'], 'vorlage' => $c['vorlage'], 'gbogen' => $c['gbogen'],
-        'rspec' => $c['rspec'] ? json_decode($c['rspec'], true) : null, 'gspec' => $c['gspec'] ? json_decode($c['gspec'], true) : null,
+        'rspec' => $c['rspec'] ? json_decode($c['rspec'], true) : null, 'class_id' => !empty($c['class_id']) ? (int)$c['class_id'] : null, 'gspec' => $c['gspec'] ? json_decode($c['gspec'], true) : null,
         'code' => $c['code'], 'open' => (bool)$c['open'], 'roster_n' => (int)$c['roster_n'], 'exported' => $c['exported'] ? (int)$c['exported'] : null,
         'reported' => $c['reported'] ? (int)$c['reported'] : null, 'created' => (int)$c['created'], 'updated' => (int)$c['updated'],
         'n_subs' => $n('SELECT COUNT(*) FROM coaching_subs WHERE coaching_id = '), 'n_done' => $n('SELECT COUNT(*) FROM coaching_notes WHERE done = 1 AND coaching_id = ')];
@@ -436,6 +443,7 @@ case 'purge_exams': { // Schuljahresende: alle Prüfungen löschen (Konten, Fach
     $st = $sj ? db()->prepare('DELETE FROM exams WHERE schuljahr = ?') : db()->prepare('DELETE FROM exams');
     $st->execute($sj ? [$sj] : []); $n = $st->rowCount();
     ($sj ? db()->prepare('DELETE FROM respizienz WHERE schuljahr = ?') : db()->prepare('DELETE FROM respizienz'))->execute($sj ? [$sj] : []); // Respizienz-Kopien gehören dazu
+    ($sj ? db()->prepare('DELETE FROM classes WHERE schuljahr = ?') : db()->prepare('DELETE FROM classes'))->execute($sj ? [$sj] : []); // Klassen mit ihren Namenslisten
     db()->exec('VACUUM');
     out(['deleted' => $n]);
 }
@@ -591,10 +599,45 @@ case 'exam_save': { // Rahmenbedingungen anlegen oder ändern
     $fid = (int)($in['fach_id'] ?? 0); $st = $pdo->prepare('SELECT name FROM faecher WHERE id = ?'); $st->execute([$fid]); $fach = $st->fetchColumn(); if (!$fach) fail('Fach ungültig');
     $skala = ($in['skala'] ?? '') === 'punkte' ? 'punkte' : 'noten';
     $v = [$klasse, $fid, $fach, $datum, $art, max(0, min(200, (int)($in['erwartet'] ?? 0))), max(0, min(600, (int)($in['dauer'] ?? 0))), !empty($in['pin_on']) ? 1 : 0, $skala, schuljahr($datum), time()];
-    if ($id) { own_exam($u, $id); $pdo->prepare('UPDATE exams SET klasse=?, fach_id=?, fach=?, datum=?, art=?, erwartet=?, dauer=?, pin_on=?, skala=?, schuljahr=?, updated=? WHERE id=?')->execute([...$v, $id]); }
+    $cid = (int)($in['class_id'] ?? 0); if ($cid) own_class($u, $cid);
+    if ($id) { own_exam($u, $id); $pdo->prepare('UPDATE exams SET klasse=?, fach_id=?, fach=?, datum=?, art=?, erwartet=?, dauer=?, pin_on=?, skala=?, schuljahr=?, updated=? WHERE id=?')->execute([...$v, $id]);
+        if (array_key_exists('class_id', $in)) $pdo->prepare('UPDATE exams SET class_id = ? WHERE id = ?')->execute([$cid ?: null, $id]); }
     else { $pdo->prepare('INSERT INTO exams (klasse, fach_id, fach, datum, art, erwartet, dauer, pin_on, skala, schuljahr, updated, owner_id, created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([...$v, $u['id'], time()]); $id = (int)$pdo->lastInsertId(); }
+    if ($cid) $pdo->prepare('UPDATE exams SET class_id = ? WHERE id = ?')->execute([$cid, $id]);
     out(['exam' => exam_meta(own_exam($u, $id))]);
 }
+/* ---------- Klassen: Lerngruppen der Lehrkraft (Name im Klartext wie bei Prüfungen, Namensliste verschlüsselt) ---------- */
+case 'cl_list': {
+    $u = teacher(); $sj = str($in, 'schuljahr', 9);
+    $st = db()->prepare('SELECT * FROM classes WHERE owner_id = ?' . ($sj ? ' AND schuljahr = ?' : '') . ' ORDER BY name'); $st->execute($sj ? [$u['id'], $sj] : [$u['id']]);
+    out(['classes' => array_map('class_meta', $st->fetchAll())]);
+}
+case 'cl_get': { // Klasse mit Namensliste und ihren Prüfungen (mit verschlüsselter Notenübersicht)
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));
+    $st = db()->prepare('SELECT * FROM exams WHERE class_id = ? AND owner_id = ? ORDER BY datum, id'); $st->execute([$c['id'], $u['id']]);
+    out(['class' => class_meta($c), 'roster_enc' => $c['roster_enc'], 'exams' => array_map(fn($e) => exam_meta($e) + ['notes_enc' => $e['notes_enc']], $st->fetchAll())]);
+}
+case 'cl_save': {
+    $u = teacher(); $pdo = db(); $id = (int)($in['id'] ?? 0);
+    $name = str($in, 'name', 20, true); $fid = (int)($in['fach_id'] ?? 0); $fach = '';
+    if ($fid) { $st = $pdo->prepare('SELECT name FROM faecher WHERE id = ?'); $st->execute([$fid]); $fach = (string)$st->fetchColumn(); if ($fach === '') $fid = 0; }
+    $roster = blob($in, 'roster_enc', 600_000); $n = max(0, min(200, (int)($in['roster_n'] ?? 0))); $gw = max(1, min(4, (int)($in['gewicht'] ?? 2))); $now = time();
+    if ($id) {
+        $c = own_class($u, $id);
+        $pdo->prepare('UPDATE classes SET name = ?, fach_id = ?, fach = ?, roster_enc = COALESCE(?, roster_enc), roster_n = ?, gewicht = ?, updated = ? WHERE id = ?')
+            ->execute([$name, $fid ?: null, $fach, $roster, $roster !== null ? $n : (int)$c['roster_n'], $gw, $now, $id]);
+    } else {
+        $sj = str($in, 'schuljahr', 9) ?: schuljahr();
+        $pdo->prepare('INSERT INTO classes (owner_id, schuljahr, name, fach_id, fach, roster_enc, roster_n, gewicht, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$u['id'], $sj, $name, $fid ?: null, $fach, $roster, $n, $gw, $now, $now]);
+        $id = (int)$pdo->lastInsertId();
+        // vorhandene Prüfungen dieser Klasse (gleicher Name, gleiches Schuljahr, gleiches Fach falls angegeben) gehören dazu
+        $pdo->prepare('UPDATE exams SET class_id = ? WHERE owner_id = ? AND class_id IS NULL AND schuljahr = ? AND klasse = ? COLLATE NOCASE' . ($fid ? ' AND fach_id = ?' : ''))
+            ->execute($fid ? [$id, $u['id'], $sj, $name, $fid] : [$id, $u['id'], $sj, $name]);
+    }
+    out(['class' => class_meta(own_class($u, $id))]);
+}
+case 'cl_delete': { $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); db()->prepare('DELETE FROM classes WHERE id = ?')->execute([$c['id']]); out([]); } // Prüfungen bleiben
 case 'exam_draft': { // Inhalt aus PathFinder: Entwurf (verschlüsselt), beim Fertigstellen auch Lösungsschlüssel und Schülerfassung
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
     if ($e['status'] !== 'entwurf') fail('Die Prüfung wurde schon gestartet und lässt sich nicht mehr ändern', 409);
@@ -662,6 +705,7 @@ case 'c_save': { // anlegen oder ändern (Titel, Vorlagen, Klassenliste)
             ->execute([$u['id'], schuljahr(), $klasse, $titel, $vor, $gb, c_tpl($u, $vor, 'reflexion'), c_tpl($u, $gb, 'gespraech'), new_ccode(), $roster, $n, json_encode($tids), $now, $now]);
         $id = (int)$pdo->lastInsertId();
     }
+    if (array_key_exists('class_id', $in)) { $cid = (int)$in['class_id']; if ($cid) own_class($u, $cid); db()->prepare('UPDATE coachings SET class_id = ? WHERE id = ?')->execute([$cid ?: null, $id]); }
     out(['coaching' => c_meta(own_coaching($u, $id))]);
 }
 case 'c_get': { // alles zu einem Coaching (verschlüsselt)
@@ -1012,11 +1056,11 @@ case 'exam_results': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
     $p = db()->prepare('SELECT id, identity_enc, answers_enc, status, saved, fokus, zuschlag, imported FROM participants WHERE exam_id = ? ORDER BY id'); $p->execute([$e['id']]);
     $c = db()->prepare('SELECT id, rid, comment_enc, created, gelesen FROM report_comments WHERE exam_id = ? ORDER BY id'); $c->execute([$e['id']]);
-    out(['exam' => exam_meta($e), 'key_enc' => $e['key_enc'], 'grading_enc' => $e['grading_enc'], 'participants' => $p->fetchAll(), 'comments' => $c->fetchAll()]);
+    out(['exam' => exam_meta($e), 'key_enc' => $e['key_enc'], 'grading_enc' => $e['grading_enc'], 'notes_enc' => $e['notes_enc'], 'participants' => $p->fetchAll(), 'comments' => $c->fetchAll()]);
 }
 case 'exam_grading': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
-    db()->prepare('UPDATE exams SET grading_enc = ?, updated = ? WHERE id = ?')->execute([str($in, 'grading_enc', 5_000_000, true), time(), $e['id']]); out([]);
+    db()->prepare('UPDATE exams SET grading_enc = ?, notes_enc = COALESCE(?, notes_enc), updated = ? WHERE id = ?')->execute([str($in, 'grading_enc', 5_000_000, true), blob($in, 'notes_enc', 400_000), time(), $e['id']]); out([]);
 }
 case 'exam_publish': { // Ergebnisse veröffentlichen (Quittieren): Berichte je Schüler, verschlüsselt mit dessen Ergebniscode
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
