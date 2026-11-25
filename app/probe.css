@@ -270,3 +270,20 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 .ki-how { margin: 14px 0 10px; padding-left: 22px; line-height: 1.5; } .ki-how li { margin-bottom: 6px; }
 @media (max-width: 560px) { .ki-step { flex-direction: column; text-align: center; font-size: 12px; } }
 @media (prefers-color-scheme: dark) { .ki-step.on { background: #2c1323; color: #ffd0ea; } }
+/* Menüband: Bereiche oben (PathFinder | Prüfungen Respizienz | Gespräche | Umfragen … Coaching mit Eule Lumi) */
+#topnav { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; margin-left: 10px; }
+#topnav:empty { visibility: hidden; }
+#topnav a { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 9px; color: var(--ink-2); font-weight: 700; font-size: 15px; text-decoration: none; white-space: nowrap; }
+#topnav a:hover { background: var(--surface-2); color: var(--ink); }
+#topnav a.on { background: var(--a1s); color: var(--a1); }
+#topnav .nsep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; flex: none; }
+#topnav .nsp { flex: 1; min-width: 8px; }
+#topnav .lumi { width: 26px; height: 26px; image-rendering: pixelated; margin: -4px -2px -4px 2px; }
+#topnav .chip { font-size: 12px; padding: 1px 7px; }
+@media (max-width: 980px) {
+  .top { flex-wrap: wrap; row-gap: 6px; }
+  #topnav { order: 3; flex: 1 0 100%; margin: 0 -6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  #topnav::-webkit-scrollbar { display: none; }
+  #topnav a { padding: 6px 9px; font-size: 14px; }
+  #who { margin-left: auto; }
+}

@@ -60,10 +60,24 @@ async function boot() {
   if (!S.priv) return viewUnlock();
   route();
 }
+/** Menüband: PathFinder | Prüfungen Respizienz | Gespräche | Umfragen … rechts (Schulberatung) Coaching + Eule Lumi */
+function drawNav() {
+  const n = $('#topnav'); if (!n) return;
+  if (!S.user || !S.priv) { n.innerHTML = ''; return; }
+  const h = location.hash.replace(/^#/, '') || '/';
+  const on = /^\/resp/.test(h) ? 'r' : /^\/gespraeche/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
+  const a = (k, href, t, extra = '') => `<a href="${href}"${on === k ? ' class="on" aria-current="page"' : ''}>${t}${extra}</a>`, sep = '<span class="nsep" aria-hidden="true"></span>';
+  n.innerHTML = `<a href="https://pathfinder.pandapy.de" target="_blank" rel="noopener" title="PathFinder in neuem Tab öffnen">PathFinder</a>${sep}
+    ${a('p', '#/', 'Prüfungen')}${S.user.fachleitung?.length ? a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '') : ''}${sep}
+    ${a('g', '#/gespraeche', 'Gespräche')}${sep}${a('u', '#/umfragen', 'Umfragen')}
+    <span class="nsp"></span>${S.user.is_berater || S.user.is_demo ? a('b', '#/berater', 'Schulberatung') + sep : ''}${a('c', '#/coaching', 'Coaching', '<img class="lumi" src="app/lumi.gif" alt="">')}`;
+  const cur = $('a.on', n); if (cur && n.scrollWidth > n.clientWidth) n.scrollLeft = cur.offsetLeft - (n.clientWidth - cur.offsetWidth) / 2; // iPhone: aktiven Bereich zeigen
+}
 function drawWho() {
   const w = $('#who');
+  drawNav();
   if (!S.user || !S.priv) { w.innerHTML = ''; return; }
-  w.innerHTML = `<span class="btns">${S.user.is_demo ? '<span class="chip warn" title="Alles wird nach ein paar Stunden gelöscht">Demo</span><button class="btn sm" id="bDemoEnd">Demo beenden</button>' : ''}${S.user.fachleitung?.length ? `<a class="btn sm ghost" href="#/resp">Respizienz${S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : ''}</a>` : ''}${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
+  w.innerHTML = `<span class="btns">${S.user.is_demo ? '<span class="chip warn" title="Alles wird nach ein paar Stunden gelöscht">Demo</span><button class="btn sm" id="bDemoEnd">Demo beenden</button>' : ''}${S.user.is_admin ? '<a class="btn sm ghost" href="#/admin">Admin</a>' : ''}<button class="btn sm" id="bMe">${esc(S.user.kuerzel)} ▾</button></span>`;
   $('#bDemoEnd') && ($('#bDemoEnd').onclick = endDemo);
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
@@ -76,7 +90,7 @@ function drawWho() {
     };
   };
 }
-addEventListener('hashchange', () => { if (S.user && S.priv) route(); });
+addEventListener('hashchange', () => { if (S.user && S.priv) { drawNav(); route(); } });
 function route() {
   drawWho();
   const h = location.hash.replace(/^#/, '') || '/';
