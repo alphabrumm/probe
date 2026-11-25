@@ -83,7 +83,8 @@ export async function viewClass(H, id) {
   $('#kx').onclick = () => H.examForm(null, { ...c, roster });
   $('#ked').onclick = () => classForm(H, D);
   $('#kdel').onclick = async () => {
-    if (!confirm(`Klasse ${c.name} löschen? Die Namensliste wird gelöscht. Prüfungen und Noten bleiben erhalten (unter „Meine Prüfungen“).`)) return;
+    if (exams.length) return toast(`Die Klasse enthält noch ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'}. Lösche sie zuerst oder ordne sie einer anderen Klasse zu.`, 6000);
+    if (!confirm(`Klasse ${c.name} löschen? Die Namensliste wird gelöscht.`)) return;
     try { await api('cl_delete', { id: c.id }); toast('🗑 Klasse gelöscht'); location.hash = '#/'; } catch (er) { toast('⚠ ' + esc(er.message)); }
   };
 }

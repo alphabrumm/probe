@@ -126,6 +126,28 @@ function class_for(array $u, string $sj, string $klasse, int $fid): ?array {
     $st = db()->prepare('SELECT * FROM classes WHERE owner_id = ? AND schuljahr = ? AND name = ? COLLATE NOCASE AND (fach_id = ? OR fach_id IS NULL) ORDER BY (fach_id IS NULL), id LIMIT 1');
     $st->execute([$u['id'], $sj, trim($klasse), $fid]); return $st->fetch() ?: null;
 }
+/** Jede Prüfung gehört zu einer Klasse (Name + Fach im Schuljahr): fehlt sie, wird sie angelegt – mit der Namensliste der Prüfung, falls die Klasse noch keine hat */
+function ensure_classes(array $u, int $examId = 0): void {
+    $pdo = db(); $now = time();
+    $q = $pdo->prepare('SELECT 1 FROM exams WHERE owner_id = ? AND class_id IS NULL AND trim(klasse) <> \'\'' . ($examId ? ' AND id = ?' : '') . ' LIMIT 1');
+    $q->execute($examId ? [$u['id'], $examId] : [$u['id']]); if (!$q->fetchColumn()) return;
+    $tx = !$pdo->inTransaction(); if ($tx) $pdo->exec('BEGIN IMMEDIATE'); // gleichzeitige Aufrufe legen keine doppelten Klassen an
+    $st = $pdo->prepare('SELECT * FROM exams WHERE owner_id = ? AND class_id IS NULL AND trim(klasse) <> \'\'' . ($examId ? ' AND id = ?' : '') . ' ORDER BY roster_n DESC, id');
+    $st->execute($examId ? [$u['id'], $examId] : [$u['id']]);
+    foreach ($st->fetchAll() as $e) {
+        $fid = (int)$e['fach_id']; $c = class_for($u, $e['schuljahr'], $e['klasse'], $fid);
+        if (!$c) {
+            $pdo->prepare('INSERT INTO classes (owner_id, schuljahr, name, fach_id, fach, roster_enc, roster_n, gewicht, created, updated) VALUES (?,?,?,?,?,?,?,2,?,?)')
+                ->execute([$u['id'], $e['schuljahr'], trim($e['klasse']), $fid ?: null, (string)$e['fach'], $e['roster_enc'], $e['roster_enc'] ? (int)$e['roster_n'] : 0, $now, $now]);
+            $cid = (int)$pdo->lastInsertId();
+        } else {
+            $cid = (int)$c['id'];
+            if (!$c['roster_enc'] && $e['roster_enc']) $pdo->prepare('UPDATE classes SET roster_enc = ?, roster_n = ?, updated = ? WHERE id = ?')->execute([$e['roster_enc'], (int)$e['roster_n'], $now, $cid]);
+        }
+        $pdo->prepare('UPDATE exams SET class_id = ? WHERE id = ?')->execute([$cid, $e['id']]);
+    }
+    if ($tx) $pdo->exec('COMMIT');
+}
 function class_meta(array $c): array {
     $n = db()->prepare('SELECT COUNT(*) FROM exams WHERE class_id = ?'); $n->execute([$c['id']]);
     return ['id' => (int)$c['id'], 'schuljahr' => $c['schuljahr'], 'name' => $c['name'], 'fach_id' => $c['fach_id'] ? (int)$c['fach_id'] : null, 'fach' => $c['fach'],
@@ -471,7 +493,7 @@ case 'catalog': {
         'schuljahr' => schuljahr(), 'schuljahre' => array_values(array_unique(array_merge([schuljahr()], $sj->fetchAll(PDO::FETCH_COLUMN))))]);
 }
 case 'exam_list': {
-    $u = teacher(); $st = db()->prepare('SELECT * FROM exams WHERE owner_id = ? AND schuljahr = ? ORDER BY klasse COLLATE NOCASE, datum, id');
+    $u = teacher(); ensure_classes($u); $st = db()->prepare('SELECT * FROM exams WHERE owner_id = ? AND schuljahr = ? ORDER BY klasse COLLATE NOCASE, datum, id');
     $st->execute([$u['id'], str($in, 'schuljahr', 9) ?: schuljahr()]);
     out(['exams' => array_map('exam_meta', $st->fetchAll())]);
 }
@@ -506,6 +528,7 @@ case 'demo_seed': { // Beispielprüfungen: Physik „7d“ geschrieben und zur K
         }
         $res[] = ['klasse' => $x['klasse'], 'id' => $eid, 'pids' => $pids];
     }
+    ensure_classes($u);
     $pdo->commit();
     out(['exams' => $res]);
 }
@@ -612,9 +635,10 @@ case 'exam_save': { // Rahmenbedingungen anlegen oder ändern
     if (!$cid) {
         $cur = $e['class_id'] ? db()->query('SELECT * FROM classes WHERE id = ' . (int)$e['class_id'])->fetch() : null;
         $fits = $cur && $cur['schuljahr'] === $e['schuljahr'] && mb_strtolower(trim($cur['name'])) === mb_strtolower(trim($klasse)) && (!$cur['fach_id'] || (int)$cur['fach_id'] === $fid);
-        $cid = $fits ? (int)$cur['id'] : (int)(class_for($u, $e['schuljahr'], $klasse, $fid)['id'] ?? 0);
+        $cid = $fits ? (int)$cur['id'] : 0;
     }
     $pdo->prepare('UPDATE exams SET class_id = ? WHERE id = ?')->execute([$cid ?: null, $id]);
+    if (!$cid) { ensure_classes($u, $id); $cid = (int)own_exam($u, $id)['class_id']; $e = own_exam($u, $id); }
     if ($cid && !$e['roster_enc']) { // Namensliste der Klasse übernehmen (beides für dieselbe Lehrkraft verschlüsselt)
         $c = own_class($u, $cid);
         if ($c['roster_enc']) $pdo->prepare('UPDATE exams SET roster_enc = ?, roster_n = ?, erwartet = CASE WHEN erwartet = 0 THEN ? ELSE erwartet END WHERE id = ?')->execute([$c['roster_enc'], $c['roster_n'], $c['roster_n'], $id]);
@@ -623,7 +647,7 @@ case 'exam_save': { // Rahmenbedingungen anlegen oder ändern
 }
 /* ---------- Klassen: Lerngruppen der Lehrkraft (Name im Klartext wie bei Prüfungen, Namensliste verschlüsselt) ---------- */
 case 'cl_list': {
-    $u = teacher(); $sj = str($in, 'schuljahr', 9);
+    $u = teacher(); $sj = str($in, 'schuljahr', 9); ensure_classes($u);
     $st = db()->prepare('SELECT * FROM classes WHERE owner_id = ?' . ($sj ? ' AND schuljahr = ?' : '') . ' ORDER BY name'); $st->execute($sj ? [$u['id'], $sj] : [$u['id']]);
     out(['classes' => array_map('class_meta', $st->fetchAll())]);
 }
@@ -652,7 +676,12 @@ case 'cl_save': {
     }
     out(['class' => class_meta(own_class($u, $id))]);
 }
-case 'cl_delete': { $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); db()->prepare('DELETE FROM classes WHERE id = ?')->execute([$c['id']]); out([]); } // Prüfungen bleiben
+case 'cl_delete': { // nur leere Klassen: solange es Prüfungen gibt, gehört die Klasse dazu
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));
+    $n = db()->prepare('SELECT COUNT(*) FROM exams WHERE class_id = ?'); $n->execute([$c['id']]); $n = (int)$n->fetchColumn();
+    if ($n) fail("Die Klasse enthält noch $n Prüfung" . ($n === 1 ? '' : 'en') . ' – lösche sie zuerst oder ordne sie einer anderen Klasse zu.', 409);
+    db()->prepare('DELETE FROM classes WHERE id = ?')->execute([$c['id']]); out([]);
+}
 case 'exam_draft': { // Inhalt aus PathFinder: Entwurf (verschlüsselt), beim Fertigstellen auch Lösungsschlüssel und Schülerfassung
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
     if ($e['status'] !== 'entwurf') fail('Die Prüfung wurde schon gestartet und lässt sich nicht mehr ändern', 409);
