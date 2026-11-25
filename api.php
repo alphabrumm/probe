@@ -654,7 +654,7 @@ case 'cl_list': {
 case 'cl_get': { // Klasse mit Namensliste und ihren Prüfungen (mit verschlüsselter Notenübersicht)
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));
     $st = db()->prepare('SELECT * FROM exams WHERE class_id = ? AND owner_id = ? ORDER BY datum, id'); $st->execute([$c['id'], $u['id']]);
-    out(['class' => class_meta($c), 'roster_enc' => $c['roster_enc'], 'exams' => array_map(fn($e) => exam_meta($e) + ['notes_enc' => $e['notes_enc']], $st->fetchAll())]);
+    out(['class' => class_meta($c), 'roster_enc' => $c['roster_enc'], 'marks_enc' => $c['marks_enc'], 'marks_rev' => (int)$c['marks_rev'], 'exams' => array_map(fn($e) => exam_meta($e) + ['notes_enc' => $e['notes_enc']], $st->fetchAll())]);
 }
 case 'cl_save': {
     $u = teacher(); $pdo = db(); $id = (int)($in['id'] ?? 0);
@@ -675,6 +675,12 @@ case 'cl_save': {
             ->execute($fid ? [$id, $u['id'], $sj, $name, $fid] : [$id, $u['id'], $sj, $name]);
     }
     out(['class' => class_meta(own_class($u, $id))]);
+}
+case 'cl_marks': { // eigene Noten der Klasse speichern; hat ein anderes Gerät inzwischen gespeichert, holt der Browser den neuen Stand und wendet seine Änderung erneut an
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $m = blob($in, 'marks_enc', 2_000_000); if ($m === null) fail('Noten fehlen');
+    $st = db()->prepare('UPDATE classes SET marks_enc = ?, marks_rev = marks_rev + 1, updated = ? WHERE id = ? AND marks_rev = ?'); $st->execute([$m, time(), $c['id'], (int)($in['rev'] ?? 0)]);
+    if (!$st->rowCount()) { $c = own_class($u, $c['id']); out(['conflict' => true, 'marks_enc' => $c['marks_enc'], 'marks_rev' => (int)$c['marks_rev']]); }
+    out(['rev' => (int)$c['marks_rev'] + 1]);
 }
 case 'cl_delete': { // nur leere Klassen: solange es Prüfungen gibt, gehört die Klasse dazu
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));

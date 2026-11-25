@@ -86,12 +86,18 @@ und Raster gehen in die Statistik ein, Fragen mit „Weitergabe“ in die Überg
 
 ## Klassen
 
-Unter **Prüfungen** legt die Lehrkraft Klassen an (Name, optional Fach, Namensliste eintippen oder Klassenliste einlesen;
-„＋ Als Klasse anlegen“ übernimmt eine Gruppe vorhandener Prüfungen samt Namensliste). Die Namensliste ist verschlüsselt
+Unter **Prüfungen** legt die Lehrkraft Klassen an (Name, optional Fach, Namensliste eintippen oder Klassenliste einlesen).
+Jede Prüfung liegt automatisch in ihrer Klasse (gleicher Name und Fach im Schuljahr, `ensure_classes()`): fehlt sie, entsteht sie
+mit der Namensliste der Prüfung. Klassen mit Prüfungen lassen sich nicht löschen. Die Namensliste ist verschlüsselt
 (`classes.roster_enc`), jede:r hat eine feste Kennung (`sid`). Neue Prüfungen einer Klasse bekommen Klasse, Fach und
 Namensliste; Coachings können eine Klasse übernehmen. **Noten** (`#/k/<id>`): Jede Auswertung legt eine verschlüsselte
 Notenübersicht ab (`exams.notes_enc`); der Browser rechnet Ø große (Schulaufgaben), Ø kleine (Kurzarbeiten, AKL) und Gesamt
 (Gewichtung je Klasse, Standard 2 : 1). Übungsprüfungen zählen nicht. Das Löschen eines Schuljahres löscht auch seine Klassen.
+**Eigene Noten** (Abfrage, Unterrichtsbeitrag, Referat, Beobachtung, Projekt, Sonstiges): „＋ Noten eintragen“ für mehrere auf
+einmal, Tipp auf einen Namen für eine Person (ändern, löschen). Jede Note zählt klein, groß oder gar nicht (Beobachtungen
+standardmäßig nicht); Tendenzen ±0,25. Gespeichert als ein verschlüsselter Block je Klasse (`classes.marks_enc`, Einträge
+`{id, sid, art, d, n, t, w}`); `marks_rev` verhindert, dass zwei Geräte sich überschreiben (der Browser wendet seine Änderung
+auf den neuen Stand an).
 
 ## Notizen
 

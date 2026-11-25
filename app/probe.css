@@ -299,3 +299,16 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 .k-tab td b { font-size: 16px; }
 .k-tab tr.k-foot td { font-weight: 700; color: var(--ink-2); border-bottom: 0; }
 .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* Klassen: eigene Noten */
+.k-tab td.k-who, .k-tab td.k-man { cursor: pointer; }
+.k-tab td.k-who:hover, .k-tab td.k-man:hover { background: var(--surface-2); }
+.k-tab th.k-man { color: var(--a1); }
+.k-mk { display: inline-block; min-width: 1.4em; font-weight: 600; } .k-mk.g { font-weight: 800; text-decoration: underline; } .k-mk.o { color: var(--ink-2); font-weight: 400; opacity: .7; }
+.m-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 18px; max-height: 52vh; overflow: auto; margin: 4px 0 8px; padding: 2px; }
+.m-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line); margin: 0; }
+.m-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.m-row .m-n { width: 4.2em; text-align: center; padding: 6px; }
+input.bad { border-color: var(--danger, #c33) !important; background: var(--bads); }
+.m-ul { list-style: none; padding: 0; margin: 0 0 10px; }
+.m-ul li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.m-ul li span { flex: 1; } .m-ul li b { min-width: 2.2em; text-align: center; font-size: 17px; } .m-ul li.on { background: var(--surface-2); }

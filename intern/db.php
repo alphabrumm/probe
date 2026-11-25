@@ -281,4 +281,11 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 14;
         SQL);
     }
+    if ($v < 15) { // Klassen: eigene Noten (mündlich, Referat, Beobachtung …), verschlüsselt; rev gegen gleichzeitiges Speichern auf zwei Geräten
+        $pdo->exec(<<<SQL
+        ALTER TABLE classes ADD COLUMN marks_enc TEXT;
+        ALTER TABLE classes ADD COLUMN marks_rev INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version = 15;
+        SQL);
+    }
 }

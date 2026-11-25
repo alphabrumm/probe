@@ -109,5 +109,18 @@ export async function seedDemos({ api, K, S }, force = false) {
   const g = { v: 1, gkey: GRADE_KEY.slice(), manual: {}, override: {}, feedback: {}, accept: {}, drop: [], days: 14 };
   done.participants.forEach((p, i) => { const pid = ids.pids[i]; g.manual[pid] = { e1: LEISTUNG[p._n][4] }; if (FEEDBACK[p._n]) g.feedback[pid] = FEEDBACK[p._n]; });
   await api('exam_grading', { id: ids.id, grading_enc: await seal(g) });
+  try { await demoMarks({ api, K, S }, r.exams.find(x => x.klasse === '7p')?.id); } catch (er) { } // eigene Noten (mündlich, Referat …) in der Klasse 7p
   return true;
+}
+
+/** ein paar eigene Noten für die Beispielklasse (Abfragen, Referate, Beobachtungen) */
+async function demoMarks(H, examId) {
+  if (!examId) return;
+  const { api } = H, { loadClass, saveMarks } = await import('./klassen.js');
+  const e = (await api('exam_list')).exams.find(x => x.id === examId); if (!e?.class_id) return;
+  const D = await loadClass(H, e.class_id); if (D.marks.e.length || !D.roster.length) return;
+  const day = k => { const d = new Date(Date.now() - k * 86400e3); return d.toISOString().slice(0, 10); }, id = () => Math.random().toString(16).slice(2, 14);
+  const A = [[0, 'Abfrage', 20, '2', '', 'k'], [3, 'Abfrage', 20, '3-', '', 'k'], [5, 'Abfrage', 13, '1', '', 'k'], [8, 'Abfrage', 13, '4+', '', 'k'], [1, 'Referat', 9, '2+', 'Kompass und Erdmagnetfeld', 'k'],
+    [6, 'Referat', 9, '3', 'Elektromagnete im Alltag', 'k'], [2, 'Unterrichtsbeitrag', 6, '2', 'Versuch Magnetfeldlinien', 'k'], [10, 'Beobachtung', 2, '3', 'arbeitet im Versuch kaum mit', '0']];
+  await saveMarks(H, D, L => { for (const [i, art, k, n, t, w] of A) if (D.roster[i]) L.push({ id: id(), sid: D.roster[i].sid, art, d: day(k), n, t, w }); });
 }
