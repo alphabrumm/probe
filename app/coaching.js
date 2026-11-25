@@ -71,17 +71,19 @@ export async function viewCoachingList(H) {
   const { S, api, main, esc } = H;
   main.innerHTML = tabsHtml('c', S) + '<p class="help">lädt …</p>';
   let L; try { L = (await api('c_list')).coachings; } catch (e) { main.innerHTML = tabsHtml('c', S) + `<p class="err">${esc(e.message)}</p>`; return; }
+  let CL = []; try { CL = (await api('cl_list')).classes; } catch (e) { }
   if (S.user.is_demo && !L.length && !S.cDemo) { S.cDemo = true; try { await createExample(H, true); L = (await api('c_list')).coachings; } catch (e) { H.toast('⚠ ' + esc(e.message)); } }
   const old = L.filter(c => Date.now() >= sjEnd(c.schuljahr));
   const bySj = {}; for (const c of L) (bySj[c.schuljahr] = bySj[c.schuljahr] || []).push(c);
   main.innerHTML = `${tabsHtml('c', S)}<h1>Lerncoaching</h1><p class="sub">Selbstreflexion vor dem Gespräch, Gesprächsnotizen und Klassenüberblick – nur du kannst sie lesen.</p>
     ${old.length ? `<div class="c-hint"><b>⏰ Schuljahr vorbei:</b> ${old.length} Coaching${old.length === 1 ? '' : 's'} aus ${[...new Set(old.map(c => c.schuljahr))].join(', ')}. Bitte verschlüsselt exportieren oder löschen – Probe löscht nichts von selbst. <button class="btn sm" data-hint>Jetzt erledigen</button></div>` : ''}
-    <div class="bar"><button class="btn pri" id="neu">＋ Neues Coaching</button><button class="btn" id="open">📂 Datei öffnen</button><span class="sp"></span><button class="btn sm ghost" id="demo" title="Erfundene Klasse mit Beispielantworten zum Ausprobieren">Demo-Coaching anlegen</button></div>
+    <div class="bar"><button class="btn pri" id="neu">＋ Neues Coaching</button>${CL.length ? `<span class="fl" style="align-items:center"><span class="help">Aus meinen Klassen:</span>${CL.map(c => `<button class="btn sm" data-ncl="${c.id}" title="Coaching mit Klasse und Namensliste anlegen">＋ ${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</button>`).join('')}</span>` : ''}<button class="btn" id="open">📂 Datei öffnen</button><span class="sp"></span><button class="btn sm ghost" id="demo" title="Erfundene Klasse mit Beispielantworten zum Ausprobieren">Demo-Coaching anlegen</button></div>
     ${L.length ? Object.keys(bySj).sort().reverse().map(sj => `<div class="klasse"><h2>${esc(sj)}</h2></div><div class="tiles">${bySj[sj].map(c => `<a class="tile" href="#/c/${c.id}">
       <span class="k">Klasse ${esc(c.klasse)}</span><span class="t">${esc(c.titel || 'Lerncoaching')}</span><span class="m">${esc(tplOf(c, 'r')?.label || c.vorlage)}</span>
       <span class="s"><span class="chip ${c.n_subs ? 'good' : ''}">📝 ${c.n_subs}/${c.roster_n} Fragebögen</span><span class="chip ${c.n_done ? 'good' : ''}">💬 ${c.n_done}/${c.roster_n} Gespräche</span>${c.open ? '' : '<span class="chip">geschlossen</span>'}${c.reported ? '<span class="chip good">✓ an Schulberatung</span>' : ''}${c.exported ? '<span class="chip">⇩ exportiert</span>' : ''}</span></a>`).join('')}</div>`).join('')
       : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch kein Coaching</h2><p>Lege ein Coaching für deine Klasse an: Klassenliste einfügen, persönliche QR-Codes drucken – die Kinder füllen vor dem Gespräch ihre Selbstreflexion aus.</p></div>`}`;
   $('#neu').onclick = () => coachingForm(H, null);
+  main.querySelectorAll('[data-ncl]').forEach(b => b.onclick = () => coachingForm(H, null, +b.dataset.ncl));
   $('#open').onclick = () => openFile(H);
   $('#demo').onclick = () => createExample(H);
   $('[data-hint]', main) && ($('[data-hint]', main).onclick = () => yearEndDialog(H, old));
@@ -110,17 +112,17 @@ function yearEndDialog(H, old) {
 /* ---------- Anlegen und Bearbeiten ---------- */
 /** Vorlagen der Schule (freigegeben) als Auswahl; die gerade benutzte bleibt wählbar */
 async function schoolTpls(H) { try { return (await H.api('ct_list')).templates.filter(t => t.active).map(t => ({ ...tplFromSpec(t.spec, t.kind, 'x' + t.id, t.label), von: t.von })); } catch (e) { return []; } }
-async function coachingForm(H, D) {
+async function coachingForm(H, D, preClass = null) {
   const { S, api, K, dialog, esc, field, toast, withBusy, parseNames } = H, c = D?.c;
   const own = await schoolTpls(H), sel = (list, kind, cur, def) => {
     const L = [...list, ...own.filter(t => t.kind === kind)]; if (cur && !L.some(v => v.id === cur)) L.push({ id: cur, label: (kind === 'reflexion' ? D.rTpl : D.gTpl)?.label || cur });
     return L.map(v => `<option value="${v.id}"${(cur || def) === v.id ? ' selected' : ''}>${esc(v.label)}${v.own ? ' (Schule)' : ''}</option>`).join('');
   };
   const names = D ? D.R.map(r => `${r.n}, ${r.v}`).join('\n') : '';
-  let CL = []; try { CL = (await api('cl_list')).classes.filter(x => x.roster_n); } catch (e) { }
-  let classId = c?.class_id ?? null;
+  let CL = []; try { CL = (await api('cl_list')).classes; } catch (e) { }
+  let classId = c?.class_id ?? preClass ?? null;
   const d = dialog(c ? `Coaching ${esc(c.klasse)} bearbeiten` : 'Neues Coaching', `
-    ${CL.length ? field('Aus meinen Klassen', `<select id="ccl"><option value="">– Namen selbst eintragen –</option>${CL.map(x => `<option value="${x.id}"${x.id === classId ? ' selected' : ''}>${esc(x.name)}${x.fach ? ' · ' + esc(x.fach) : ''} (${x.roster_n} Namen, ${esc(x.schuljahr)})</option>`).join('')}</select>`, 'Übernimmt Klasse und Namensliste; danach kannst du noch Namen ändern.') : ''}
+    ${CL.length ? field('Aus meinen Klassen', `<select id="ccl"><option value="">– Namen selbst eintragen –</option>${CL.map(x => `<option value="${x.id}"${x.id === classId ? ' selected' : ''}>${esc(x.name)}${x.fach ? ' · ' + esc(x.fach) : ''} (${x.roster_n ? x.roster_n + ' Namen' : 'noch keine Namen'}, ${esc(x.schuljahr)})</option>`).join('')}</select>`, 'Übernimmt Klasse und Namensliste; danach kannst du noch Namen ändern.') : ''}
     <div class="row">${field('Klasse', `<input type="text" id="kl" value="${esc(c?.klasse || '')}" placeholder="z. B. 7c">`)}${field('Titel', `<input type="text" id="ti" value="${esc(c?.titel || `Lerncoaching ${new Date().getMonth() >= 1 && new Date().getMonth() < 7 ? '2' : '1'}. Halbjahr`)}">`)}</div>
     <div class="row">${field('Selbstreflexion der Schüler:innen', `<select id="vo">${sel(REFLEXION, 'reflexion', c?.vorlage, 'rk')}</select>`)}${field('Gesprächsbogen', `<select id="gb">${sel(GESPRAECH, 'gespraech', c?.gbogen, 'gf')}</select>`)}</div>
     ${field('Klassenliste', `<textarea id="nl" rows="7" placeholder="Nachname, Vorname – je Zeile, oder CSV einfügen">${esc(names)}</textarea>`, 'Wird verschlüsselt gespeichert. Für jede:n entsteht ein persönlicher QR-Code; bei gleichen Namen bleiben gedruckte Codes gültig.')}
@@ -128,9 +130,10 @@ async function coachingForm(H, D) {
     <div class="err" id="err"></div><button class="btn pri" id="go">${c ? 'Speichern' : 'Anlegen'}</button>`, { wide: true });
   $('#ccl', d.el) && ($('#ccl', d.el).onchange = async ev => {
     classId = +ev.target.value || null; if (!classId) return;
-    try { const { loadClass } = await import('./klassen.js'), K2 = await loadClass(H, classId); $('#kl', d.el).value = K2.c.name; $('#nl', d.el).value = K2.roster.map(r => `${r.n}, ${r.v}`).join('\n'); }
+    try { const { loadClass } = await import('./klassen.js'), K2 = await loadClass(H, classId); $('#kl', d.el).value = K2.c.name; if (K2.roster.length) $('#nl', d.el).value = K2.roster.map(r => `${r.n}, ${r.v}`).join('\n'); }
     catch (er) { toast('⚠ ' + esc(er.message)); }
   });
+  if (preClass && !c && $('#ccl', d.el)) $('#ccl', d.el).dispatchEvent(new Event('change'));
   $('#csvf', d.el).onclick = () => H.pickFile('.csv,.txt,text/csv,text/plain', async f => { const L = parseNames(await f.text()); if (!L.length) { $('#err', d.el).textContent = 'In der Datei wurden keine Namen erkannt.'; return; } $('#nl', d.el).value = L.map(r => `${r.n}, ${r.v}`).join('\n'); $('#err', d.el).textContent = ''; toast(`✓ ${L.length} Namen eingelesen`); });
   $('#go', d.el).onclick = async () => {
     const klasse = $('#kl', d.el).value.trim(), L = parseNames($('#nl', d.el).value);
