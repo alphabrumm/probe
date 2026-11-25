@@ -66,9 +66,9 @@ export async function viewTalks(H) {
         <span class="fl">${t.n.wieder && !t.n.erledigt ? `<span class="chip warn">⏰ ${esc(deDate(t.n.wieder))}</span>` : ''}${t.exported ? '<span class="chip">⇩ exportiert</span>' : ''}</span></div>`).join('') : `<p class="help">${L.length ? 'Keine Gespräche zu diesem Filter.' : 'Noch keine Gesprächsnotizen.'}</p>`}</div>`;
     $('#cnt', main).textContent = `${R.length} von ${L.length}`;
   };
-  main.innerHTML = `${tabsHtml('g', S)}<h1>Gespräche</h1><p class="sub">Gesprächsnotizen mit Schüler:innen, Eltern und Kolleg:innen – wann, wo, Thema, Ziele, Vereinbarungen. <span class="c-lock">🔒 nur für dich lesbar</span></p>
+  main.innerHTML = `${tabsHtml('g', S)}<h1>Notizen</h1><p class="sub">Gesprächsnotizen mit Schüler:innen, Eltern und Kolleg:innen – wann, wo, Thema, Ziele, Vereinbarungen. <span class="c-lock">🔒 nur für dich lesbar</span></p>
     ${old.length ? `<div class="c-hint"><b>⏰ Schuljahr vorbei:</b> ${old.length} Gesprächsnotiz${old.length === 1 ? '' : 'en'} aus ${[...new Set(old.map(t => t.schuljahr))].join(', ')}. Bitte verschlüsselt exportieren oder löschen – Probe löscht nichts von selbst. <button class="btn sm" data-old>Jetzt erledigen</button></div>` : ''}
-    <div class="bar"><button class="btn pri" id="neu">＋ Neues Gespräch</button><span class="sp"></span><button class="btn" id="pr">🖨 Drucken</button><button class="btn" id="ex">⇩ Export</button><button class="btn" id="op">📂 Datei öffnen</button></div>
+    <div class="bar"><button class="btn pri" id="neu">＋ Neue Notiz</button><span class="sp"></span><button class="btn" id="pr">🖨 Drucken</button><button class="btn" id="ex">⇩ Export</button><button class="btn" id="op">📂 Datei öffnen</button></div>
     <div class="bar"><span class="seg">${[['', 'Alle'], ...Object.entries(ARTEN).map(([k, [i, t]]) => [k, `${i} ${t}`])].map(([k, t]) => `<button data-art="${k}" aria-pressed="${F.art === k}">${t}</button>`).join('')}</span>
       <input type="search" id="q" placeholder="Suchen: Name, Klasse, Thema, Text" value="${esc(F.q)}" style="max-width:280px">${sjs.length > 1 ? `<select id="sj" style="width:auto"><option value="">alle Schuljahre</option>${sjs.map(s => `<option${F.sj === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>` : ''}<span class="help" id="cnt"></span></div>
     <div id="tl"></div>`;
@@ -93,7 +93,7 @@ function editor(H, t) {
   let id = t?.id || 0;
   const el = document.createElement('div'); el.className = 'c-talk t-ed';
   const opt = (v, cur) => `<option${v === cur ? ' selected' : ''}>${esc(v)}</option>`;
-  el.innerHTML = `<header><b>💬 Gespräch</b><span class="seg">${Object.entries(ARTEN).map(([k, [i, l]]) => `<button type="button" data-a="${k}" aria-pressed="${n.art === k}">${i} ${l}</button>`).join('')}</span><span class="sp"></span>
+  el.innerHTML = `<header><b>📝 Notiz</b><span class="seg">${Object.entries(ARTEN).map(([k, [i, l]]) => `<button type="button" data-a="${k}" aria-pressed="${n.art === k}">${i} ${l}</button>`).join('')}</span><span class="sp"></span>
       <span class="c-save" id="tsv">🔒 wird verschlüsselt gespeichert</span><button class="btn sm" id="tpr" title="Drucken">🖨</button><button class="btn sm ghost danger" id="tdel" title="Löschen">🗑</button><button class="btn sm pri" id="tok">Fertig</button></header>
     <form class="t-form" id="tf" autocomplete="off">
       <div class="t-grid">
@@ -174,7 +174,7 @@ function printTalks(H, list) {
 function exportDialog(H, list) {
   const { S, api, K, dialog, esc, toast, withBusy } = H;
   if (!list.length) { toast('Nichts zu exportieren.'); return; }
-  const d = dialog('⇩ Gesprächsnotizen verschlüsselt exportieren', `<p>${list.length} Gesprächsnotiz${list.length === 1 ? '' : 'en'} (der aktuelle Filter) – verschlüsselt (AES-256-GCM). Öffnen kann die Datei nur, wer die <b>Passphrase</b> kennt, oder du selbst mit deinem Probe-Konto (📂 Datei öffnen).</p>
+  const d = dialog('⇩ Notizen verschlüsselt exportieren', `<p>${list.length} Gesprächsnotiz${list.length === 1 ? '' : 'en'} (der aktuelle Filter) – verschlüsselt (AES-256-GCM). Öffnen kann die Datei nur, wer die <b>Passphrase</b> kennt, oder du selbst mit deinem Probe-Konto (📂 Datei öffnen).</p>
     ${H.field('Passphrase (mindestens 12 Zeichen)', '<input type="password" id="pp1" autocomplete="new-password">')}${H.field('Passphrase wiederholen', '<input type="password" id="pp2" autocomplete="new-password">', 'Notiere sie getrennt von der Datei, z. B. im Schul-Safe.')}
     <div class="err" id="err"></div><button class="btn pri" id="go">Exportieren</button>`);
   $('#go', d.el).onclick = async () => {
@@ -184,7 +184,7 @@ function exportDialog(H, list) {
     try {
       const A = await withBusy('verschlüsselt …', () => K.archiveSeal({ probe: 'gespraeche', v: 1, exported: Date.now(), von: S.user.name || S.user.kuerzel, items: list.map(t => t.n) },
         { users: [{ role: 'lehrkraft', kuerzel: S.user.kuerzel, name: S.user.name, pub_key: S.keys.pub_key }], passphrase: p1, info: { art: 'gespraeche', n: list.length } }));
-      const name = `Gespraeche_${new Date().toISOString().slice(0, 10)}.probe-gespraeche.json`;
+      const name = `Notizen_${new Date().toISOString().slice(0, 10)}.probe-gespraeche.json`;
       download(name, JSON.stringify(A)); await api('t_exported', { ids: list.map(t => t.id) }); d.close(); toast(`⇩ ${esc(name)} gespeichert`, 5000); viewTalks(H);
     } catch (e) { $('#err', d.el).textContent = e.message; }
   };
@@ -210,14 +210,14 @@ export async function talksHint(H) {
 }
 function yearEnd(H, old) {
   const { dialog, api, toast, esc } = H, ex = old.filter(t => t.exported).length;
-  const d = dialog('⏰ Gesprächsnotizen: Schuljahr vorbei', `<p>${old.length} Gesprächsnotiz${old.length === 1 ? '' : 'en'} aus ${esc([...new Set(old.map(t => t.schuljahr))].join(', '))} (${ex} davon exportiert). Bitte <b>verschlüsselt exportieren</b> und danach <b>löschen</b>. Probe löscht nichts von selbst und erinnert dich bei jeder Anmeldung.</p>
+  const d = dialog('⏰ Notizen: Schuljahr vorbei', `<p>${old.length} Gesprächsnotiz${old.length === 1 ? '' : 'en'} aus ${esc([...new Set(old.map(t => t.schuljahr))].join(', '))} (${ex} davon exportiert). Bitte <b>verschlüsselt exportieren</b> und danach <b>löschen</b>. Probe löscht nichts von selbst und erinnert dich bei jeder Anmeldung.</p>
     <div class="btns"><button class="btn pri" data-exp>⇩ Verschlüsselt exportieren</button><button class="btn danger" data-del>Löschen</button><button class="btn" data-close>Später erinnern</button></div>`);
   d.el.onclick = async e => {
     if (e.target.closest('[data-exp]')) { d.close(); exportDialog(H, old); return; }
     if (!e.target.closest('[data-del]')) return;
     if (ex < old.length && !confirm(`${old.length - ex} davon sind noch nicht exportiert. Trotzdem endgültig löschen?`)) return;
     if (!confirm(`${old.length} Gesprächsnotiz${old.length === 1 ? '' : 'en'} endgültig löschen?`)) return;
-    await api('t_delete', { ids: old.map(t => t.id) }); d.close(); toast('🗑 gelöscht'); if (location.hash === '#/gespraeche') viewTalks(H);
+    await api('t_delete', { ids: old.map(t => t.id) }); d.close(); toast('🗑 gelöscht'); if (/^#\/(notizen|gespraeche)/.test(location.hash)) viewTalks(H);
   };
 }
 

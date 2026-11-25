@@ -60,16 +60,16 @@ async function boot() {
   if (!S.priv) return viewUnlock();
   route();
 }
-/** Menüband: PathFinder | Prüfungen Respizienz | Gespräche | Umfragen … rechts (Schulberatung) Coaching + Eule Lumi */
+/** Menüband: PathFinder | Prüfungen Respizienz | Notizen | Umfragen … rechts (Schulberatung) Coaching + Eule Lumi */
 function drawNav() {
   const n = $('#topnav'); if (!n) return;
   if (!S.user || !S.priv) { n.innerHTML = ''; return; }
   const h = location.hash.replace(/^#/, '') || '/';
-  const on = /^\/resp/.test(h) ? 'r' : /^\/gespraeche/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
+  const on = /^\/resp/.test(h) ? 'r' : /^\/(notizen|gespraeche)/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
   const a = (k, href, t, extra = '') => `<a href="${href}"${on === k ? ' class="on" aria-current="page"' : ''}>${t}${extra}</a>`, sep = '<span class="nsep" aria-hidden="true"></span>';
   n.innerHTML = `<a href="https://pathfinder.pandapy.de" target="_blank" rel="noopener" title="PathFinder in neuem Tab öffnen">PathFinder</a>${sep}
     ${a('p', '#/', 'Prüfungen')}${S.user.fachleitung?.length ? a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '') : ''}${sep}
-    ${a('g', '#/gespraeche', 'Gespräche')}${sep}${a('u', '#/umfragen', 'Umfragen')}
+    ${a('g', '#/notizen', 'Notizen')}${sep}${a('u', '#/umfragen', 'Umfragen')}
     <span class="nsp"></span>${S.user.is_berater || S.user.is_demo ? a('b', '#/berater', 'Schulberatung') + sep : ''}${a('c', '#/coaching', 'Coaching', '<img class="lumi" src="app/lumi.gif" alt="">')}`;
   const cur = $('a.on', n); if (cur && n.scrollWidth > n.clientWidth) n.scrollLeft = cur.offsetLeft - (n.clientWidth - cur.offsetWidth) / 2; // iPhone: aktiven Bereich zeigen
 }
@@ -100,7 +100,7 @@ function route() {
   if (h === '/coaching') { stopLive(); return viewCoachingList(helpers()); }
   if ((m = h.match(/^\/c\/(\d+)$/))) { stopLive(); return viewCoaching(helpers(), +m[1]); }
   if (h === '/berater' && (S.user.is_berater || S.user.is_demo)) { stopLive(); return viewBerater(helpers()); }
-  if (h === '/gespraeche') { stopLive(); return viewTalks(helpers()); }
+  if (h === '/notizen' || h === '/gespraeche') { stopLive(); return viewTalks(helpers()); }
   if (h === '/umfragen') { stopLive(); return viewSurveyList(helpers()); }
   if ((m = h.match(/^\/u\/(\d+)$/))) { stopLive(); return viewSurvey(helpers(), +m[1]); }
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
@@ -552,7 +552,7 @@ async function viewAdmin() {
     ${D.exams.length ? `<table class="t"><tr><th>Schuljahr</th><th>Prüfungen</th></tr>${D.exams.map(x => `<tr><td>${esc(x.schuljahr)}</td><td>${x.n}</td></tr>`).join('')}</table>` : '<p class="help">Es sind keine Prüfungen gespeichert.</p>'}
     <div class="row" style="margin-top:14px">${field('Löschen', `<select id="pj"><option value="">alle Prüfungen</option>${D.exams.map(x => `<option>${esc(x.schuljahr)}</option>`).join('')}</select>`)}${field('Zur Bestätigung LÖSCHEN eintippen', '<input type="text" id="pc" autocapitalize="characters" autocomplete="off">')}</div>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-purge>Endgültig löschen</button></div>
-    <h2 style="margin-top:28px">Coaching-Daten und Gespräche aller Lehrkräfte</h2><p>Gesprächsnotizen (Coaching und Gespräche) und Fragebögen gehören nach einem Schuljahr gelöscht oder verschlüsselt exportiert. Lehrkräfte werden ab dem 15. Juli bei jeder Anmeldung erinnert. Hier löschst du die Coaching-Daten <b>aller</b> Lehrkräfte – lesen kann der Admin sie nicht.</p>
+    <h2 style="margin-top:28px">Coaching-Daten und Notizen aller Lehrkräfte</h2><p>Gesprächsnotizen (Coaching und Gespräche) und Fragebögen gehören nach einem Schuljahr gelöscht oder verschlüsselt exportiert. Lehrkräfte werden ab dem 15. Juli bei jeder Anmeldung erinnert. Hier löschst du die Coaching-Daten <b>aller</b> Lehrkräfte – lesen kann der Admin sie nicht.</p>
     <label class="ck"><input type="checkbox" id="pcr"> auch die anonymisierten Auswertungen der Schulberatung</label>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-cpurge>Coaching-Daten aller Lehrkräfte löschen</button></div>`;
   if (adminTab === 'si') h += `<h2>Sicherheit</h2><div id="sec">wird geprüft …</div>`;

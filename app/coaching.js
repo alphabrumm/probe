@@ -456,7 +456,7 @@ function tplEditor(H, t, kind) {
 
 /* ---------- Admin: Coaching-Daten aller Lehrkräfte löschen ---------- */
 export async function purgeAll(H, alsoReports) {
-  for (let i = 1; i <= 3; i++) if (!confirm(`${i}/3 · Bist du dir wirklich sicher?!!!\n\nAlle Coaching-Daten ALLER Lehrkräfte werden endgültig gelöscht: Klassenlisten, Fragebögen der Schüler:innen, Gesprächsnotizen aus Coaching und „Gespräche“${alsoReports ? ' – und die anonymisierten Auswertungen der Schulberatung' : ''}. Das lässt sich nicht rückgängig machen.`)) return null;
+  for (let i = 1; i <= 3; i++) if (!confirm(`${i}/3 · Bist du dir wirklich sicher?!!!\n\nAlle Coaching-Daten ALLER Lehrkräfte werden endgültig gelöscht: Klassenlisten, Fragebögen der Schüler:innen, Gesprächsnotizen aus Coaching und „Notizen“${alsoReports ? ' – und die anonymisierten Auswertungen der Schulberatung' : ''}. Das lässt sich nicht rückgängig machen.`)) return null;
   return H.api('c_purge_all', { confirm: 'COACHING LÖSCHEN', reports: !!alsoReports });
 }
 

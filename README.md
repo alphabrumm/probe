@@ -84,9 +84,9 @@ Ein Coaching speichert eine Kopie der Vorlage (`coachings.rspec/gspec`) – spä
 Vorlagen enthalten nur Fragen (Klartext, Tabelle `ctemplates`); Hinweistexte werden vor dem Anzeigen bereinigt. Skala, Auswahl
 und Raster gehen in die Statistik ein, Fragen mit „Weitergabe“ in die Übergabe, die Einwilligung bleibt `weitergabe`.
 
-## Gespräche
+## Notizen
 
-Reiter **Gespräche**: einzelne Gesprächsnotizen mit Schüler:innen, Eltern, Kolleg:innen oder frei – mit wem, Klasse, wann,
+Bereich **Notizen** (intern `talks`, früher „Gespräche“): einzelne Gesprächsnotizen mit Schüler:innen, Eltern, Kolleg:innen oder frei – mit wem, Klasse, wann,
 wo, Anlass, Thema, Ziele, Notizen, Vereinbarungen, Wiedervorlage, wer informiert ist. Keine Anhänge. Alles verschlüsselt für
 die Lehrkraft (Tabelle `talks`: nur Schuljahr und Zeitpunkte im Klartext), automatisch gespeichert und bis zum Eintreffen beim
 Server verschlüsselt in IndexedDB gepuffert. Filter, Suche, Wiedervorlagen, Druck, verschlüsselter Export (Passphrase).
