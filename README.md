@@ -116,8 +116,10 @@ auf den neuen Stand an).
 `{v, u: …/drop.php, t: Token, k: öffentlicher Schlüssel, c: Klasse}`), der nur einmal angezeigt wird; der Server speichert nur
 den Hash des Tokens. PlanPad schickt damit den ganzen Stand seiner Noten der Klasse (Datum, Note, Art, Unterrichtsnotiz,
 Vor-/Nachname), verschlüsselt mit dem Schlüssel der Lehrkraft (`K.seal`-Format), per CORS ohne Cookies; jede Sendung
-ersetzt die vorige. Der Token erlaubt nur Schreiben in diese eine Klasse. Probe ordnet nach Namen zu (Nachname, Vorname;
-sonst eindeutiger Vorname), Rest per „Zuordnen“ (`marks.map`); PlanPad-Noten sind in Probe nur lesbar, „zählt als“ lässt sich
+ersetzt die vorige. Der Token erlaubt nur Schreiben in diese eine Klasse. Probe ordnet von selbst nur bei gleichem Vor- und
+Nachnamen zu; ein eindeutiger Vorname (oder abgekürzter Nachname) ist nur ein Vorschlag und zählt erst nach Bestätigung in
+„Zuordnung prüfen“ (`marks.map`, `'-'` = bewusst nicht zuordnen; dort auch jede Zuordnung änderbar). Angezeigt wird die
+PlanPad-Klasse, aus der die Noten kommen; passt nicht einmal die Hälfte der Namen, warnt Probe „Ist das die richtige Klasse?“; PlanPad-Noten sind in Probe nur lesbar, „zählt als“ lässt sich
 ändern (`marks.ov`). „Verbindung trennen“ löscht die Ablage.
 
 ## Notizen

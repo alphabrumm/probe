@@ -33,16 +33,23 @@ const PP_ART = { beitrag: 'Unterrichtsbeitrag', beobachtung: 'Beobachtung', 'pr�
 const ppKey = x => `${x.v || ''}|${x.n || ''}`.toLowerCase().replace(/\s+/g, ' ').trim();
 /** PlanPad-Einträge als eigene Noten (nur lesen; „zählt als“ lässt sich in Probe ändern), mit Zuordnung zu den Namen der Klasse */
 function ppMarks(D) {
-  const L = D.pp?.items || [], out = [], open = new Map(), M = D.marks;
+  const L = D.pp?.items || [], out = [], M = D.marks, has = sid => D.roster.some(r => r.sid === sid);
   const byKey = new Map(D.roster.map(r => [nkey(r), r.sid])), low = s => String(s || '').toLowerCase().trim();
-  const byV = x => { const c = D.roster.filter(r => low(r.v) === low(x.v) && (!x.n || low(r.n).startsWith(low(x.n).replace(/\.$/, '')))); return c.length === 1 ? c[0].sid : null; }; // nur Vorname (oder Nachname abgekürzt) – wenn eindeutig
+  const guessOf = x => { const c = D.roster.filter(r => low(r.v) === low(x.v) && (!x.n || low(r.n).startsWith(low(x.n).replace(/\.$/, '')))); return c.length === 1 ? c[0].sid : null; }; // nur Vorname (oder Nachname abgekürzt), eindeutig
+  const names = new Map(); // je PlanPad-Name: wie zugeordnet
   for (const x of L) {
-    const k = ppKey(x), sid = M.map[k] || byKey.get(nkey({ n: x.n || '', v: x.v || '' })) || byV(x);
-    if (!sid || !D.roster.some(r => r.sid === sid)) { open.set(k, x); continue; }
-    const kind = String(x.k || 'Beitrag'), art = PP_ART[kind.toLowerCase()] || 'Sonstiges';
-    out.push({ id: 'pp:' + x.id, sid, art, d: String(x.d || '').slice(0, 10), n: String(x.g || ''), t: (art === 'Sonstiges' ? kind + (x.t ? ': ' : '') : '') + (x.t || ''), w: M.ov['pp:' + x.id] || 'k', src: 'pp' });
+    const k = ppKey(x); if (names.has(k)) continue;
+    const exact = byKey.get(nkey({ n: x.n || '', v: x.v || '' })) || null, m = M.map[k];
+    const how = m === '-' ? { sid: null, st: 'aus' } : m && has(m) ? { sid: m, st: 'bestätigt' } : exact ? { sid: exact, st: 'genau' } : { sid: null, st: 'offen', guess: guessOf(x) };
+    names.set(k, { x, k, exact, ...how, n: 0 });
   }
-  return { list: out, open: [...open.values()] };
+  for (const x of L) {
+    const z = names.get(ppKey(x)); z.n++; if (!z.sid) continue;
+    const kind = String(x.k || 'Beitrag'), art = PP_ART[kind.toLowerCase()] || 'Sonstiges';
+    out.push({ id: 'pp:' + x.id, sid: z.sid, art, d: String(x.d || '').slice(0, 10), n: String(x.g || ''), t: (art === 'Sonstiges' ? kind + (x.t ? ': ' : '') : '') + (x.t || ''), w: M.ov['pp:' + x.id] || 'k', src: 'pp' });
+  }
+  const N = [...names.values()], ok = N.filter(z => z.st === 'genau' || z.st === 'bestätigt').length, mit = N.filter(z => z.st !== 'aus').length;
+  return { list: out, names: N, open: N.filter(z => z.st === 'offen'), sugg: N.filter(z => z.st === 'offen' && z.guess), ok, odd: mit >= 3 && ok + N.filter(z => z.st === 'offen' && z.guess).length < mit / 2 }; // „odd“: nicht einmal die Hälfte passt (auch nicht als Vorschlag) – falsche Klasse gekoppelt?
 }
 /** Änderung speichern: op ändert die Liste; hat ein anderes Gerät dazwischen gespeichert, auf dessen Stand noch einmal anwenden */
 export async function saveMarks(H, D, op) {
@@ -123,7 +130,7 @@ function gradeModel(D) {
   const vals = (i, w, set) => [...cols.filter(e => set.has(e.art)).map(e => cell[i][e.id]?.note), ...man[i].filter(m => m.w === w).map(m => markVal(m.n, pkt))].filter(x => x != null);
   const avgG = i => mean(vals(i, 'g', GROSS)), avgK = i => mean(vals(i, 'k', KLEIN));
   const total = i => { const g = avgG(i), k = avgK(i); return g == null ? k : k == null ? g : (gw * g + k) / (gw + 1); };
-  return { gw, cols, cell, extra, skalen, pkt, man, lost, arts, avgG, avgK, total, ppOpen: PP.open };
+  return { gw, cols, cell, extra, skalen, pkt, man, lost, arts, avgG, avgK, total, PP };
 }
 function drawClass(H, D) {
   const { S, main, esc, api, toast, fmtDate } = H;
@@ -142,7 +149,11 @@ function drawClass(H, D) {
         <tr class="k-foot"><td>Klassen-Ø</td>${cols.map(e => `<td>${e.notes ? fmt(mean(e.notes.rows.map(x => x.note).filter(x => x != null)), 1) : ''}</td>`).join('')}${arts.map(a => `<td>${fmt(mean(man.flatMap(L => L.filter(m => m.art === a && m.w !== '0').map(m => markVal(m.n, pkt))).filter(x => x != null)), 1)}</td>`).join('')}<td class="k-avg"></td><td class="k-avg"></td><td class="k-avg">${fmt(mean(roster.map((_, i) => G.total(i)).filter(x => x != null)))}</td></tr></table></div>
         <p class="help">Auf einen Namen tippen: alle Noten dieser Person, eigene Noten eintragen oder ändern. ${pkt ? 'Notenpunkte 0–15. ' : skalen.size > 1 ? '⚠ Noten und Notenpunkte gemischt – Durchschnitte nur bedingt sinnvoll. ' : 'Tendenzen zählen ±0,25 (2- = 2,25). '}„–“ nicht teilgenommen · „·“ noch nicht ausgewertet · „?“ ausgewertet, aber die Noten fehlen noch: Auswertung einmal öffnen${pend.length ? ` (${pend.map(e => `<a href="#/p/${e.id}">${esc(KURZ[e.art] || e.art)} ${esc(short(e.datum))}</a>`).join(', ')})` : ''} · * noch nicht alles bewertet · Übungsprüfungen zählen nicht · <span class="k-mk g">fett</span> groß, <span class="k-mk o">grau</span> zählt nicht${D.drop ? ', <span class="k-mk pp">blau</span> aus PlanPad' : ''}.</p>
         ${extra.length ? `<p class="help">⚠ Nicht in der Namensliste: ${extra.map(x => `${esc(x.row.v)} ${esc(x.row.n)} (${esc(KURZ[x.e.art] || x.e.art)} ${esc(short(x.e.datum))}: ${x.row.note})`).join(', ')} – Name in der Auswertung zuordnen oder in der Klasse ergänzen.</p>` : ''}
-        ${G.ppOpen.length ? `<p class="help">⚠ PlanPad: ${G.ppOpen.length} Name${G.ppOpen.length === 1 ? '' : 'n'} nicht zugeordnet (${G.ppOpen.slice(0, 4).map(x => esc(`${x.v} ${x.n || ''}`.trim())).join(', ')}${G.ppOpen.length > 4 ? ' …' : ''}) <button class="btn sm" id="kmap">Zuordnen</button></p>` : ''}
+        ${D.pp?.items ? `<div class="pp-info${G.PP.odd ? ' odd' : ''}">
+          ${G.PP.odd ? `<p><b>⚠ Ist das die richtige Klasse?</b> Nur ${G.PP.ok + G.PP.sugg.length} von ${G.PP.names.length} Namen aus PlanPad passen zu dieser Klasse.</p>` : ''}
+          <p>⇄ Noten aus PlanPad-Klasse <b>„${esc(D.pp.c || '?')}“</b>${D.drop?.updated ? ` · zuletzt ${esc(new Date(D.drop.updated * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}` : ''} · ${G.PP.ok} von ${G.PP.names.length} Namen zugeordnet${G.PP.sugg.length ? ` · <b>${G.PP.sugg.length} Vorschl${G.PP.sugg.length === 1 ? 'ag' : 'äge'} prüfen</b>` : ''}${G.PP.open.length - G.PP.sugg.length > 0 ? ` · ${G.PP.open.length - G.PP.sugg.length} ohne Zuordnung` : ''}</p>
+          <div class="btns"><button class="btn sm${G.PP.open.length ? ' pri' : ''}" id="kmap">Zuordnung ${G.PP.open.length ? 'prüfen' : 'ansehen'}</button>${G.PP.odd ? '<button class="btn sm ghost danger" id="kppoff">Verbindung trennen</button>' : ''}</div>
+          ${G.PP.open.length ? '<p class="help">Noten ohne bestätigte Zuordnung zählen nicht.</p>' : ''}</div>` : ''}
         ${D.pp?.error ? '<p class="help">⚠ Der Stand aus PlanPad ließ sich nicht entschlüsseln.</p>' : ''}
         ${G.lost.length ? `<p class="help">⚠ ${G.lost.length} eigene Note${G.lost.length === 1 ? '' : 'n'} gehör${G.lost.length === 1 ? 't' : 'en'} zu Namen, die nicht mehr in der Liste stehen.</p>` : ''}`}
     </section>
@@ -153,6 +164,7 @@ function drawClass(H, D) {
   if ($('#kmk')) $('#kmk').onclick = () => massDialog(H, D, G);
   if ($('#kpp')) $('#kpp').onclick = () => ppDialog(H, D);
   if ($('#kmap')) $('#kmap').onclick = () => mapDialog(H, D, G);
+  if ($('#kppoff')) $('#kppoff').onclick = () => ppDialog(H, D);
   main.querySelectorAll('.k-who, td.k-man').forEach(td => td.onclick = () => personDialog(H, D, +td.dataset.i));
   $('#kdel').onclick = async () => {
     if (exams.length) return toast(`Die Klasse enthält noch ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'}. Lösche sie zuerst oder ordne sie einer anderen Klasse zu.`, 6000);
@@ -239,7 +251,7 @@ function ppDialog(H, D) {
         <textarea id="ppc" rows="4" readonly class="mono" style="width:100%;font-size:12px">${esc(code)}</textarea>
         <div class="btns"><button class="btn pri" id="ppcopy">Code kopieren</button></div>
         <p class="help">Der Code erscheint nur jetzt. Er erlaubt PlanPad nur, Noten in diese Klasse zu <b>schreiben</b> – lesen kann damit niemand etwas.</p>`
-      : D.drop ? `<p>Verbunden seit ${esc(when(D.drop.created))}. ${D.drop.updated ? `Zuletzt empfangen: <b>${esc(when(D.drop.updated))}</b> · ${D.pp?.items?.length ?? 0} Noten.` : 'Aus PlanPad ist noch nichts angekommen.'}</p>`
+      : D.drop ? `<p>Verbunden seit ${esc(when(D.drop.created))}. ${D.drop.updated ? `Zuletzt empfangen: <b>${esc(when(D.drop.updated))}</b> aus PlanPad-Klasse <b>„${esc(D.pp?.c || '?')}“</b> · ${D.pp?.items?.length ?? 0} Noten.` : 'Aus PlanPad ist noch nichts angekommen.'}</p>`
       : `<p>PlanPad schickt die <b>Noten mit Notiz, Art und Datum</b> dieser Klasse hierher. Sie erscheinen in der Notentabelle beim passenden Namen.</p>`}
       <ul class="help" style="margin:8px 0 12px;padding-left:18px">
         <li>Nur Noten, keine anderen Notizen, Fotos, Sitzpläne oder Beobachtungen.</li>
@@ -263,17 +275,19 @@ function ppDialog(H, D) {
   };
   show(null);
 }
-/** PlanPad-Namen, die nicht von selbst passen (z. B. Spitznamen), einem Namen der Klasse zuordnen */
+/** Zuordnung PlanPad-Name → Name der Klasse: genaue Treffer von selbst, Vorschläge (nur Vorname) erst nach Bestätigung, alles änderbar */
 function mapDialog(H, D, G) {
-  const { dialog, esc, toast, withBusy } = H;
-  const opts = `<option value="">– nicht zuordnen –</option>${D.roster.map(r => `<option value="${esc(r.sid)}">${esc(r.n)}, ${esc(r.v)}</option>`).join('')}`;
-  const d = dialog('PlanPad-Namen zuordnen', `<p class="help">Diese Namen aus PlanPad stehen so nicht in der Namensliste der Klasse.</p>
-    <div class="m-list">${G.ppOpen.map((x, i) => `<label class="m-row"><span><b>${esc(x.n || '')}</b>${x.n ? ', ' : ''}${esc(x.v || '')}</span><select data-i="${i}">${opts}</select></label>`).join('')}</div>
-    <div class="err" id="err"></div><button class="btn pri" id="go">Speichern</button>`, { wide: true });
+  const { dialog, esc, toast, withBusy } = H, N = G.PP.names.slice().sort((a, b) => ({ offen: 0, aus: 2 }[a.st] ?? 1) - ({ offen: 0, aus: 2 }[b.st] ?? 1) || `${a.x.n} ${a.x.v}`.localeCompare(`${b.x.n} ${b.x.v}`, 'de'));
+  const label = z => z.st === 'genau' ? '<span class="chip good">passt genau</span>' : z.st === 'bestätigt' ? '<span class="chip">von dir zugeordnet</span>' : z.st === 'aus' ? '<span class="chip">nicht zuordnen</span>' : z.guess ? '<span class="chip warn">? Vorschlag</span>' : '<span class="chip warn">offen</span>';
+  const sel = z => { const v = z.sid || z.guess || ''; return `<option value="-"${z.st === 'aus' ? ' selected' : ''}>– nicht zuordnen –</option>${z.st === 'offen' && !z.guess ? '<option value="" selected>– bitte wählen –</option>' : ''}${D.roster.map(r => `<option value="${esc(r.sid)}"${r.sid === v && z.st !== 'aus' ? ' selected' : ''}>${esc(r.n)}, ${esc(r.v)}</option>`).join('')}`; };
+  const d = dialog('PlanPad-Zuordnung', `<p class="help">Links die Namen aus PlanPad-Klasse „${esc(D.pp?.c || '?')}“ (mit Anzahl Noten), rechts der Name in dieser Klasse. Gleicher Vor- und Nachname passt von selbst; alles andere zählt erst, wenn du es hier speicherst.</p>
+    <div class="m-list pp-map">${N.map((z, i) => `<label class="m-row"><span><b>${esc(z.x.n || '')}</b>${z.x.n ? ', ' : ''}${esc(z.x.v || '')} <small>(${z.n})</small><br>${label(z)}</span><select data-i="${i}">${sel(z)}</select></label>`).join('')}</div>
+    <div class="err" id="err"></div><button class="btn pri" id="go">Zuordnung speichern</button>`, { wide: true });
   $('#go', d.el).onclick = async () => {
-    const set = [...d.el.querySelectorAll('select[data-i]')].filter(s => s.value).map(s => [ppKey(G.ppOpen[+s.dataset.i]), s.value]);
+    const set = [];
+    d.el.querySelectorAll('select[data-i]').forEach(s => { const z = N[+s.dataset.i], v = s.value; if (v === '') return; if (v === z.exact) { if (D.marks.map[z.k]) set.push([z.k, null]); return; } if (v !== D.marks.map[z.k]) set.push([z.k, v]); });
     if (!set.length) { d.close(); return; }
-    try { await withBusy('verschlüsselt …', () => saveMarks(H, D, (L, M) => { for (const [k, v] of set) M.map[k] = v; })); d.close(); drawClass(H, D); toast(`✓ ${set.length} zugeordnet`); }
+    try { await withBusy('verschlüsselt …', () => saveMarks(H, D, (L, M) => { for (const [k, v] of set) { if (v == null) delete M.map[k]; else M.map[k] = v; } })); d.close(); drawClass(H, D); toast('✓ Zuordnung gespeichert'); }
     catch (er) { $('#err', d.el).textContent = er.message; }
   };
 }
