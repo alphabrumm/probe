@@ -654,7 +654,9 @@ case 'cl_list': {
 case 'cl_get': { // Klasse mit Namensliste und ihren Prüfungen (mit verschlüsselter Notenübersicht)
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));
     $st = db()->prepare('SELECT * FROM exams WHERE class_id = ? AND owner_id = ? ORDER BY datum, id'); $st->execute([$c['id'], $u['id']]);
-    out(['class' => class_meta($c), 'roster_enc' => $c['roster_enc'], 'marks_enc' => $c['marks_enc'], 'marks_rev' => (int)$c['marks_rev'], 'exams' => array_map(fn($e) => exam_meta($e) + ['notes_enc' => $e['notes_enc']], $st->fetchAll())]);
+    $d = db()->prepare('SELECT data_enc, n, created, updated FROM drops WHERE class_id = ?'); $d->execute([$c['id']]); $d = $d->fetch() ?: null;
+    out(['class' => class_meta($c), 'roster_enc' => $c['roster_enc'], 'marks_enc' => $c['marks_enc'], 'marks_rev' => (int)$c['marks_rev'],
+        'drop' => $d ? ['data_enc' => $d['data_enc'], 'n' => (int)$d['n'], 'created' => (int)$d['created'], 'updated' => $d['updated'] ? (int)$d['updated'] : null] : null, 'exams' => array_map(fn($e) => exam_meta($e) + ['notes_enc' => $e['notes_enc']], $st->fetchAll())]);
 }
 case 'cl_save': {
     $u = teacher(); $pdo = db(); $id = (int)($in['id'] ?? 0);
@@ -682,6 +684,14 @@ case 'cl_marks': { // eigene Noten der Klasse speichern; hat ein anderes Gerät 
     if (!$st->rowCount()) { $c = own_class($u, $c['id']); out(['conflict' => true, 'marks_enc' => $c['marks_enc'], 'marks_rev' => (int)$c['marks_rev']]); }
     out(['rev' => (int)$c['marks_rev'] + 1]);
 }
+case 'cl_drop_new': { // PlanPad verbinden: neuer Token (nur einmal sichtbar); ein alter verliert seine Gültigkeit
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));
+    $t = rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+    db()->prepare('DELETE FROM drops WHERE class_id = ?')->execute([$c['id']]);
+    db()->prepare('INSERT INTO drops (owner_id, class_id, token_hash, created) VALUES (?,?,?,?)')->execute([$u['id'], $c['id'], hash('sha256', $t), time()]);
+    out(['token' => $t]);
+}
+case 'cl_drop_del': { $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); db()->prepare('DELETE FROM drops WHERE class_id = ?')->execute([$c['id']]); out([]); }
 case 'cl_delete': { // nur leere Klassen: solange es Prüfungen gibt, gehört die Klasse dazu
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));
     $n = db()->prepare('SELECT COUNT(*) FROM exams WHERE class_id = ?'); $n->execute([$c['id']]); $n = (int)$n->fetchColumn();

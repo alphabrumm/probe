@@ -312,3 +312,5 @@ input.bad { border-color: var(--danger, #c33) !important; background: var(--bads
 .m-ul { list-style: none; padding: 0; margin: 0 0 10px; }
 .m-ul li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .m-ul li span { flex: 1; } .m-ul li b { min-width: 2.2em; text-align: center; font-size: 17px; } .m-ul li.on { background: var(--surface-2); }
+.k-mk.pp { color: var(--a1); } .btn.pp-on { border-color: var(--a1); color: var(--a1); }
+.m-ul li select.m-w.sm { width: auto; padding: 4px 6px; font-size: 13px; }

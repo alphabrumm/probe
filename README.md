@@ -98,6 +98,13 @@ einmal, Tipp auf einen Namen für eine Person (ändern, löschen). Jede Note zä
 standardmäßig nicht); Tendenzen ±0,25. Gespeichert als ein verschlüsselter Block je Klasse (`classes.marks_enc`, Einträge
 `{id, sid, art, d, n, t, w}`); `marks_rev` verhindert, dass zwei Geräte sich überschreiben (der Browser wendet seine Änderung
 auf den neuen Stand an).
+**PlanPad** (`drop.php`, Tabelle `drops`): „⇄ PlanPad verbinden“ erzeugt einen Code (`PROBE1.` + Base64url von
+`{v, u: …/drop.php, t: Token, k: öffentlicher Schlüssel, c: Klasse}`), der nur einmal angezeigt wird; der Server speichert nur
+den Hash des Tokens. PlanPad schickt damit den ganzen Stand seiner Noten der Klasse (Datum, Note, Art, Unterrichtsnotiz,
+Vor-/Nachname), verschlüsselt mit dem Schlüssel der Lehrkraft (`K.seal`-Format), per CORS ohne Cookies; jede Sendung
+ersetzt die vorige. Der Token erlaubt nur Schreiben in diese eine Klasse. Probe ordnet nach Namen zu (Nachname, Vorname;
+sonst eindeutiger Vorname), Rest per „Zuordnen“ (`marks.map`); PlanPad-Noten sind in Probe nur lesbar, „zählt als“ lässt sich
+ändern (`marks.ov`). „Verbindung trennen“ löscht die Ablage.
 
 ## Notizen
 

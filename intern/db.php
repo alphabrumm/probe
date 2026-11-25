@@ -288,4 +288,15 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 15;
         SQL);
     }
+    if ($v < 16) { // PlanPad → Probe: Ablage je Klasse (nur schreiben mit Token; Inhalt mit dem Schlüssel der Lehrkraft verschlüsselt)
+        $pdo->exec(<<<SQL
+        CREATE TABLE drops (
+            id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            class_id INTEGER NOT NULL UNIQUE REFERENCES classes(id) ON DELETE CASCADE,
+            token_hash TEXT NOT NULL UNIQUE, data_enc TEXT, n INTEGER NOT NULL DEFAULT 0,  -- letzter Stand aus PlanPad (Noten mit Notiz), verschlüsselt
+            created INTEGER NOT NULL, updated INTEGER
+        );
+        PRAGMA user_version = 16;
+        SQL);
+    }
 }

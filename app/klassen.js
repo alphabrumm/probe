@@ -19,17 +19,36 @@ const MKURZ = Object.fromEntries(MART);
 const ZAEHLT = [['k', 'kleiner Leistungsnachweis'], ['g', 'großer Leistungsnachweis'], ['0', 'zählt nicht (nur Notiz)']];
 /** „2“, „2-“, „3+“, „2,5“ (Noten 1–6, Tendenz ±0,25) oder 0–15 (Notenpunkte); sonst null */
 export function markVal(s, pkt) {
-  s = String(s ?? '').trim().replace(',', '.'); if (!s) return null;
+  s = String(s ?? '').trim().replace(',', '.').replace(/[–—−]/g, '-'); if (!s) return null;
   if (pkt) return /^\d{1,2}$/.test(s) && +s <= 15 ? +s : null;
   let m = s.match(/^([1-6])\s*([+-])$/); if (m) return Math.min(6, Math.max(1, +m[1] + (m[2] === '-' ? 0.25 : -0.25)));
   return /^[1-6](\.\d{1,2})?$/.test(s) && +s <= 6 ? +s : null;
 }
-async function openMarks(H, enc) { const { S, K } = H; if (!enc) return { v: 1, e: [] }; const m = await K.open(S.priv, enc); return { v: 1, e: Array.isArray(m?.e) ? m.e : [] }; }
+async function openMarks(H, enc) {
+  const { S, K } = H; if (!enc) return { v: 1, e: [], map: {}, ov: {} }; const m = await K.open(S.priv, enc);
+  return { v: 1, e: Array.isArray(m?.e) ? m.e : [], map: m?.map && typeof m.map === 'object' ? m.map : {}, ov: m?.ov && typeof m.ov === 'object' ? m.ov : {} };
+}
+/* ---------- PlanPad: Noten mit Notiz, Art und Datum kommen verschlüsselt über die Ablage (drop.php) ---------- */
+const PP_ART = { beitrag: 'Unterrichtsbeitrag', beobachtung: 'Beobachtung', 'präsentation': 'Referat', referat: 'Referat', abfrage: 'Abfrage', projekt: 'Projekt' };
+const ppKey = x => `${x.v || ''}|${x.n || ''}`.toLowerCase().replace(/\s+/g, ' ').trim();
+/** PlanPad-Einträge als eigene Noten (nur lesen; „zählt als“ lässt sich in Probe ändern), mit Zuordnung zu den Namen der Klasse */
+function ppMarks(D) {
+  const L = D.pp?.items || [], out = [], open = new Map(), M = D.marks;
+  const byKey = new Map(D.roster.map(r => [nkey(r), r.sid])), low = s => String(s || '').toLowerCase().trim();
+  const byV = x => { const c = D.roster.filter(r => low(r.v) === low(x.v) && (!x.n || low(r.n).startsWith(low(x.n).replace(/\.$/, '')))); return c.length === 1 ? c[0].sid : null; }; // nur Vorname (oder Nachname abgekürzt) – wenn eindeutig
+  for (const x of L) {
+    const k = ppKey(x), sid = M.map[k] || byKey.get(nkey({ n: x.n || '', v: x.v || '' })) || byV(x);
+    if (!sid || !D.roster.some(r => r.sid === sid)) { open.set(k, x); continue; }
+    const kind = String(x.k || 'Beitrag'), art = PP_ART[kind.toLowerCase()] || 'Sonstiges';
+    out.push({ id: 'pp:' + x.id, sid, art, d: String(x.d || '').slice(0, 10), n: String(x.g || ''), t: (art === 'Sonstiges' ? kind + (x.t ? ': ' : '') : '') + (x.t || ''), w: M.ov['pp:' + x.id] || 'k', src: 'pp' });
+  }
+  return { list: out, open: [...open.values()] };
+}
 /** Änderung speichern: op ändert die Liste; hat ein anderes Gerät dazwischen gespeichert, auf dessen Stand noch einmal anwenden */
 export async function saveMarks(H, D, op) {
   const { S, api, K } = H;
   for (let t = 0; t < 4; t++) {
-    const M = structuredClone(D.marks); op(M.e);
+    const M = structuredClone(D.marks); op(M.e, M);
     const r = await api('cl_marks', { id: D.c.id, rev: D.rev, marks_enc: await K.seal(S.keys.pub_key, M) });
     if (!r.conflict) { D.marks = M; D.rev = r.rev; return; }
     D.marks = await openMarks(H, r.marks_enc); D.rev = r.marks_rev;
@@ -49,9 +68,10 @@ export async function loadClass(H, id) {
     roster = keepSids([], roster); const c = r.class;
     try { await api('cl_save', { id: c.id, name: c.name, fach_id: c.fach_id || 0, gewicht: c.gewicht, roster_enc: await K.seal(S.keys.pub_key, roster), roster_n: roster.length }); } catch (er) { }
   }
-  let marks = { v: 1, e: [] }; try { marks = await openMarks(H, r.marks_enc); } catch (er) { }
+  let marks = { v: 1, e: [], map: {}, ov: {} }; try { marks = await openMarks(H, r.marks_enc); } catch (er) { }
+  let pp = null; try { if (r.drop?.data_enc) pp = await K.open(S.priv, r.drop.data_enc); } catch (er) { pp = { error: true, items: [] }; }
   for (const e of r.exams) { try { e.notes = e.notes_enc ? await K.open(S.priv, e.notes_enc) : null; } catch (er) { e.notes = null; } delete e.notes_enc; }
-  return { c: r.class, roster, exams: r.exams, marks, rev: r.marks_rev || 0 };
+  return { c: r.class, roster, exams: r.exams, marks, rev: r.marks_rev || 0, drop: r.drop, pp };
 }
 
 /* ---------- Anlegen und Bearbeiten ---------- */
@@ -97,30 +117,33 @@ function gradeModel(D) {
   }
   const skalen = new Set(cols.filter(e => e.notes).map(e => e.skala)), pkt = skalen.has('punkte') && !skalen.has('noten');
   const man = roster.map(() => []), lost = [];
-  for (const m of D.marks.e.slice().sort((a, b) => (a.d || '').localeCompare(b.d || ''))) { const i = bySid.get(m.sid); if (i == null) lost.push(m); else man[i].push(m); }
+  const PP = ppMarks(D);
+  for (const m of [...D.marks.e, ...PP.list].sort((a, b) => (a.d || '').localeCompare(b.d || ''))) { const i = bySid.get(m.sid); if (i == null) lost.push(m); else man[i].push(m); }
   const arts = MART.map(a => a[0]).filter(a => man.some(L => L.some(m => m.art === a)));
   const vals = (i, w, set) => [...cols.filter(e => set.has(e.art)).map(e => cell[i][e.id]?.note), ...man[i].filter(m => m.w === w).map(m => markVal(m.n, pkt))].filter(x => x != null);
   const avgG = i => mean(vals(i, 'g', GROSS)), avgK = i => mean(vals(i, 'k', KLEIN));
   const total = i => { const g = avgG(i), k = avgK(i); return g == null ? k : k == null ? g : (gw * g + k) / (gw + 1); };
-  return { gw, cols, cell, extra, skalen, pkt, man, lost, arts, avgG, avgK, total };
+  return { gw, cols, cell, extra, skalen, pkt, man, lost, arts, avgG, avgK, total, ppOpen: PP.open };
 }
 function drawClass(H, D) {
   const { S, main, esc, api, toast, fmtDate } = H;
   const { c, roster, exams } = D, G = gradeModel(D), { gw, cols, cell, extra, skalen, pkt, man, arts } = G;
   const head = e => `<th class="k-ex"><a href="#/p/${e.id}" title="${esc(`${e.art} ${e.fach} vom ${fmtDate(e.datum)}${e.titel ? ' – ' + e.titel : ''}`)}">${esc(KURZ[e.art] || e.art)}<br><span>${esc(short(e.datum))}</span></a></th>`;
   const val = (e, x) => !e.notes ? (['beendet', 'veroeffentlicht'].includes(e.status) ? '<span class="help" title="Auswertung öffnen, dann erscheinen die Noten">?</span>' : '<span class="help">·</span>') : x ? `<b>${x.note}</b>${x.pending ? '<sup title="noch nicht alles bewertet">*</sup>' : ''}` : '<span class="help">–</span>';
-  const mk = m => `<span class="k-mk${m.w === 'g' ? ' g' : m.w === '0' ? ' o' : ''}" title="${esc(`${m.art} ${fmtDate(m.d)}${m.t ? ' – ' + m.t : ''}${m.w === 'g' ? ' (groß)' : m.w === '0' ? ' (zählt nicht)' : ''}`)}">${esc(m.n)}</span>`;
+  const mk = m => `<span class="k-mk${m.w === 'g' ? ' g' : m.w === '0' ? ' o' : ''}${m.src ? ' pp' : ''}" title="${esc(`${m.art} ${fmtDate(m.d)}${m.t ? ' – ' + m.t : ''}${m.w === 'g' ? ' (groß)' : m.w === '0' ? ' (zählt nicht)' : ''}${m.src ? ' · aus PlanPad' : ''}`)}">${esc(m.n)}</span>`;
   const pend = cols.filter(e => !e.notes && ['beendet', 'veroeffentlicht'].includes(e.status));
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
     <h1>${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(c.schuljahr)} · ${roster.length} Schüler:innen · ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'} <span class="c-lock">🔒 Namen und Noten nur für dich lesbar</span></p>
     <div class="bar"><button class="btn pri" id="kx">＋ Neue Prüfung</button><span class="sp"></span><button class="btn" id="ked">✎ Klasse bearbeiten</button><button class="btn ghost danger" id="kdel">🗑</button></div>
-    <section class="card"><div class="bar"><h2 style="margin:0">Noten</h2>${roster.length ? '<button class="btn sm" id="kmk">＋ Noten eintragen</button>' : ''}<span class="sp"></span><span class="help">Ø groß : klein = ${gw} : 1</span></div>
+    <section class="card"><div class="bar"><h2 style="margin:0">Noten</h2>${roster.length ? '<button class="btn sm" id="kmk">＋ Noten eintragen</button>' : ''}<button class="btn sm${D.drop ? ' pp-on' : ''}" id="kpp" title="Noten mit Notizen aus PlanPad übernehmen">${D.drop ? `⇄ PlanPad${D.pp?.items ? ` · ${D.pp.items.length}` : ''}` : '⇄ PlanPad verbinden'}</button><span class="sp"></span><span class="help">Ø groß : klein = ${gw} : 1</span></div>
       ${!roster.length ? '<p class="help">Noch keine Namen – über „Klasse bearbeiten“ eintragen oder die Klassenliste einlesen.</p>'
         : `<div class="scroll-x"><table class="k-tab"><tr><th>Name</th>${cols.map(head).join('')}${arts.map(a => `<th class="k-man" title="${esc(a)} (eigene Noten)">${esc(MKURZ[a])}</th>`).join('')}<th class="k-avg">Ø groß</th><th class="k-avg">Ø klein</th><th class="k-avg">Gesamt</th></tr>
         ${roster.map((r, i) => `<tr><td class="k-who" data-i="${i}" title="Noten von ${esc(r.v)} ${esc(r.n)} ansehen und eintragen"><b>${esc(r.n)}</b>, ${esc(r.v)}</td>${cols.map(e => `<td>${val(e, cell[i][e.id])}</td>`).join('')}${arts.map(a => `<td class="k-man" data-i="${i}">${man[i].filter(m => m.art === a).map(mk).join(' ') || '<span class="help">·</span>'}</td>`).join('')}<td class="k-avg">${fmt(G.avgG(i))}</td><td class="k-avg">${fmt(G.avgK(i))}</td><td class="k-avg"><b>${fmt(G.total(i))}</b></td></tr>`).join('')}
         <tr class="k-foot"><td>Klassen-Ø</td>${cols.map(e => `<td>${e.notes ? fmt(mean(e.notes.rows.map(x => x.note).filter(x => x != null)), 1) : ''}</td>`).join('')}${arts.map(a => `<td>${fmt(mean(man.flatMap(L => L.filter(m => m.art === a && m.w !== '0').map(m => markVal(m.n, pkt))).filter(x => x != null)), 1)}</td>`).join('')}<td class="k-avg"></td><td class="k-avg"></td><td class="k-avg">${fmt(mean(roster.map((_, i) => G.total(i)).filter(x => x != null)))}</td></tr></table></div>
-        <p class="help">Auf einen Namen tippen: alle Noten dieser Person, eigene Noten eintragen oder ändern. ${pkt ? 'Notenpunkte 0–15. ' : skalen.size > 1 ? '⚠ Noten und Notenpunkte gemischt – Durchschnitte nur bedingt sinnvoll. ' : 'Tendenzen zählen ±0,25 (2- = 2,25). '}„–“ nicht teilgenommen · „·“ noch nicht ausgewertet · „?“ ausgewertet, aber die Noten fehlen noch: Auswertung einmal öffnen${pend.length ? ` (${pend.map(e => `<a href="#/p/${e.id}">${esc(KURZ[e.art] || e.art)} ${esc(short(e.datum))}</a>`).join(', ')})` : ''} · * noch nicht alles bewertet · Übungsprüfungen zählen nicht · <span class="k-mk g">fett</span> groß, <span class="k-mk o">grau</span> zählt nicht.</p>
+        <p class="help">Auf einen Namen tippen: alle Noten dieser Person, eigene Noten eintragen oder ändern. ${pkt ? 'Notenpunkte 0–15. ' : skalen.size > 1 ? '⚠ Noten und Notenpunkte gemischt – Durchschnitte nur bedingt sinnvoll. ' : 'Tendenzen zählen ±0,25 (2- = 2,25). '}„–“ nicht teilgenommen · „·“ noch nicht ausgewertet · „?“ ausgewertet, aber die Noten fehlen noch: Auswertung einmal öffnen${pend.length ? ` (${pend.map(e => `<a href="#/p/${e.id}">${esc(KURZ[e.art] || e.art)} ${esc(short(e.datum))}</a>`).join(', ')})` : ''} · * noch nicht alles bewertet · Übungsprüfungen zählen nicht · <span class="k-mk g">fett</span> groß, <span class="k-mk o">grau</span> zählt nicht${D.drop ? ', <span class="k-mk pp">blau</span> aus PlanPad' : ''}.</p>
         ${extra.length ? `<p class="help">⚠ Nicht in der Namensliste: ${extra.map(x => `${esc(x.row.v)} ${esc(x.row.n)} (${esc(KURZ[x.e.art] || x.e.art)} ${esc(short(x.e.datum))}: ${x.row.note})`).join(', ')} – Name in der Auswertung zuordnen oder in der Klasse ergänzen.</p>` : ''}
+        ${G.ppOpen.length ? `<p class="help">⚠ PlanPad: ${G.ppOpen.length} Name${G.ppOpen.length === 1 ? '' : 'n'} nicht zugeordnet (${G.ppOpen.slice(0, 4).map(x => esc(`${x.v} ${x.n || ''}`.trim())).join(', ')}${G.ppOpen.length > 4 ? ' …' : ''}) <button class="btn sm" id="kmap">Zuordnen</button></p>` : ''}
+        ${D.pp?.error ? '<p class="help">⚠ Der Stand aus PlanPad ließ sich nicht entschlüsseln.</p>' : ''}
         ${G.lost.length ? `<p class="help">⚠ ${G.lost.length} eigene Note${G.lost.length === 1 ? '' : 'n'} gehör${G.lost.length === 1 ? 't' : 'en'} zu Namen, die nicht mehr in der Liste stehen.</p>` : ''}`}
     </section>
     <h2>Prüfungen</h2>
@@ -128,6 +151,8 @@ function drawClass(H, D) {
   $('#kx').onclick = () => H.examForm(null, { ...c, roster });
   $('#ked').onclick = () => classForm(H, D);
   if ($('#kmk')) $('#kmk').onclick = () => massDialog(H, D, G);
+  $('#kpp').onclick = () => ppDialog(H, D);
+  if ($('#kmap')) $('#kmap').onclick = () => mapDialog(H, D, G);
   main.querySelectorAll('.k-who, td.k-man').forEach(td => td.onclick = () => personDialog(H, D, +td.dataset.i));
   $('#kdel').onclick = async () => {
     if (exams.length) return toast(`Die Klasse enthält noch ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'}. Lösche sie zuerst oder ordne sie einer anderen Klasse zu.`, 6000);
@@ -174,12 +199,17 @@ function personDialog(H, D, i) {
       <p class="sub" style="margin-top:0">Ø groß <b>${fmt(G.avgG(i))}</b> · Ø klein <b>${fmt(G.avgK(i))}</b> · Gesamt <b>${fmt(G.total(i))}</b></p>
       ${ex.length ? `<h3>Prüfungen</h3><ul class="m-ul">${ex.map(e => `<li><span>${esc(e.art)} · ${esc(fmtDate(e.datum))}${e.titel ? ' · ' + esc(e.titel) : ''}</span><b>${G.cell[i][e.id].note}</b></li>`).join('')}</ul>` : ''}
       <h3>Eigene Noten</h3>
-      ${M.length ? `<ul class="m-ul">${M.map(m => `<li${m.id === editing ? ' class="on"' : ''}><span>${esc(m.art)} · ${esc(fmtDate(m.d))}${m.t ? ' · ' + esc(m.t) : ''}${m.w === 'g' ? ' · <i>groß</i>' : m.w === '0' ? ' · <i>zählt nicht</i>' : ''}</span><b>${esc(m.n)}</b><button class="btn sm ghost" data-ed="${m.id}" title="ändern">✎</button><button class="btn sm ghost danger" data-del="${m.id}" title="löschen">🗑</button></li>`).join('')}</ul>` : '<p class="help">Noch keine.</p>'}
+      ${M.length ? `<ul class="m-ul">${M.map(m => m.src ? `<li><span>${esc(m.art)} · ${esc(fmtDate(m.d))}${m.t ? ' · ' + esc(m.t) : ''} <small class="chip">PlanPad</small>${markVal(m.n, G.pkt) == null ? ' <i>(keine Note erkannt)</i>' : ''}</span><b>${esc(m.n)}</b>${wSel(m.w).replace('class="m-w"', `class="m-w sm" data-ov="${m.id}" title="zählt als"`).replace('kleiner Leistungsnachweis', 'klein').replace('großer Leistungsnachweis', 'groß').replace('zählt nicht (nur Notiz)', 'zählt nicht')}</li>`
+        : `<li${m.id === editing ? ' class="on"' : ''}><span>${esc(m.art)} · ${esc(fmtDate(m.d))}${m.t ? ' · ' + esc(m.t) : ''}${m.w === 'g' ? ' · <i>groß</i>' : m.w === '0' ? ' · <i>zählt nicht</i>' : ''}</span><b>${esc(m.n)}</b><button class="btn sm ghost" data-ed="${m.id}" title="ändern">✎</button><button class="btn sm ghost danger" data-del="${m.id}" title="löschen">🗑</button></li>`).join('')}</ul>${M.some(m => m.src) ? '<p class="help">Noten aus PlanPad änderst du in PlanPad; hier nur, wie sie zählen.</p>' : ''}` : '<p class="help">Noch keine.</p>'}
       <h3>${e0 ? 'Note ändern' : 'Neue Note'}</h3>
       <div class="row">${field('Art', artSel(e0?.art))}${field('Datum', `<input type="date" class="m-d" value="${e0?.d || today()}">`)}${field('Note', `<input type="text" class="m-n" maxlength="4" autocomplete="off" autocapitalize="off" value="${esc(e0?.n || '')}" placeholder="${G.pkt ? '0–15' : 'z. B. 2-'}">`)}</div>
       <div class="row">${field('Thema (optional)', `<input type="text" class="m-t" maxlength="120" value="${esc(e0?.t || '')}">`)}${field('Zählt als', wSel(e0?.w))}</div>
       <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">${e0 ? 'Änderung speichern' : 'Note speichern'}</button>${e0 ? '<button class="btn" id="cx">Abbrechen</button>' : ''}</div>`;
-    const art = $('.m-art', d.el), w = $('.m-w', d.el); if (!e0) art.onchange = () => { w.value = wFor(art.value); };
+    const art = $('.m-art', d.el), w = $('.m-w:not([data-ov])', d.el); if (!e0) art.onchange = () => { w.value = wFor(art.value); };
+    d.el.querySelectorAll('[data-ov]').forEach(s => s.onchange = async () => {
+      const id = s.dataset.ov, v = s.value;
+      try { await withBusy('verschlüsselt …', () => saveMarks(H, D, (L, M) => { if (v === 'k') delete M.ov[id]; else M.ov[id] = v; })); draw(); drawClass(H, D); toast('✓ gespeichert'); } catch (er) { $('#err', d.el).textContent = er.message; }
+    });
     d.el.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => { editing = b.dataset.ed; draw(); $('.m-n', d.el).focus(); });
     d.el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
       if (!confirm('Diese Note löschen?')) return; const id = b.dataset.del;
@@ -195,4 +225,55 @@ function personDialog(H, D, i) {
     };
   };
   draw();
+}
+
+/* ---------- PlanPad verbinden ---------- */
+const b64u = s => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function ppDialog(H, D) {
+  const { S, api, dialog, esc, toast, fmtDate, withBusy } = H, c = D.c, name = `${c.name}${c.fach ? ' ' + c.fach : ''}`;
+  const when = t => t ? new Date(t * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const d = dialog('PlanPad verbinden', '<div id="ppd"></div>', { wide: true });
+  const show = code => {
+    $('#ppd', d.el).innerHTML = `
+      ${code ? `<p><b>Verbindungscode für ${esc(name)}</b> – in PlanPad in der Klasse unter ☰ Klasse → „Mit Probe verbinden“ einfügen:</p>
+        <textarea id="ppc" rows="4" readonly class="mono" style="width:100%;font-size:12px">${esc(code)}</textarea>
+        <div class="btns"><button class="btn pri" id="ppcopy">Code kopieren</button></div>
+        <p class="help">Der Code erscheint nur jetzt. Er erlaubt PlanPad nur, Noten in diese Klasse zu <b>schreiben</b> – lesen kann damit niemand etwas.</p>`
+      : D.drop ? `<p>Verbunden seit ${esc(when(D.drop.created))}. ${D.drop.updated ? `Zuletzt empfangen: <b>${esc(when(D.drop.updated))}</b> · ${D.pp?.items?.length ?? 0} Noten.` : 'Aus PlanPad ist noch nichts angekommen.'}</p>`
+      : `<p>PlanPad schickt die <b>Noten mit Notiz, Art und Datum</b> dieser Klasse hierher. Sie erscheinen in der Notentabelle beim passenden Namen.</p>`}
+      <ul class="help" style="margin:8px 0 12px;padding-left:18px">
+        <li>Nur Noten, keine anderen Notizen, Fotos, Sitzpläne oder Beobachtungen.</li>
+        <li>PlanPad verschlüsselt vor dem Senden mit deinem Probe-Schlüssel. Der Server sieht nur Zeitpunkt und Größe.</li>
+        <li>Nur in eine Richtung: Probe schickt nichts an PlanPad. Gesendet wird der jeweils aktuelle Stand (Änderungen und Löschungen in PlanPad kommen mit).</li>
+      </ul>
+      <div class="btns">${D.drop ? '<button class="btn" id="ppnew">Neuen Code erzeugen</button><button class="btn ghost danger" id="ppdel">Verbindung trennen</button>' : '<button class="btn pri" id="ppnew">Verbindungscode erzeugen</button>'}</div>`;
+    if ($('#ppcopy', d.el)) $('#ppcopy', d.el).onclick = async () => { try { await navigator.clipboard.writeText(code); toast('✓ kopiert'); } catch (er) { $('#ppc', d.el).select(); document.execCommand('copy'); toast('✓ kopiert'); } };
+    if ($('#ppnew', d.el)) $('#ppnew', d.el).onclick = async () => {
+      if (D.drop && !confirm('Neuen Code erzeugen? Der bisherige gilt dann nicht mehr – PlanPad muss neu verbunden werden.')) return;
+      try {
+        const r = await withBusy('…', () => api('cl_drop_new', { id: c.id }));
+        const cd = 'PROBE1.' + b64u(JSON.stringify({ v: 1, u: new URL('drop.php', location.href).href, t: r.token, k: S.keys.pub_key, c: name }));
+        D.drop = { created: Math.floor(Date.now() / 1000), updated: null, n: 0 }; D.pp = null; show(cd); drawClass(H, D);
+      } catch (er) { toast('⚠ ' + esc(er.message)); }
+    };
+    if ($('#ppdel', d.el)) $('#ppdel', d.el).onclick = async () => {
+      if (!confirm('Verbindung zu PlanPad trennen? Die übernommenen PlanPad-Noten verschwinden aus der Tabelle.')) return;
+      try { await api('cl_drop_del', { id: c.id }); D.drop = null; D.pp = null; d.close(); drawClass(H, D); toast('Verbindung getrennt'); } catch (er) { toast('⚠ ' + esc(er.message)); }
+    };
+  };
+  show(null);
+}
+/** PlanPad-Namen, die nicht von selbst passen (z. B. Spitznamen), einem Namen der Klasse zuordnen */
+function mapDialog(H, D, G) {
+  const { dialog, esc, toast, withBusy } = H;
+  const opts = `<option value="">– nicht zuordnen –</option>${D.roster.map(r => `<option value="${esc(r.sid)}">${esc(r.n)}, ${esc(r.v)}</option>`).join('')}`;
+  const d = dialog('PlanPad-Namen zuordnen', `<p class="help">Diese Namen aus PlanPad stehen so nicht in der Namensliste der Klasse.</p>
+    <div class="m-list">${G.ppOpen.map((x, i) => `<label class="m-row"><span><b>${esc(x.n || '')}</b>${x.n ? ', ' : ''}${esc(x.v || '')}</span><select data-i="${i}">${opts}</select></label>`).join('')}</div>
+    <div class="err" id="err"></div><button class="btn pri" id="go">Speichern</button>`, { wide: true });
+  $('#go', d.el).onclick = async () => {
+    const set = [...d.el.querySelectorAll('select[data-i]')].filter(s => s.value).map(s => [ppKey(G.ppOpen[+s.dataset.i]), s.value]);
+    if (!set.length) { d.close(); return; }
+    try { await withBusy('verschlüsselt …', () => saveMarks(H, D, (L, M) => { for (const [k, v] of set) M.map[k] = v; })); d.close(); drawClass(H, D); toast(`✓ ${set.length} zugeordnet`); }
+    catch (er) { $('#err', d.el).textContent = er.message; }
+  };
 }
