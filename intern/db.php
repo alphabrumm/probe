@@ -53,8 +53,39 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
+/* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
+const DB_VERSION = 17;     // bei jeder neuen Migration erhöhen
+const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
+function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
+function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
+/** in sich stimmige Kopie (auch bei laufendem Betrieb); Rückgabe: Dateiname oder null */
+function db_snapshot(PDO $pdo, string $why): ?string {
+    $why = preg_replace('~[^a-z0-9-]~', '', strtolower($why)) ?: 'manuell';
+    $name = 'probe-' . date('Y-m-d-His') . "-$why-" . bin2hex(random_bytes(2)) . '.sqlite'; $f = backup_dir() . "/$name";
+    try { $pdo->exec('VACUUM INTO ' . $pdo->quote($f)); }
+    catch (Throwable $e) { // ältere SQLite ohne VACUUM INTO: Protokoll in die Datei übernehmen, dann kopieren
+        try { $pdo->exec('PRAGMA wal_checkpoint(TRUNCATE)'); if (!@copy(data_dir() . '/probe.sqlite', $f)) throw new RuntimeException('Kopieren fehlgeschlagen'); }
+        catch (Throwable $e2) { @unlink($f); backup_log("FEHLER ($why): " . $e->getMessage() . ' / ' . $e2->getMessage()); return null; }
+    }
+    @chmod($f, 0640); backup_log("angelegt $name (" . round(filesize($f) / 1024) . ' KB)');
+    $all = glob(backup_dir() . '/probe-*.sqlite') ?: []; usort($all, fn($a, $b) => filemtime($b) <=> filemtime($a) ?: strcmp($b, $a));
+    foreach (array_slice($all, BACKUP_KEEP) as $old) { @unlink($old); backup_log('gelöscht ' . basename($old) . ' (nur die letzten ' . BACKUP_KEEP . ' bleiben)'); }
+    return $name;
+}
+
+/** Datenbank auf den neuesten Stand bringen: vorher eine Sicherung, dann alles in einer Transaktion (ganz oder gar nicht) */
 function migrate(PDO $pdo): void {
     $v = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
+    if ($v >= DB_VERSION) return;
+    if ($v > 0) db_snapshot($pdo, "vor-v$v-auf-v" . DB_VERSION);
+    $pdo->exec('BEGIN IMMEDIATE'); // ein zweiter gleichzeitiger Aufruf wartet und findet dann den neuen Stand vor
+    try {
+        $v = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
+        if ($v < DB_VERSION) migrate_steps($pdo, $v);
+        $pdo->exec('COMMIT');
+    } catch (Throwable $e) { $pdo->exec('ROLLBACK'); throw $e; }
+}
+function migrate_steps(PDO $pdo, int $v): void {
     if ($v < 1) {
         $pdo->exec(<<<SQL
         CREATE TABLE users (
@@ -302,6 +333,8 @@ function migrate(PDO $pdo): void {
     if ($v < 17) { // Einstellungen je Lehrkraft (welche Bereiche im Menü stehen, PlanPad-Kopplung) – nichts Personenbezogenes über SuS
         $pdo->exec(<<<SQL
         ALTER TABLE users ADD COLUMN prefs TEXT;
+        UPDATE users SET prefs = '{"notizen":' || CASE WHEN EXISTS (SELECT 1 FROM talks t WHERE t.owner_id = users.id) THEN 'true' ELSE 'false' END
+            || ',"umfragen":' || CASE WHEN EXISTS (SELECT 1 FROM surveys s WHERE s.owner_id = users.id) THEN 'true' ELSE 'false' END || '}'; -- wer sie schon nutzt, behält sie im Menü
         PRAGMA user_version = 17;
         SQL);
     }

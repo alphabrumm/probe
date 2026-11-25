@@ -84,6 +84,14 @@ Ein Coaching speichert eine Kopie der Vorlage (`coachings.rspec/gspec`) – spä
 Vorlagen enthalten nur Fragen (Klartext, Tabelle `ctemplates`); Hinweistexte werden vor dem Anzeigen bereinigt. Skala, Auswahl
 und Raster gehen in die Statistik ein, Fragen mit „Weitergabe“ in die Übergabe, die Einwilligung bleibt `weitergabe`.
 
+## Datenbank-Sicherungen
+
+`db_snapshot()` (`intern/db.php`) legt mit `VACUUM INTO` eine in sich stimmige Kopie unter `data/sicherungen/` ab
+(gesperrt wie `data/`): automatisch, bevor ein Update die Datenbank umbaut (`DB_VERSION`; die Migration selbst läuft dann in
+einer Transaktion), und von Hand unter Admin → „Sicherungen“. Es bleiben die letzten 10. Download nur für Admins, jeder
+Download steht im Protokoll (`sicherungen/protokoll.log`). Wiederherstellen: Datei per FTP als `data/probe.sqlite`
+zurückspielen (vorher `probe.sqlite-wal` und `-shm` entfernen).
+
 ## Menü für Einsteiger
 
 PathFinder, Notizen, Umfragen und die PlanPad-Kopplung sind zunächst ausgeblendet; jede Lehrkraft schaltet sie im

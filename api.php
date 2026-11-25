@@ -482,6 +482,22 @@ case 'security_check': { // liegt die Datenbank geschützt? (Die Oberfläche ver
 }
 
 /* ---------- Prüfungen der Lehrkraft ---------- */
+/* ---------- Admin: Datenbank-Sicherungen ---------- */
+case 'bk_list': {
+    admin(); $L = [];
+    foreach (glob(backup_dir() . '/probe-*.sqlite') ?: [] as $f) $L[] = ['name' => basename($f), 'size' => filesize($f), 'time' => filemtime($f)];
+    usort($L, fn($a, $b) => $b['time'] <=> $a['time'] ?: strcmp($b['name'], $a['name']));
+    $log = @file(backup_dir() . '/protokoll.log', FILE_IGNORE_NEW_LINES) ?: [];
+    out(['backups' => $L, 'keep' => BACKUP_KEEP, 'log' => array_slice(array_reverse($log), 0, 15)]);
+}
+case 'bk_create': { $u = admin(); $n = db_snapshot(db(), 'manuell-' . preg_replace('~[^a-z0-9]~', '', strtolower($u['kuerzel']))); if (!$n) fail('Sicherung fehlgeschlagen (siehe Protokoll)', 500); out(['name' => $n]); }
+case 'bk_download': { // nur Admins; jeder Download wird protokolliert
+    $u = admin(); $n = basename(str($in, 'name', 120));
+    if (!preg_match('~^probe-[0-9a-z-]+\.sqlite$~', $n) || !is_file($f = backup_dir() . "/$n")) fail('Sicherung nicht gefunden', 404);
+    backup_log("heruntergeladen $n von {$u['kuerzel']}");
+    header('Content-Type: application/vnd.sqlite3'); header('Content-Disposition: attachment; filename="' . $n . '"'); header('Content-Length: ' . filesize($f));
+    readfile($f); exit;
+}
 case 'set_prefs': {
     $u = teacher(); $in = (array)($in['prefs'] ?? []); $p = prefs_of($u);
     foreach (PREFS as $k) if (array_key_exists($k, $in)) $p[$k] = (bool)$in[$k];

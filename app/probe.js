@@ -573,7 +573,7 @@ let adminTab = 'lk';
 async function viewAdmin() {
   let D; try { D = await api('admin_list'); } catch (e) { main.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const FS = Object.fromEntries(D.fachschaften.map(f => [f.id, f]));
-  const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['si', 'Sicherheit']];
+  const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['bk', 'Sicherungen'], ['si', 'Sicherheit']];
   let h = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Admin</h1><p class="sub">Lehrkräfte, Fachschaften und Fächer. Prüfungsinhalte und Schülernamen sieht der Admin nicht.</p>
     <div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" aria-pressed="${adminTab === k}">${n}</button>`).join('')}</div><section class="card">`;
   if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn" data-umany id="umany" disabled>🔑 Passwörter zurücksetzen</button><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th style="width:2.2em"><input type="checkbox" id="uall" aria-label="alle auswählen" title="alle auswählen"></th><th>Nutzername</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
@@ -592,11 +592,23 @@ async function viewAdmin() {
     <label class="ck"><input type="checkbox" id="pcr"> auch die anonymisierten Auswertungen der Schulberatung</label>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-cpurge>Coaching-Daten aller Lehrkräfte löschen</button></div>`;
   if (adminTab === 'si') h += `<h2>Sicherheit</h2><div id="sec">wird geprüft …</div>`;
+  if (adminTab === 'bk') h += `<div class="bar"><h2 style="margin:0">Datenbank-Sicherungen</h2><span class="sp"></span><button class="btn pri" data-bknew>Jetzt sichern</button></div>
+    <p class="help">Vollständige Kopie der Datenbank auf dem Webspace (im gesperrten Datenordner unter <code>sicherungen/</code>). Probe sichert außerdem automatisch, bevor ein Update die Datenbank umbaut. Die letzten Sicherungen bleiben, ältere werden gelöscht.
+    Inhalte (Prüfungen, Namenslisten, Noten, Coaching, Notizen) sind darin genauso verschlüsselt wie in Probe; lesbar sind Kürzel, Klassen- und Fachnamen und Termine. Jeder Download wird protokolliert – heruntergeladene Dateien bitte sicher aufbewahren und nach Gebrauch löschen.</p><div id="bk">wird geladen …</div>`;
   main.innerHTML = h + '</section>';
   main.onclick = async ev => {
     const t = ev.target.closest('button'); if (!t) return;
     const d = t.dataset;
     if (d.tab) { adminTab = d.tab; viewAdmin(); return; }
+    if (d.bknew != null) { try { const r = await withBusy('wird gesichert …', () => api('bk_create')); toast('✓ Sicherung angelegt'); backups(); } catch (e) { toast('⚠ ' + esc(e.message)); } return; }
+    if (d.bkget) {
+      try {
+        const r = await withBusy('wird geladen …', () => fetch('api.php', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Probe-CSRF': S.csrf || '' }, body: JSON.stringify({ a: 'bk_download', name: d.bkget }) }));
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Download fehlgeschlagen');
+        const url = URL.createObjectURL(await r.blob()), a = document.createElement('a'); a.href = url; a.download = d.bkget; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000); backups();
+      } catch (e) { toast('⚠ ' + esc(e.message)); }
+      return;
+    }
     if (d.arch != null) return importArchive(helpers());
     if (d.uadd != null || d.uedit) return userForm(D, d.uedit ? D.users.find(u => u.id === +d.uedit) : null);
     if (d.umany != null) return resetMany(D, $$('[data-usel]').filter(x => x.checked).map(x => +x.dataset.usel));
@@ -627,6 +639,17 @@ async function viewAdmin() {
     }
     if (t.dataset.faakt) { const f = D.faecher.find(x => x.id === +t.dataset.faakt); await api('fach_save', { id: f.id, name: f.name, aktiv: t.checked ? 1 : 0 }); f.aktiv = t.checked ? 1 : 0; S.catalog = null; } };
   if (adminTab === 'si') securityCheck();
+  if (adminTab === 'bk') backups();
+}
+async function backups() {
+  const box = $('#bk'); if (!box) return; let r;
+  try { r = await api('bk_list'); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const kb = n => n > 1048576 ? (n / 1048576).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+  const why = n => /-vor-v/.test(n) ? 'automatisch vor Update' : /-manuell/.test(n) ? 'von Hand' : '';
+  box.innerHTML = (r.backups.length ? `<div class="scroll-x"><table class="t"><tr><th>Zeitpunkt</th><th>Anlass</th><th>Größe</th><th></th></tr>
+    ${r.backups.map(b => `<tr><td>${esc(new Date(b.time * 1000).toLocaleString('de-DE'))}</td><td>${esc(why(b.name))}</td><td>${kb(b.size)}</td><td><button class="btn sm" data-bkget="${esc(b.name)}">⤓ Herunterladen</button></td></tr>`).join('')}</table></div>
+    <p class="help">Es bleiben die letzten ${r.keep} Sicherungen.</p>` : '<p class="help">Noch keine Sicherung.</p>')
+    + (r.log.length ? `<details><summary>Protokoll</summary><pre class="help" style="white-space:pre-wrap">${esc(r.log.join('\n'))}</pre></details>` : '');
 }
 async function securityCheck() {
   const box = $('#sec'); let r, direct = 0;
