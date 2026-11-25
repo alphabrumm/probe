@@ -84,6 +84,12 @@ Ein Coaching speichert eine Kopie der Vorlage (`coachings.rspec/gspec`) – spä
 Vorlagen enthalten nur Fragen (Klartext, Tabelle `ctemplates`); Hinweistexte werden vor dem Anzeigen bereinigt. Skala, Auswahl
 und Raster gehen in die Statistik ein, Fragen mit „Weitergabe“ in die Übergabe, die Einwilligung bleibt `weitergabe`.
 
+## Menü für Einsteiger
+
+PathFinder, Notizen, Umfragen und die PlanPad-Kopplung sind zunächst ausgeblendet; jede Lehrkraft schaltet sie im
+Konto-Menü (Kürzel ▾ oben rechts) unter „Im Menü anzeigen“ ein (`users.prefs`, Aktion `set_prefs`). Eine schon
+verbundene Klasse zeigt PlanPad weiter an.
+
 ## Klassen
 
 Unter **Prüfungen** legt die Lehrkraft Klassen an (Name, optional Fach, Namensliste eintippen oder Klassenliste einlesen).

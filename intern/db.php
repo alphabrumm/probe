@@ -299,4 +299,10 @@ function migrate(PDO $pdo): void {
         PRAGMA user_version = 16;
         SQL);
     }
+    if ($v < 17) { // Einstellungen je Lehrkraft (welche Bereiche im Menü stehen, PlanPad-Kopplung) – nichts Personenbezogenes über SuS
+        $pdo->exec(<<<SQL
+        ALTER TABLE users ADD COLUMN prefs TEXT;
+        PRAGMA user_version = 17;
+        SQL);
+    }
 }

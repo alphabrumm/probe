@@ -68,9 +68,10 @@ function drawNav() {
   const h = location.hash.replace(/^#/, '') || '/';
   const on = /^\/k\//.test(h) ? 'p' : /^\/resp/.test(h) ? 'r' : /^\/(notizen|gespraeche)/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
   const a = (k, href, t, extra = '') => `<a href="${href}"${on === k ? ' class="on" aria-current="page"' : ''}>${t}${extra}</a>`, sep = '<span class="nsep" aria-hidden="true"></span>';
-  n.innerHTML = `<a href="https://pathfinder.pandapy.de" target="_blank" rel="noopener" title="PathFinder in neuem Tab öffnen">PathFinder</a>${sep}
-    ${a('p', '#/', 'Prüfungen')}${S.user.fachleitung?.length ? a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '') : ''}${sep}
-    ${a('g', '#/notizen', 'Notizen')}${sep}${a('u', '#/umfragen', 'Umfragen')}
+  const P = S.user.prefs || {}; // PathFinder, Notizen, Umfragen nur, wenn im Konto-Menü eingeschaltet
+  n.innerHTML = [P.pathfinder && '<a href="https://pathfinder.pandapy.de" target="_blank" rel="noopener" title="PathFinder in neuem Tab öffnen">PathFinder</a>',
+    a('p', '#/', 'Prüfungen') + (S.user.fachleitung?.length ? a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '') : ''),
+    (P.notizen || on === 'g') && a('g', '#/notizen', 'Notizen'), (P.umfragen || on === 'u') && a('u', '#/umfragen', 'Umfragen')].filter(Boolean).join(sep) + `
     <span class="nsp"></span>${S.user.is_berater || S.user.is_demo ? a('b', '#/berater', 'Schulberatung') + sep : ''}${a('c', '#/coaching', 'Coaching', '<img class="lumi" src="app/lumi.gif" alt="">')}`;
   const cur = $('a.on', n); if (cur && n.scrollWidth > n.clientWidth) n.scrollLeft = cur.offsetLeft - (n.clientWidth - cur.offsetWidth) / 2; // iPhone: aktiven Bereich zeigen
 }
@@ -82,7 +83,16 @@ function drawWho() {
   $('#bDemoEnd') && ($('#bDemoEnd').onclick = endDemo);
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
+      <fieldset class="prefs"><legend>Im Menü anzeigen</legend>
+        ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
+          ['planpad', 'PlanPad-Kopplung', 'Noten aus PlanPad (Sitzplan- und Unterrichtsmanager) automatisch in die Klassen von Probe übernehmen – verschlüsselt, nur in eine Richtung']]
+          .map(([k, t, h]) => `<label class="pref"><input type="checkbox" data-pref="${k}"${S.user.prefs?.[k] ? ' checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}
+      </fieldset>
       <div class="btns"><button class="btn" data-fa>Meine Fächer</button>${S.user.is_demo ? '' : '<button class="btn" data-pw>Passwort ändern</button>'}<button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
+    d.el.querySelectorAll('[data-pref]').forEach(c => c.onchange = async () => {
+      try { S.user.prefs = (await api('set_prefs', { prefs: { [c.dataset.pref]: c.checked } })).prefs; drawNav(); if (c.dataset.pref === 'planpad' && /^#\/k\//.test(location.hash)) route(); }
+      catch (er) { c.checked = !c.checked; toast('⚠ ' + esc(er.message)); }
+    });
     d.el.onclick = async e => {
       if (e.target.closest('[data-out]')) { await api('logout').catch(() => { }); S.user = null; S.priv = null; S.csrf = ''; d.close(); location.hash = '#/'; boot(); }
       if (e.target.closest('[data-pw]')) { d.close(); changePassword(); }

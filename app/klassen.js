@@ -135,7 +135,7 @@ function drawClass(H, D) {
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
     <h1>${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(c.schuljahr)} · ${roster.length} Schüler:innen · ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'} <span class="c-lock">🔒 Namen und Noten nur für dich lesbar</span></p>
     <div class="bar"><button class="btn pri" id="kx">＋ Neue Prüfung</button><span class="sp"></span><button class="btn" id="ked">✎ Klasse bearbeiten</button><button class="btn ghost danger" id="kdel">🗑</button></div>
-    <section class="card"><div class="bar"><h2 style="margin:0">Noten</h2>${roster.length ? '<button class="btn sm" id="kmk">＋ Noten eintragen</button>' : ''}<button class="btn sm${D.drop ? ' pp-on' : ''}" id="kpp" title="Noten mit Notizen aus PlanPad übernehmen">${D.drop ? `⇄ PlanPad${D.pp?.items ? ` · ${D.pp.items.length}` : ''}` : '⇄ PlanPad verbinden'}</button><span class="sp"></span><span class="help">Ø groß : klein = ${gw} : 1</span></div>
+    <section class="card"><div class="bar"><h2 style="margin:0">Noten</h2>${roster.length ? '<button class="btn sm" id="kmk">＋ Noten eintragen</button>' : ''}${D.drop || S.user.prefs?.planpad ? `<button class="btn sm${D.drop ? ' pp-on' : ''}" id="kpp" title="Noten mit Notizen aus PlanPad übernehmen">${D.drop ? `⇄ PlanPad${D.pp?.items ? ` · ${D.pp.items.length}` : ''}` : '⇄ PlanPad verbinden'}</button>` : ''}<span class="sp"></span><span class="help">Ø groß : klein = ${gw} : 1</span></div>
       ${!roster.length ? '<p class="help">Noch keine Namen – über „Klasse bearbeiten“ eintragen oder die Klassenliste einlesen.</p>'
         : `<div class="scroll-x"><table class="k-tab"><tr><th>Name</th>${cols.map(head).join('')}${arts.map(a => `<th class="k-man" title="${esc(a)} (eigene Noten)">${esc(MKURZ[a])}</th>`).join('')}<th class="k-avg">Ø groß</th><th class="k-avg">Ø klein</th><th class="k-avg">Gesamt</th></tr>
         ${roster.map((r, i) => `<tr><td class="k-who" data-i="${i}" title="Noten von ${esc(r.v)} ${esc(r.n)} ansehen und eintragen"><b>${esc(r.n)}</b>, ${esc(r.v)}</td>${cols.map(e => `<td>${val(e, cell[i][e.id])}</td>`).join('')}${arts.map(a => `<td class="k-man" data-i="${i}">${man[i].filter(m => m.art === a).map(mk).join(' ') || '<span class="help">·</span>'}</td>`).join('')}<td class="k-avg">${fmt(G.avgG(i))}</td><td class="k-avg">${fmt(G.avgK(i))}</td><td class="k-avg"><b>${fmt(G.total(i))}</b></td></tr>`).join('')}
@@ -151,7 +151,7 @@ function drawClass(H, D) {
   $('#kx').onclick = () => H.examForm(null, { ...c, roster });
   $('#ked').onclick = () => classForm(H, D);
   if ($('#kmk')) $('#kmk').onclick = () => massDialog(H, D, G);
-  $('#kpp').onclick = () => ppDialog(H, D);
+  if ($('#kpp')) $('#kpp').onclick = () => ppDialog(H, D);
   if ($('#kmap')) $('#kmap').onclick = () => mapDialog(H, D, G);
   main.querySelectorAll('.k-who, td.k-man').forEach(td => td.onclick = () => personDialog(H, D, +td.dataset.i));
   $('#kdel').onclick = async () => {

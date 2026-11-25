@@ -314,3 +314,9 @@ input.bad { border-color: var(--danger, #c33) !important; background: var(--bads
 .m-ul li span { flex: 1; } .m-ul li b { min-width: 2.2em; text-align: center; font-size: 17px; } .m-ul li.on { background: var(--surface-2); }
 .k-mk.pp { color: var(--a1); } .btn.pp-on { border-color: var(--a1); color: var(--a1); }
 .m-ul li select.m-w.sm { width: auto; padding: 4px 6px; font-size: 13px; }
+/* Konto-Menü: Bereiche ein-/ausblenden */
+fieldset.prefs { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 12px 0; }
+fieldset.prefs legend { font-weight: 700; font-size: 14px; padding: 0 6px; color: var(--ink-2); }
+label.pref { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; margin: 0; }
+label.pref input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+label.pref span { display: flex; flex-direction: column; font-weight: 400; } label.pref small { color: var(--ink-2); font-size: 13px; line-height: 1.35; }
