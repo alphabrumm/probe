@@ -71,19 +71,17 @@ export async function viewCoachingList(H) {
   const { S, api, main, esc } = H;
   main.innerHTML = tabsHtml('c', S) + '<p class="help">lädt …</p>';
   let L; try { L = (await api('c_list')).coachings; } catch (e) { main.innerHTML = tabsHtml('c', S) + `<p class="err">${esc(e.message)}</p>`; return; }
-  let CL = []; try { CL = (await api('cl_list')).classes; } catch (e) { }
   if (S.user.is_demo && !L.length && !S.cDemo) { S.cDemo = true; try { await createExample(H, true); L = (await api('c_list')).coachings; } catch (e) { H.toast('⚠ ' + esc(e.message)); } }
   const old = L.filter(c => Date.now() >= sjEnd(c.schuljahr));
   const bySj = {}; for (const c of L) (bySj[c.schuljahr] = bySj[c.schuljahr] || []).push(c);
   main.innerHTML = `${tabsHtml('c', S)}<h1>Lerncoaching</h1><p class="sub">Selbstreflexion vor dem Gespräch, Gesprächsnotizen und Klassenüberblick – nur du kannst sie lesen.</p>
     ${old.length ? `<div class="c-hint"><b>⏰ Schuljahr vorbei:</b> ${old.length} Coaching${old.length === 1 ? '' : 's'} aus ${[...new Set(old.map(c => c.schuljahr))].join(', ')}. Bitte verschlüsselt exportieren oder löschen – Probe löscht nichts von selbst. <button class="btn sm" data-hint>Jetzt erledigen</button></div>` : ''}
-    <div class="bar"><button class="btn pri" id="neu">＋ Neues Coaching</button>${CL.length ? `<span class="fl" style="align-items:center"><span class="help">Aus meinen Klassen:</span>${CL.map(c => `<button class="btn sm" data-ncl="${c.id}" title="Coaching mit Klasse und Namensliste anlegen">＋ ${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</button>`).join('')}</span>` : ''}<button class="btn" id="open">📂 Datei öffnen</button><span class="sp"></span><button class="btn sm ghost" id="demo" title="Erfundene Klasse mit Beispielantworten zum Ausprobieren">Demo-Coaching anlegen</button></div>
+    <div class="bar"><button class="btn pri" id="neu">＋ Neues Coaching</button><button class="btn" id="open">📂 Datei öffnen</button><span class="sp"></span><button class="btn sm ghost" id="demo" title="Erfundene Klasse mit Beispielantworten zum Ausprobieren">Demo-Coaching anlegen</button></div>
     ${L.length ? Object.keys(bySj).sort().reverse().map(sj => `<div class="klasse"><h2>${esc(sj)}</h2></div><div class="tiles">${bySj[sj].map(c => `<a class="tile" href="#/c/${c.id}">
       <span class="k">Klasse ${esc(c.klasse)}</span><span class="t">${esc(c.titel || 'Lerncoaching')}</span><span class="m">${esc(tplOf(c, 'r')?.label || c.vorlage)}</span>
       <span class="s"><span class="chip ${c.n_subs ? 'good' : ''}">📝 ${c.n_subs}/${c.roster_n} Fragebögen</span><span class="chip ${c.n_done ? 'good' : ''}">💬 ${c.n_done}/${c.roster_n} Gespräche</span>${c.open ? '' : '<span class="chip">geschlossen</span>'}${c.reported ? '<span class="chip good">✓ an Schulberatung</span>' : ''}${c.exported ? '<span class="chip">⇩ exportiert</span>' : ''}</span></a>`).join('')}</div>`).join('')
       : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch kein Coaching</h2><p>Lege ein Coaching für deine Klasse an: Klassenliste einfügen, persönliche QR-Codes drucken – die Kinder füllen vor dem Gespräch ihre Selbstreflexion aus.</p></div>`}`;
   $('#neu').onclick = () => coachingForm(H, null);
-  main.querySelectorAll('[data-ncl]').forEach(b => b.onclick = () => coachingForm(H, null, +b.dataset.ncl));
   $('#open').onclick = () => openFile(H);
   $('#demo').onclick = () => createExample(H);
   $('[data-hint]', main) && ($('[data-hint]', main).onclick = () => yearEndDialog(H, old));
