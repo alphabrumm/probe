@@ -25,8 +25,8 @@ export function markVal(s, pkt) {
   return /^[1-6](\.\d{1,2})?$/.test(s) && +s <= 6 ? +s : null;
 }
 async function openMarks(H, enc) {
-  const { S, K } = H; if (!enc) return { v: 1, e: [], map: {}, ov: {} }; const m = await K.open(S.priv, enc);
-  return { v: 1, e: Array.isArray(m?.e) ? m.e : [], map: m?.map && typeof m.map === 'object' ? m.map : {}, ov: m?.ov && typeof m.ov === 'object' ? m.ov : {} };
+  const { S, K } = H; if (!enc) return { v: 1, e: [], map: {}, ov: {}, cols: [] }; const m = await K.open(S.priv, enc);
+  return { v: 1, e: Array.isArray(m?.e) ? m.e : [], map: m?.map && typeof m.map === 'object' ? m.map : {}, ov: m?.ov && typeof m.ov === 'object' ? m.ov : {}, cols: Array.isArray(m?.cols) ? m.cols : [] };
 }
 /* ---------- PlanPad: Noten mit Notiz, Art und Datum kommen verschlüsselt über die Ablage (drop.php) ---------- */
 const PP_ART = { beitrag: 'Unterrichtsbeitrag', beobachtung: 'Beobachtung', 'präsentation': 'Referat', referat: 'Referat', abfrage: 'Abfrage', projekt: 'Projekt' };
@@ -75,7 +75,7 @@ export async function loadClass(H, id) {
     roster = keepSids([], roster); const c = r.class;
     try { await api('cl_save', { id: c.id, name: c.name, fach_id: c.fach_id || 0, gewicht: c.gewicht, roster_enc: await K.seal(S.keys.pub_key, roster), roster_n: roster.length }); } catch (er) { }
   }
-  let marks = { v: 1, e: [], map: {}, ov: {} }; try { marks = await openMarks(H, r.marks_enc); } catch (er) { }
+  let marks = { v: 1, e: [], map: {}, ov: {}, cols: [] }; try { marks = await openMarks(H, r.marks_enc); } catch (er) { }
   let pp = null; try { if (r.drop?.data_enc) pp = await K.open(S.priv, r.drop.data_enc); } catch (er) { pp = { error: true, items: [] }; }
   for (const e of r.exams) { try { e.notes = e.notes_enc ? await K.open(S.priv, e.notes_enc) : null; } catch (er) { e.notes = null; } delete e.notes_enc; }
   return { c: r.class, roster, exams: r.exams, marks, rev: r.marks_rev || 0, drop: r.drop, pp };
@@ -126,15 +126,19 @@ function gradeModel(D) {
   const man = roster.map(() => []), lost = [];
   const PP = ppMarks(D);
   for (const m of [...D.marks.e, ...PP.list].sort((a, b) => (a.d || '').localeCompare(b.d || ''))) { const i = bySid.get(m.sid); if (i == null) lost.push(m); else man[i].push(m); }
-  const arts = MART.map(a => a[0]).filter(a => man.some(L => L.some(m => m.art === a)));
+  const arts = MART.map(a => a[0]).filter(a => man.some(L => L.some(m => m.art === a && !m.c)));
+  const imp = (D.marks.cols || []).slice().sort((a, b) => (a.d || '').localeCompare(b.d || '')), icell = man.map(L => Object.fromEntries(L.filter(m => m.c).map(m => [m.c, m])));
+  const order = [...cols.map(e => ({ e, d: e.datum })), ...imp.map(c => ({ c, d: c.d }))].sort((a, b) => (a.d || '').localeCompare(b.d || ''));
   const vals = (i, w, set) => [...cols.filter(e => set.has(e.art)).map(e => cell[i][e.id]?.note), ...man[i].filter(m => m.w === w).map(m => markVal(m.n, pkt))].filter(x => x != null);
   const avgG = i => mean(vals(i, 'g', GROSS)), avgK = i => mean(vals(i, 'k', KLEIN));
   const total = i => { const g = avgG(i), k = avgK(i); return g == null ? k : k == null ? g : (gw * g + k) / (gw + 1); };
-  return { gw, cols, cell, extra, skalen, pkt, man, lost, arts, avgG, avgK, total, PP };
+  return { gw, cols, cell, extra, skalen, pkt, man, lost, arts, avgG, avgK, total, PP, imp, icell, order };
 }
 function drawClass(H, D) {
   const { S, main, esc, api, toast, fmtDate } = H;
   const { c, roster, exams } = D, G = gradeModel(D), { gw, cols, cell, extra, skalen, pkt, man, arts } = G;
+  const ihead = c => `<th class="k-ex k-imp"><button type="button" data-ic="${esc(c.id)}" title="${esc(`${c.t} vom ${fmtDate(c.d)} · ${c.w === 'g' ? 'großer' : 'kleiner'} Leistungsnachweis – antippen zum Bearbeiten`)}"${c.w === 'g' ? ' class="g"' : ''}>${esc(c.t.length > 12 ? c.t.slice(0, 11) + '…' : c.t)}<br><span>${esc(short(c.d))}</span></button></th>`;
+  const ival = (c, m) => m ? `<b>${esc(m.n)}</b>` : '<span class="help">–</span>';
   const head = e => `<th class="k-ex"><a href="#/p/${e.id}" title="${esc(`${e.art} ${e.fach} vom ${fmtDate(e.datum)}${e.titel ? ' – ' + e.titel : ''}`)}">${esc(KURZ[e.art] || e.art)}<br><span>${esc(short(e.datum))}</span></a></th>`;
   const val = (e, x) => !e.notes ? (['beendet', 'veroeffentlicht'].includes(e.status) ? '<span class="help" title="Auswertung öffnen, dann erscheinen die Noten">?</span>' : '<span class="help">·</span>') : x ? `<b>${x.note}</b>${x.pending ? '<sup title="noch nicht alles bewertet">*</sup>' : ''}` : '<span class="help">–</span>';
   const mk = m => `<span class="k-mk${m.w === 'g' ? ' g' : m.w === '0' ? ' o' : ''}${m.src ? ' pp' : ''}" title="${esc(`${m.art} ${fmtDate(m.d)}${m.t ? ' – ' + m.t : ''}${m.w === 'g' ? ' (groß)' : m.w === '0' ? ' (zählt nicht)' : ''}${m.src ? ' · aus PlanPad' : ''}`)}">${esc(m.n)}</span>`;
@@ -142,11 +146,11 @@ function drawClass(H, D) {
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
     <h1>${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(c.schuljahr)} · ${roster.length} Schüler:innen · ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'} <span class="c-lock">🔒 Namen und Noten nur für dich lesbar</span></p>
     <div class="bar"><button class="btn pri" id="kx">＋ Neue Prüfung</button><span class="sp"></span><button class="btn" id="ked">✎ Klasse bearbeiten</button><button class="btn ghost danger" id="kdel">🗑</button></div>
-    <section class="card"><div class="bar"><h2 style="margin:0">Noten</h2>${roster.length ? '<button class="btn sm" id="kmk">＋ Noten eintragen</button>' : ''}${D.drop || S.user.prefs?.planpad ? `<button class="btn sm${D.drop ? ' pp-on' : ''}" id="kpp" title="Noten mit Notizen aus PlanPad übernehmen">${D.drop ? `⇄ PlanPad${D.pp?.items ? ` · ${D.pp.items.length}` : ''}` : '⇄ PlanPad verbinden'}</button>` : ''}<span class="sp"></span><span class="help">Ø groß : klein = ${gw} : 1</span></div>
+    <section class="card"><div class="bar"><h2 style="margin:0">Noten</h2>${roster.length ? '<button class="btn sm" id="kmk">＋ Noten eintragen</button><button class="btn sm" id="kimp" title="Ergebnisse eines Leistungsnachweises als CSV (Nachname, Vorname, Note)">⤒ Noten importieren</button>' : ''}${D.drop || S.user.prefs?.planpad ? `<button class="btn sm${D.drop ? ' pp-on' : ''}" id="kpp" title="Noten mit Notizen aus PlanPad übernehmen">${D.drop ? `⇄ PlanPad${D.pp?.items ? ` · ${D.pp.items.length}` : ''}` : '⇄ PlanPad verbinden'}</button>` : ''}<span class="sp"></span><span class="help">Ø groß : klein = ${gw} : 1</span></div>
       ${!roster.length ? '<p class="help">Noch keine Namen – über „Klasse bearbeiten“ eintragen oder die Klassenliste einlesen.</p>'
-        : `<div class="scroll-x"><table class="k-tab"><tr><th>Name</th>${cols.map(head).join('')}${arts.map(a => `<th class="k-man" title="${esc(a)} (eigene Noten)">${esc(MKURZ[a])}</th>`).join('')}<th class="k-avg">Ø groß</th><th class="k-avg">Ø klein</th><th class="k-avg">Gesamt</th></tr>
-        ${roster.map((r, i) => `<tr><td class="k-who" data-i="${i}" title="Noten von ${esc(r.v)} ${esc(r.n)} ansehen und eintragen"><b>${esc(r.n)}</b>, ${esc(r.v)}</td>${cols.map(e => `<td>${val(e, cell[i][e.id])}</td>`).join('')}${arts.map(a => `<td class="k-man" data-i="${i}">${man[i].filter(m => m.art === a).map(mk).join(' ') || '<span class="help">·</span>'}</td>`).join('')}<td class="k-avg">${fmt(G.avgG(i))}</td><td class="k-avg">${fmt(G.avgK(i))}</td><td class="k-avg"><b>${fmt(G.total(i))}</b></td></tr>`).join('')}
-        <tr class="k-foot"><td>Klassen-Ø</td>${cols.map(e => `<td>${e.notes ? fmt(mean(e.notes.rows.map(x => x.note).filter(x => x != null)), 1) : ''}</td>`).join('')}${arts.map(a => `<td>${fmt(mean(man.flatMap(L => L.filter(m => m.art === a && m.w !== '0').map(m => markVal(m.n, pkt))).filter(x => x != null)), 1)}</td>`).join('')}<td class="k-avg"></td><td class="k-avg"></td><td class="k-avg">${fmt(mean(roster.map((_, i) => G.total(i)).filter(x => x != null)))}</td></tr></table></div>
+        : `<div class="scroll-x"><table class="k-tab"><tr><th>Name</th>${G.order.map(o => o.e ? head(o.e) : ihead(o.c)).join('')}${arts.map(a => `<th class="k-man" title="${esc(a)} (eigene Noten)">${esc(MKURZ[a])}</th>`).join('')}<th class="k-avg">Ø groß</th><th class="k-avg">Ø klein</th><th class="k-avg">Gesamt</th></tr>
+        ${roster.map((r, i) => `<tr><td class="k-who" data-i="${i}" title="Noten von ${esc(r.v)} ${esc(r.n)} ansehen und eintragen"><b>${esc(r.n)}</b>, ${esc(r.v)}</td>${G.order.map(o => o.e ? `<td>${val(o.e, cell[i][o.e.id])}</td>` : `<td>${ival(o.c, G.icell[i][o.c.id])}</td>`).join('')}${arts.map(a => `<td class="k-man" data-i="${i}">${man[i].filter(m => m.art === a && !m.c).map(mk).join(' ') || '<span class="help">·</span>'}</td>`).join('')}<td class="k-avg">${fmt(G.avgG(i))}</td><td class="k-avg">${fmt(G.avgK(i))}</td><td class="k-avg"><b>${fmt(G.total(i))}</b></td></tr>`).join('')}
+        <tr class="k-foot"><td>Klassen-Ø</td>${G.order.map(o => o.e ? `<td>${o.e.notes ? fmt(mean(o.e.notes.rows.map(x => x.note).filter(x => x != null)), 1) : ''}</td>` : `<td>${fmt(mean(G.icell.map(r => markVal(r[o.c.id]?.n, pkt)).filter(x => x != null)), 1)}</td>`).join('')}${arts.map(a => `<td>${fmt(mean(man.flatMap(L => L.filter(m => m.art === a && m.w !== '0').map(m => markVal(m.n, pkt))).filter(x => x != null)), 1)}</td>`).join('')}<td class="k-avg"></td><td class="k-avg"></td><td class="k-avg">${fmt(mean(roster.map((_, i) => G.total(i)).filter(x => x != null)))}</td></tr></table></div>
         <p class="help">Auf einen Namen tippen: alle Noten dieser Person, eigene Noten eintragen oder ändern. ${pkt ? 'Notenpunkte 0–15. ' : skalen.size > 1 ? '⚠ Noten und Notenpunkte gemischt – Durchschnitte nur bedingt sinnvoll. ' : 'Tendenzen zählen ±0,25 (2- = 2,25). '}„–“ nicht teilgenommen · „·“ noch nicht ausgewertet · „?“ ausgewertet, aber die Noten fehlen noch: Auswertung einmal öffnen${pend.length ? ` (${pend.map(e => `<a href="#/p/${e.id}">${esc(KURZ[e.art] || e.art)} ${esc(short(e.datum))}</a>`).join(', ')})` : ''} · * noch nicht alles bewertet · Übungsprüfungen zählen nicht · <span class="k-mk g">fett</span> groß, <span class="k-mk o">grau</span> zählt nicht${D.drop ? ', <span class="k-mk pp">blau</span> aus PlanPad' : ''}.</p>
         ${extra.length ? `<p class="help">⚠ Nicht in der Namensliste: ${extra.map(x => `${esc(x.row.v)} ${esc(x.row.n)} (${esc(KURZ[x.e.art] || x.e.art)} ${esc(short(x.e.datum))}: ${x.row.note})`).join(', ')} – Name in der Auswertung zuordnen oder in der Klasse ergänzen.</p>` : ''}
         ${D.pp?.items ? `<div class="pp-info${G.PP.odd ? ' odd' : ''}">
@@ -162,6 +166,8 @@ function drawClass(H, D) {
   $('#kx').onclick = () => H.examForm(null, { ...c, roster });
   $('#ked').onclick = () => classForm(H, D);
   if ($('#kmk')) $('#kmk').onclick = () => massDialog(H, D, G);
+  if ($('#kimp')) $('#kimp').onclick = () => importDialog(H, D, G);
+  main.querySelectorAll('[data-ic]').forEach(b => b.onclick = () => colDialog(H, D, G, D.marks.cols.find(c => c.id === b.dataset.ic)));
   if ($('#kpp')) $('#kpp').onclick = () => ppDialog(H, D);
   if ($('#kmap')) $('#kmap').onclick = () => mapDialog(H, D, G);
   if ($('#kppoff')) $('#kppoff').onclick = () => ppDialog(H, D);
@@ -211,7 +217,7 @@ function personDialog(H, D, i) {
       <p class="sub" style="margin-top:0">Ø groß <b>${fmt(G.avgG(i))}</b> · Ø klein <b>${fmt(G.avgK(i))}</b> · Gesamt <b>${fmt(G.total(i))}</b></p>
       ${ex.length ? `<h3>Prüfungen</h3><ul class="m-ul">${ex.map(e => `<li><span>${esc(e.art)} · ${esc(fmtDate(e.datum))}${e.titel ? ' · ' + esc(e.titel) : ''}</span><b>${G.cell[i][e.id].note}</b></li>`).join('')}</ul>` : ''}
       <h3>Eigene Noten</h3>
-      ${M.length ? `<ul class="m-ul">${M.map(m => m.src ? `<li><span>${esc(m.art)} · ${esc(fmtDate(m.d))}${m.t ? ' · ' + esc(m.t) : ''} <small class="chip">PlanPad</small>${markVal(m.n, G.pkt) == null ? ' <i>(keine Note erkannt)</i>' : ''}</span><b>${esc(m.n)}</b>${wSel(m.w).replace('class="m-w"', `class="m-w sm" data-ov="${m.id}" title="zählt als"`).replace('kleiner Leistungsnachweis', 'klein').replace('großer Leistungsnachweis', 'groß').replace('zählt nicht (nur Notiz)', 'zählt nicht')}</li>`
+      ${M.length ? `<ul class="m-ul">${M.map(m => m.c ? `<li><span>${esc((D.marks.cols.find(c => c.id === m.c) || {}).t || 'Leistungsnachweis')} · ${esc(fmtDate(m.d))} · <i>${m.w === 'g' ? 'groß' : 'klein'}</i> <small class="chip">Spalte</small></span><b>${esc(m.n)}</b></li>` : m.src ? `<li><span>${esc(m.art)} · ${esc(fmtDate(m.d))}${m.t ? ' · ' + esc(m.t) : ''} <small class="chip">PlanPad</small>${markVal(m.n, G.pkt) == null ? ' <i>(keine Note erkannt)</i>' : ''}</span><b>${esc(m.n)}</b>${wSel(m.w).replace('class="m-w"', `class="m-w sm" data-ov="${m.id}" title="zählt als"`).replace('kleiner Leistungsnachweis', 'klein').replace('großer Leistungsnachweis', 'groß').replace('zählt nicht (nur Notiz)', 'zählt nicht')}</li>`
         : `<li${m.id === editing ? ' class="on"' : ''}><span>${esc(m.art)} · ${esc(fmtDate(m.d))}${m.t ? ' · ' + esc(m.t) : ''}${m.w === 'g' ? ' · <i>groß</i>' : m.w === '0' ? ' · <i>zählt nicht</i>' : ''}</span><b>${esc(m.n)}</b><button class="btn sm ghost" data-ed="${m.id}" title="ändern">✎</button><button class="btn sm ghost danger" data-del="${m.id}" title="löschen">🗑</button></li>`).join('')}</ul>${M.some(m => m.src) ? '<p class="help">Noten aus PlanPad änderst du in PlanPad; hier nur, wie sie zählen.</p>' : ''}` : '<p class="help">Noch keine.</p>'}
       <h3>${e0 ? 'Note ändern' : 'Neue Note'}</h3>
       <div class="row">${field('Art', artSel(e0?.art))}${field('Datum', `<input type="date" class="m-d" value="${e0?.d || today()}">`)}${field('Note', `<input type="text" class="m-n" maxlength="4" autocomplete="off" autocapitalize="off" value="${esc(e0?.n || '')}" placeholder="${G.pkt ? '0–15' : 'z. B. 2-'}">`)}</div>
@@ -289,5 +295,83 @@ function mapDialog(H, D, G) {
     if (!set.length) { d.close(); return; }
     try { await withBusy('verschlüsselt …', () => saveMarks(H, D, (L, M) => { for (const [k, v] of set) { if (v == null) delete M.map[k]; else M.map[k] = v; } })); d.close(); drawClass(H, D); toast('✓ Zuordnung gespeichert'); }
     catch (er) { $('#err', d.el).textContent = er.message; }
+  };
+}
+
+/* ---------- Leistungsnachweis als eigene Spalte: CSV importieren (Nachname, Vorname, Note) oder von Hand ---------- */
+/** CSV/Text → [{n, v, g}]: Trennzeichen ; Tab oder , – Kopfzeile wird erkannt; „2,5“ in Komma-Dateien wird wieder zusammengesetzt */
+export function parseGradeCsv(text) {
+  const lines = String(text || '').replace(/^﻿/, '').split(/\r?\n/).map(l => l.trim()).filter(Boolean); if (!lines.length) return [];
+  const sep = [';', '\t', ','].find(s => lines.slice(0, 5).every(l => l.includes(s))) || ';';
+  const cells = l => { const out = []; let cur = '', q = false; for (const ch of l) { if (ch === '"') q = !q; else if (ch === sep && !q) { out.push(cur.trim()); cur = ''; } else cur += ch; } out.push(cur.trim()); return out; };
+  let rows = lines.map(cells), iN = 0, iV = 1, iG = 2;
+  const h = rows[0].map(x => x.toLowerCase());
+  if (h.some(x => /name|note|punkte/.test(x))) {
+    const f = re => h.findIndex(x => re.test(x));
+    iV = f(/vorname|rufname/); iN = f(/nachname|familienname|^name$|schüler/); iG = f(/note|punkte|ergebnis/);
+    if (iN < 0) iN = 0; if (iV < 0) iV = iN === 0 ? 1 : 0; if (iG < 0) iG = h.length - 1; rows = rows.slice(1);
+  }
+  return rows.map(r => {
+    let g = r[iG] ?? '';
+    if (sep === ',' && r.length === iG + 2 && /^[0-6]$/.test(r[iG] || '') && /^\d{1,2}$/.test(r[iG + 1] || '')) g = `${r[iG]},${r[iG + 1]}`; // 2,5 ohne Anführungszeichen
+    return { n: r[iN] || '', v: r[iV] || '', g: String(g).trim() };
+  }).filter(x => x.n || x.v);
+}
+function importDialog(H, D, G) {
+  const { dialog, esc, field, pickFile } = H;
+  const d = dialog('Noten importieren', `
+    ${field('Titel der Arbeit', '<input type="text" id="it" maxlength="60" placeholder="z. B. AKL Kräftegleichgewicht">')}
+    <div class="row">${field('Art', '<select id="iw"><option value="k">kleiner Leistungsnachweis</option><option value="g">großer Leistungsnachweis</option></select>')}${field('Geschrieben am', `<input type="date" id="id" value="${today()}">`)}</div>
+    ${field('Noten als CSV', '<textarea id="ic" rows="6" placeholder="Nachname;Vorname;Note – je Zeile (auch mit Komma oder Tab getrennt)"></textarea>', 'Datei wählen oder Inhalt einfügen. Eine Kopfzeile (Nachname, Vorname, Note) wird erkannt.')}
+    <div class="btns" style="margin:-4px 0 10px"><button class="btn sm" id="ifile">⤒ CSV-Datei wählen</button></div>
+    <div class="err" id="err"></div><button class="btn pri" id="go">Weiter: Zuordnung prüfen</button>`, { wide: true });
+  $('#ifile', d.el).onclick = () => pickFile('.csv,.txt,text/csv,text/plain', async f => { $('#ic', d.el).value = await f.text(); });
+  $('#go', d.el).onclick = () => {
+    const t = $('#it', d.el).value.trim(), rows = parseGradeCsv($('#ic', d.el).value);
+    if (!t) { $('#err', d.el).textContent = 'Bitte einen Titel eintragen.'; $('#it', d.el).focus(); return; }
+    if (!rows.length) { $('#err', d.el).textContent = 'In der CSV wurden keine Zeilen erkannt (Nachname, Vorname, Note).'; return; }
+    d.close(); colDialog(H, D, G, null, { t, w: $('#iw', d.el).value, d: $('#id', d.el).value || today(), rows });
+  };
+}
+/** Spalte bearbeiten (col) oder neu aus dem Import (imp): Kopf, je Name eine Note; Zuordnung der CSV-Zeilen sichtbar und korrigierbar */
+async function colDialog(H, D, G, col, imp) {
+  const { dialog, esc, field, toast, withBusy } = H, { roster } = D;
+  const val = roster.map(r => col ? (D.marks.e.find(m => m.c === col.id && m.sid === r.sid)?.n || '') : ''), from = roster.map(() => null), rest = [];
+  if (imp) {
+    const { matchRoster } = await import('./names.js');
+    const people = imp.rows.map((x, k) => ({ id: k, v: x.v, n: x.n })), M = matchRoster(roster, people);
+    imp.rows.forEach((x, k) => { const hit = M.byPerson.get(k); if (hit) { val[hit.idx] = x.g; from[hit.idx] = hit.exact ? null : `${x.n}, ${x.v}`; } else rest.push(x); });
+  }
+  const C = col || imp, n = imp ? imp.rows.length - rest.length : 0, fuzzy = from.filter(Boolean).length;
+  const opts = `<option value="">– zuordnen zu … –</option>${roster.map((r, i) => `<option value="${i}">${esc(r.n)}, ${esc(r.v)}</option>`).join('')}`;
+  const d = dialog(col ? 'Leistungsnachweis bearbeiten' : 'Import prüfen', `
+    ${field('Titel', `<input type="text" id="ct" maxlength="60" value="${esc(C.t)}">`)}
+    <div class="row">${field('Art', `<select id="cw"><option value="k"${C.w !== 'g' ? ' selected' : ''}>kleiner Leistungsnachweis</option><option value="g"${C.w === 'g' ? ' selected' : ''}>großer Leistungsnachweis</option></select>`)}${field('Geschrieben am', `<input type="date" id="cd" value="${esc(C.d)}">`)}</div>
+    ${imp ? `<p class="${rest.length || fuzzy ? 'warnbox' : 'help'}">${n} von ${imp.rows.length} Zeilen zugeordnet${fuzzy ? ` · <b>${fuzzy} nicht ganz gleich geschrieben</b> (gelb – bitte prüfen)` : ''}${rest.length ? ` · <b>${rest.length} ohne Treffer</b> (unten)` : ''}.</p>` : ''}
+    ${rest.length ? `<p style="margin:8px 0 2px"><b>Ohne Treffer in der Klasse</b> – zuordnen oder weglassen:</p><div class="m-list m-rest">${rest.map((x, k) => `<label class="m-row"><span>${esc(x.n)}, ${esc(x.v)}: <b>${esc(x.g)}</b></span><select data-rest="${k}">${opts}</select></label>`).join('')}</div>` : ''}
+    <div class="m-list">${roster.map((r, i) => `<label class="m-row${from[i] ? ' fuzzy' : ''}"${from[i] ? ` title="aus der CSV: ${esc(from[i])}"` : ''}><span><b>${esc(r.n)}</b>, ${esc(r.v)}${from[i] ? ` <small>(CSV: ${esc(from[i])})</small>` : ''}</span><input type="text" class="m-n" data-i="${i}" maxlength="4" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="–" value="${esc(val[i])}"></label>`).join('')}</div>
+    <p class="help">${G.pkt ? 'Notenpunkte 0–15.' : 'Noten 1–6, auch 2-, 3+ oder 2,5.'} Leer = nicht mitgeschrieben.</p>
+    <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">${col ? 'Speichern' : 'Spalte anlegen'}</button>${col ? '<button class="btn ghost danger" id="cdel">Spalte löschen</button>' : ''}</div>`, { wide: true });
+  d.el.querySelectorAll('[data-rest]').forEach(s => s.onchange = () => { if (s.value === '') return; const inp = d.el.querySelector(`.m-n[data-i="${s.value}"]`); inp.value = rest[+s.dataset.rest].g; inp.closest('.m-row').classList.add('fuzzy'); });
+  d.el.querySelectorAll('.m-n').forEach(inp => inp.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); const nx = d.el.querySelector(`.m-n[data-i="${+inp.dataset.i + 1}"]`); (nx || $('#go', d.el)).focus(); } });
+  if ($('#cdel', d.el)) $('#cdel', d.el).onclick = async () => {
+    if (!confirm(`Spalte „${col.t}“ mit allen ihren Noten löschen?`)) return;
+    try { await withBusy('verschlüsselt …', () => saveMarks(H, D, (L, M) => { M.cols = (M.cols || []).filter(c => c.id !== col.id); for (let k = L.length - 1; k >= 0; k--) if (L[k].c === col.id) L.splice(k, 1); })); d.close(); drawClass(H, D); toast('🗑 Spalte gelöscht'); }
+    catch (er) { $('#err', d.el).textContent = er.message; }
+  };
+  $('#go', d.el).onclick = async () => {
+    const t = $('#ct', d.el).value.trim(), w = $('#cw', d.el).value, dt = $('#cd', d.el).value || today(), add = [], bad = [];
+    if (!t) { $('#err', d.el).textContent = 'Bitte einen Titel eintragen.'; return; }
+    const id = col?.id || newId();
+    d.el.querySelectorAll('.m-n').forEach(inp => { inp.classList.remove('bad'); const v = inp.value.trim(); if (!v) return; if (markVal(v, G.pkt) == null) { inp.classList.add('bad'); bad.push(inp); return; } add.push({ id: newId(), c: id, sid: roster[+inp.dataset.i].sid, art: 'Leistungsnachweis', d: dt, n: v.replace('.', ','), t, w }); });
+    if (bad.length) { $('#err', d.el).textContent = bad.length === 1 ? 'Eine Eingabe ist keine gültige Note.' : `${bad.length} Eingaben sind keine gültigen Noten.`; bad[0].focus(); return; }
+    if (!add.length) { $('#err', d.el).textContent = 'Noch keine Note eingetragen.'; return; }
+    try {
+      await withBusy('verschlüsselt …', () => saveMarks(H, D, (L, M) => {
+        M.cols = (M.cols || []).filter(c => c.id !== id); M.cols.push({ id, t, w, d: dt });
+        for (let k = L.length - 1; k >= 0; k--) if (L[k].c === id) L.splice(k, 1); L.push(...add);
+      }));
+      d.close(); drawClass(H, D); toast(`✓ ${t}: ${add.length} Note${add.length === 1 ? '' : 'n'} ${col ? 'gespeichert' : 'übernommen'}`);
+    } catch (er) { $('#err', d.el).textContent = er.message; }
   };
 }

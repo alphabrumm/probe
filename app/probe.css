@@ -323,3 +323,9 @@ label.pref span { display: flex; flex-direction: column; font-weight: 400; } lab
 .pp-info { margin: 12px 0 4px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; }
 .pp-info p { margin: 0 0 6px; } .pp-info.odd { background: var(--bads); border: 1px solid var(--danger, #c33); }
 .pp-map .m-row { align-items: center; } .pp-map .m-row span { white-space: normal; } .pp-map select { max-width: 52%; }
+/* Klassen: importierte Leistungsnachweise als Spalte */
+.k-tab th.k-imp button { all: unset; cursor: pointer; color: var(--a1); font: inherit; font-weight: 700; } .k-tab th.k-imp button span { font-weight: 400; }
+.k-tab th.k-imp button.g { text-decoration: underline; }
+.m-row.fuzzy { background: var(--a2s, #fff4d6); border-radius: 6px; padding-left: 6px; } .m-row small { color: var(--ink-2); }
+.warnbox { background: var(--a2s, #fff4d6); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
+.m-rest .m-row span { white-space: normal; }

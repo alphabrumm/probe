@@ -112,6 +112,9 @@ einmal, Tipp auf einen Namen für eine Person (ändern, löschen). Jede Note zä
 standardmäßig nicht); Tendenzen ±0,25. Gespeichert als ein verschlüsselter Block je Klasse (`classes.marks_enc`, Einträge
 `{id, sid, art, d, n, t, w}`); `marks_rev` verhindert, dass zwei Geräte sich überschreiben (der Browser wendet seine Änderung
 auf den neuen Stand an).
+**Noten importieren** (CSV mit Nachname, Vorname, Note; `;`, Tab oder `,`, Kopfzeile wird erkannt): Titel, klein/groß, Datum →
+„Import prüfen“ zeigt je Name die Note (unscharfe Treffer gelb, Zeilen ohne Treffer zum Zuordnen) → eigene Spalte
+(`marks.cols` `{id, t, w, d}`, Einträge mit `c`). Spaltenkopf antippen: Titel, Art, Datum, Noten ändern oder Spalte löschen.
 **PlanPad** (`drop.php`, Tabelle `drops`): „⇄ PlanPad verbinden“ erzeugt einen Code (`PROBE1.` + Base64url von
 `{v, u: …/drop.php, t: Token, k: öffentlicher Schlüssel, c: Klasse}`), der nur einmal angezeigt wird; der Server speichert nur
 den Hash des Tokens. PlanPad schickt damit den ganzen Stand seiner Noten der Klasse (Datum, Note, Art, Unterrichtsnotiz,
