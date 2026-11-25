@@ -26,8 +26,9 @@ export async function loadClass(H, id) {
 /* ---------- Anlegen und Bearbeiten ---------- */
 export async function classForm(H, D, preset = {}) {
   const { S, api, K, dialog, esc, field, toast, withBusy, parseNames, pickFile } = H, c = D?.c;
-  const C = await api('catalog'), F = C.faecher || [];
+  const C = await api('catalog'), F = [...(C.faecher || [])];
   const names = (D?.roster || preset.roster || []).map(r => `${r.n}, ${r.v}`).join('\n'), fid = c?.fach_id ?? preset.fach_id ?? '';
+  const fname = c?.fach || preset.fach; if (fid && fname && !F.some(f => +f.id === +fid)) F.push({ id: fid, name: fname }); // Fach, das nicht (mehr) unter „Meine Fächer“ steht
   const d = dialog(c ? 'Klasse bearbeiten' : 'Neue Klasse', `
     <div class="row">${field('Klasse', `<input type="text" id="cn" value="${esc(c?.name || preset.name || '')}" placeholder="z. B. 8b" maxlength="20" autocapitalize="off">`)}
     ${field('Fach (optional)', `<select id="cf"><option value="">– alle Fächer –</option>${F.map(f => `<option value="${f.id}"${+f.id === +fid ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`, 'Unterrichtest du die Klasse in zwei Fächern, lege sie zweimal an.')}</div>
@@ -67,7 +68,7 @@ export async function viewClass(H, id) {
   const val = (e, x) => !e.notes ? (['beendet', 'veroeffentlicht'].includes(e.status) ? '<span class="help" title="Auswertung öffnen, dann erscheinen die Noten">?</span>' : '<span class="help">·</span>') : x ? `<b>${x.note}</b>${x.pending ? '<sup title="noch nicht alles bewertet">*</sup>' : ''}` : '<span class="help">–</span>';
   const pend = cols.filter(e => !e.notes && ['beendet', 'veroeffentlicht'].includes(e.status));
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
-    <h1>${esc(c.name)}${c.fach ? ' · ' + esc(c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(c.schuljahr)} · ${roster.length} Schüler:innen · ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'} <span class="c-lock">🔒 Namen und Noten nur für dich lesbar</span></p>
+    <h1>${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(c.schuljahr)} · ${roster.length} Schüler:innen · ${exams.length} Prüfung${exams.length === 1 ? '' : 'en'} <span class="c-lock">🔒 Namen und Noten nur für dich lesbar</span></p>
     <div class="bar"><button class="btn pri" id="kx">＋ Neue Prüfung</button><span class="sp"></span><button class="btn" id="ked">✎ Klasse bearbeiten</button><button class="btn ghost danger" id="kdel">🗑</button></div>
     <section class="card"><div class="bar"><h2 style="margin:0">Noten</h2><span class="sp"></span><span class="help">Ø groß : klein = ${gw} : 1</span></div>
       ${!roster.length ? '<p class="help">Noch keine Namen – über „Klasse bearbeiten“ eintragen oder die Klassenliste einlesen.</p>'

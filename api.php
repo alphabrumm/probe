@@ -121,6 +121,11 @@ function exam_meta(array $e): array {
 }
 /* Klassen */
 function own_class(array $u, int $id): array { $st = db()->prepare('SELECT * FROM classes WHERE id = ? AND owner_id = ?'); $st->execute([$id, $u['id']]); return $st->fetch() ?: fail('Klasse nicht gefunden', 404); }
+/** passende Klasse zu Klassenname + Fach im Schuljahr: zuerst mit gleichem Fach, sonst eine Klasse ohne Fach */
+function class_for(array $u, string $sj, string $klasse, int $fid): ?array {
+    $st = db()->prepare('SELECT * FROM classes WHERE owner_id = ? AND schuljahr = ? AND name = ? COLLATE NOCASE AND (fach_id = ? OR fach_id IS NULL) ORDER BY (fach_id IS NULL), id LIMIT 1');
+    $st->execute([$u['id'], $sj, trim($klasse), $fid]); return $st->fetch() ?: null;
+}
 function class_meta(array $c): array {
     $n = db()->prepare('SELECT COUNT(*) FROM exams WHERE class_id = ?'); $n->execute([$c['id']]);
     return ['id' => (int)$c['id'], 'schuljahr' => $c['schuljahr'], 'name' => $c['name'], 'fach_id' => $c['fach_id'] ? (int)$c['fach_id'] : null, 'fach' => $c['fach'],
@@ -600,10 +605,20 @@ case 'exam_save': { // Rahmenbedingungen anlegen oder ändern
     $skala = ($in['skala'] ?? '') === 'punkte' ? 'punkte' : 'noten';
     $v = [$klasse, $fid, $fach, $datum, $art, max(0, min(200, (int)($in['erwartet'] ?? 0))), max(0, min(600, (int)($in['dauer'] ?? 0))), !empty($in['pin_on']) ? 1 : 0, $skala, schuljahr($datum), time()];
     $cid = (int)($in['class_id'] ?? 0); if ($cid) own_class($u, $cid);
-    if ($id) { own_exam($u, $id); $pdo->prepare('UPDATE exams SET klasse=?, fach_id=?, fach=?, datum=?, art=?, erwartet=?, dauer=?, pin_on=?, skala=?, schuljahr=?, updated=? WHERE id=?')->execute([...$v, $id]);
-        if (array_key_exists('class_id', $in)) $pdo->prepare('UPDATE exams SET class_id = ? WHERE id = ?')->execute([$cid ?: null, $id]); }
+    if ($id) { own_exam($u, $id); $pdo->prepare('UPDATE exams SET klasse=?, fach_id=?, fach=?, datum=?, art=?, erwartet=?, dauer=?, pin_on=?, skala=?, schuljahr=?, updated=? WHERE id=?')->execute([...$v, $id]); }
     else { $pdo->prepare('INSERT INTO exams (klasse, fach_id, fach, datum, art, erwartet, dauer, pin_on, skala, schuljahr, updated, owner_id, created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([...$v, $u['id'], time()]); $id = (int)$pdo->lastInsertId(); }
-    if ($cid) $pdo->prepare('UPDATE exams SET class_id = ? WHERE id = ?')->execute([$cid, $id]);
+    // Klasse: ausdrücklich gewählt, sonst die Klasse mit gleichem Namen und Fach (passt die bisherige nicht mehr, neu zuordnen)
+    $e = own_exam($u, $id);
+    if (!$cid) {
+        $cur = $e['class_id'] ? db()->query('SELECT * FROM classes WHERE id = ' . (int)$e['class_id'])->fetch() : null;
+        $fits = $cur && $cur['schuljahr'] === $e['schuljahr'] && mb_strtolower(trim($cur['name'])) === mb_strtolower(trim($klasse)) && (!$cur['fach_id'] || (int)$cur['fach_id'] === $fid);
+        $cid = $fits ? (int)$cur['id'] : (int)(class_for($u, $e['schuljahr'], $klasse, $fid)['id'] ?? 0);
+    }
+    $pdo->prepare('UPDATE exams SET class_id = ? WHERE id = ?')->execute([$cid ?: null, $id]);
+    if ($cid && !$e['roster_enc']) { // Namensliste der Klasse übernehmen (beides für dieselbe Lehrkraft verschlüsselt)
+        $c = own_class($u, $cid);
+        if ($c['roster_enc']) $pdo->prepare('UPDATE exams SET roster_enc = ?, roster_n = ?, erwartet = CASE WHEN erwartet = 0 THEN ? ELSE erwartet END WHERE id = ?')->execute([$c['roster_enc'], $c['roster_n'], $c['roster_n'], $id]);
+    }
     out(['exam' => exam_meta(own_exam($u, $id))]);
 }
 /* ---------- Klassen: Lerngruppen der Lehrkraft (Name im Klartext wie bei Prüfungen, Namensliste verschlüsselt) ---------- */

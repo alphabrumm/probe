@@ -300,14 +300,15 @@ async function viewDashboard() {
   try { C = await catalog(); [L, CL] = await Promise.all([api('exam_list', { schuljahr: S.sj }).then(r => r.exams), api('cl_list', { schuljahr: S.sj }).then(r => r.classes)]); } catch (e) { main.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   // Prüfungen nach Klassen: angelegte Klassen zuerst (mit Noten), dann Prüfungen ohne Klasse nach Klassenname
   const inC = new Map(CL.map(c => [c.id, []])), loose = {};
-  for (const e of L) if (e.class_id && inC.has(e.class_id)) inC.get(e.class_id).push(e); else (loose[e.klasse] = loose[e.klasse] || []).push(e);
+  const gk = e => `${e.klasse}\u0000${e.fach}`; // ohne Klasse: nach Klassenname und Fach
+  for (const e of L) if (e.class_id && inC.has(e.class_id)) inC.get(e.class_id).push(e); else (loose[gk(e)] = loose[gk(e)] || []).push(e);
   const sortK = (a, b) => a.localeCompare(b, 'de', { numeric: true });
   const tile = e => `<a class="tile" href="#/p/${e.id}"><button class="tdel" data-tdel="${e.id}" title="Prüfung löschen" aria-label="Prüfung löschen">🗑</button><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`;
   const n = k => `${k} Prüfung${k === 1 ? '' : 'en'}`;
-  const cls = CL.slice().sort((a, b) => sortK(a.name, b.name) || sortK(a.fach, b.fach)).map(c => `<div class="klasse"><h2><a href="#/k/${c.id}">${esc(c.name)}${c.fach ? ` <span class="help">${esc(c.fach)}</span>` : ''}</a></h2><span class="help">${c.roster_n} Schüler:innen · ${n(inC.get(c.id).length)}</span><span class="sp"></span><a class="btn sm" href="#/k/${c.id}">📊 Noten</a><button class="btn sm" data-cx="${c.id}">＋ Prüfung</button></div>
+  const cls = CL.slice().sort((a, b) => sortK(a.name, b.name) || sortK(a.fach, b.fach)).map(c => `<div class="klasse"><h2><a href="#/k/${c.id}">${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</a></h2><span class="help">${c.roster_n} Schüler:innen · ${n(inC.get(c.id).length)}</span><span class="sp"></span><a class="btn sm" href="#/k/${c.id}">📊 Noten</a><button class="btn sm" data-cx="${c.id}">＋ Prüfung</button></div>
     ${inC.get(c.id).length ? `<div class="tiles">${inC.get(c.id).map(tile).join('')}</div>` : '<p class="help" style="margin:0 0 8px">Noch keine Prüfung.</p>'}`).join('');
   const lk = Object.keys(loose).sort(sortK);
-  const rest = lk.map(k => `<div class="klasse"><h2>${esc(k)}</h2><span class="help">${n(loose[k].length)} · ohne Klasse</span><span class="sp"></span><button class="btn sm ghost" data-mk="${esc(k)}">＋ Als Klasse anlegen</button></div><div class="tiles">${loose[k].map(tile).join('')}</div>`).join('');
+  const rest = lk.map((k, ki) => `<div class="klasse"><h2>${esc(k.replace('\u0000', ' '))}</h2><span class="help">${n(loose[k].length)} · ohne Klasse</span><span class="sp"></span><button class="btn sm ghost" data-mk="${ki}">＋ Als Klasse anlegen</button></div><div class="tiles">${loose[k].map(tile).join('')}</div>`).join('');
   main.innerHTML = `${tabsHtml('p', S)}<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
     <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn" id="neuk">＋ Neue Klasse</button><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
     ${CL.length || lk.length ? cls + rest
@@ -320,10 +321,10 @@ async function viewDashboard() {
     if (cx) { try { const D = await loadClass(helpers(), +cx.dataset.cx); examForm(null, { ...D.c, roster: D.roster }); } catch (er) { toast('⚠ ' + esc(er.message)); } return; }
     const mk = ev.target.closest('[data-mk]');
     if (mk) { // Klasse aus vorhandenen Prüfungen: Namensliste der jüngsten Prüfung mit Liste übernehmen
-      const G = loose[mk.dataset.mk] || [], src = G.filter(e => e.roster_n).sort((a, b) => b.datum.localeCompare(a.datum))[0];
+      const G = loose[lk[+mk.dataset.mk]] || [], src = G.filter(e => e.roster_n).sort((a, b) => b.datum.localeCompare(a.datum))[0];
       let roster = []; if (src) { try { roster = (await loadExam(src.id)).roster.map(r => ({ n: r.n, v: r.v })); } catch (er) { } }
       const fids = [...new Set(G.map(e => e.fach_id))];
-      classForm(helpers(), null, { name: mk.dataset.mk, fach_id: fids.length === 1 ? fids[0] : '', roster }); return;
+      classForm(helpers(), null, { name: G[0]?.klasse || '', fach_id: fids.length === 1 ? fids[0] : '', fach: fids.length === 1 ? G[0].fach : '', roster }); return;
     }
     const b = ev.target.closest('[data-tdel]'); if (!b) return;
     ev.preventDefault(); ev.stopPropagation();
@@ -346,6 +347,7 @@ async function examForm(e, cls = null) {
   const C = await catalog();
   const klassen = [...new Set((await api('exam_list', { schuljahr: S.sj })).exams.map(x => x.klasse))];
   const F = [...C.faecher]; if (e?.fach_id && !F.some(f => +f.id === +e.fach_id)) F.push({ id: e.fach_id, name: e.fach });
+  if (cls?.fach_id && !F.some(f => +f.id === +cls.fach_id)) F.push({ id: cls.fach_id, name: cls.fach });
   const v = e || { klasse: cls?.name || '', fach_id: cls?.fach_id || F[0]?.id, datum: new Date().toISOString().slice(0, 10), art: 'AKL', erwartet: 0, dauer: 20, pin_on: true, skala: 'noten' };
   const d = dialog(e ? 'Rahmenbedingungen' : cls ? `Neue Prüfung · ${esc(cls.name)}` : 'Neue Prüfung', `
     ${cls ? `<p class="help">Die Namensliste der Klasse (${cls.roster?.length || 0} Schüler:innen) wird übernommen.</p>` : ''}
@@ -364,7 +366,6 @@ async function examForm(e, cls = null) {
       const r = await api('exam_save', data); d.close(); S.catalog = null;
       if (e) { toast('✓ gespeichert'); viewExam(e.id); }
       else {
-        if (cls?.roster?.length) await api('exam_roster', { id: r.exam.id, roster_enc: await K.seal(S.keys.pub_key, cls.roster.map(x => ({ n: x.n, v: x.v, sid: x.sid }))), roster_n: cls.roster.length });
         S.sj = r.exam.schuljahr; location.hash = '#/p/' + r.exam.id; openEditor(r.exam, null);
       }
     } catch (er) { $('#err', d.el).textContent = er.message; }
