@@ -1,0 +1,3 @@
+/* Probe – Farbschema „Weiß“ (nur Farben; Symbol: themes/weiss.svg) */
+:root { --top-bg: #ffffff; --top-ink: #1f3fa8; --top-ink-2: #5d6684; --top-sep: color-mix(in srgb, #5d6684 45%, transparent); --top-line: color-mix(in srgb, #5d6684 30%, transparent); --top-hover: #eef1fa; --top-on: #1f3fa8; --top-on-ink: #ffffff; --a1: #1f3fa8; --a1s: #e0e6f8; --bg: #f7f8fc;  }
+@media (prefers-color-scheme: dark) { :root { --top-bg: #181d33; --top-ink: #ffffff; --top-ink-2: #a9b0cc; --top-sep: color-mix(in srgb, #a9b0cc 45%, transparent); --top-line: color-mix(in srgb, #a9b0cc 30%, transparent); --top-hover: #20263f; --top-on: #9fb2ff; --top-on-ink: #0e1222; --a1: #9fb2ff; --a1s: #263063;  } }

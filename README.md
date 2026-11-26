@@ -92,6 +92,12 @@ einer Transaktion), und von Hand unter Admin → „Sicherungen“. Es bleiben d
 Download steht im Protokoll (`sicherungen/protokoll.log`). Wiederherstellen: Datei per FTP als `data/probe.sqlite`
 zurückspielen (vorher `probe.sqlite-wal` und `-shm` entfernen).
 
+## Farbschemata
+
+Konto-Menü → „Farbe“: Standard und sechs Schemata (`app/themes/<name>.css` setzen nur Farb-Variablen, auch für Kopfleiste
+und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung und Tab). Gespeichert am Konto
+(`prefs.theme`); `app/theme-boot.js` merkt sich nur den Namen auf dem Gerät, damit beim Laden nichts aufflackert.
+
 ## Menü für Einsteiger
 
 PathFinder, Notizen, Umfragen und die PlanPad-Kopplung sind zunächst ausgeblendet; jede Lehrkraft schaltet sie im

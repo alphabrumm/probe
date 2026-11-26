@@ -89,7 +89,8 @@ function ufields(array $u): array {
         'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'is_demo' => (bool)$u['is_demo'], 'is_berater' => (bool)($u['is_berater'] ?? 0), 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id']), 'prefs' => prefs_of($u)];
 }
 const PREFS = ['pathfinder', 'notizen', 'umfragen', 'planpad']; // alle zunächst aus: Neue sehen nur Prüfungen und Coaching
-function prefs_of(array $u): array { $p = json_decode((string)($u['prefs'] ?? ''), true) ?: []; $o = []; foreach (PREFS as $k) $o[$k] = !empty($p[$k]); return $o; }
+const THEMES = ['nacht', 'blau', 'weiss', 'gold', 'gelb', 'sepia']; // Farbschemata (app/themes/), leer = Standard
+function prefs_of(array $u): array { $p = json_decode((string)($u['prefs'] ?? ''), true) ?: []; $o = []; foreach (PREFS as $k) $o[$k] = !empty($p[$k]); $o['theme'] = in_array($p['theme'] ?? '', THEMES, true) ? $p['theme'] : ''; return $o; }
 function user_faecher(int $id): array {
     $st = db()->prepare('SELECT fach_id FROM user_faecher WHERE user_id = ?'); $st->execute([$id]);
     return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
@@ -501,6 +502,7 @@ case 'bk_download': { // nur Admins; jeder Download wird protokolliert
 case 'set_prefs': {
     $u = teacher(); $in = (array)($in['prefs'] ?? []); $p = prefs_of($u);
     foreach (PREFS as $k) if (array_key_exists($k, $in)) $p[$k] = (bool)$in[$k];
+    if (array_key_exists('theme', $in)) $p['theme'] = in_array($in['theme'], THEMES, true) ? $in['theme'] : '';
     db()->prepare('UPDATE users SET prefs = ? WHERE id = ?')->execute([json_encode($p), $u['id']]); out(['prefs' => $p]);
 }
 case 'my_faecher': { // Lehrkraft ergänzt oder ändert die eigenen Fächer

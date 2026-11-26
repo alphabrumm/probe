@@ -18,8 +18,8 @@ a { color: var(--a1); }
 [hidden] { display: none !important; }
 
 /* Kopf */
-.top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--ink); }
+.top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); background: var(--top-bg, color-mix(in srgb, var(--surface) 92%, transparent)); backdrop-filter: blur(10px); border-bottom: 1px solid var(--top-line, var(--line)); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--top-ink, var(--ink)); }
 .brand img { width: 34px; height: 34px; border-radius: 0; }
 /* Schriftzug „probe“ in der runden Systemschrift (wie die Lumi-Coaching-App): auf iPad, iPhone und Mac SF Pro Rounded,
    sonst eine runde oder die normale Systemschrift – keine Schriftdatei, kein Abruf von außen */
@@ -273,10 +273,10 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 /* Menüband: Bereiche oben (PathFinder | Prüfungen Respizienz | Gespräche | Umfragen … Coaching mit Eule Lumi) */
 #topnav { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; margin-left: 10px; }
 #topnav:empty { visibility: hidden; }
-#topnav a { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 9px; color: var(--ink-2); font-weight: 700; font-size: 15px; text-decoration: none; white-space: nowrap; }
-#topnav a:hover { background: var(--surface-2); color: var(--ink); }
-#topnav a.on { background: var(--a1s); color: var(--a1); }
-#topnav .nsep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; flex: none; }
+#topnav a { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 9px; color: var(--top-ink-2, var(--ink-2)); font-weight: 700; font-size: 15px; text-decoration: none; white-space: nowrap; }
+#topnav a:hover { background: var(--top-hover, var(--surface-2)); color: var(--top-ink, var(--ink)); }
+#topnav a.on { background: var(--top-on, var(--a1s)); color: var(--top-on-ink, var(--a1)); }
+#topnav .nsep { width: 1px; height: 20px; background: var(--top-sep, var(--line)); margin: 0 6px; flex: none; }
 #topnav .nsp { flex: 1; min-width: 8px; }
 #topnav .lumi { width: 26px; height: 26px; image-rendering: pixelated; margin: -4px -2px -4px 2px; }
 #topnav .chip { font-size: 12px; padding: 1px 7px; }
@@ -329,3 +329,8 @@ label.pref span { display: flex; flex-direction: column; font-weight: 400; } lab
 .m-row.fuzzy { background: var(--a2s, #fff4d6); border-radius: 6px; padding-left: 6px; } .m-row small { color: var(--ink-2); }
 .warnbox { background: var(--a2s, #fff4d6); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
 .m-rest .m-row span { white-space: normal; }
+/* Farbschemata (app/themes/*.css setzen nur Farb-Variablen): Auswahl im Konto-Menü */
+.themes { display: flex; flex-wrap: wrap; gap: 8px; }
+.themes button { width: 44px; height: 44px; padding: 3px; border: 2px solid transparent; border-radius: 13px; background: none; cursor: pointer; }
+.themes button img { width: 34px; height: 34px; display: block; }
+.themes button[aria-pressed=true] { border-color: var(--a1); }

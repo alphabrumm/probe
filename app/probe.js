@@ -62,7 +62,22 @@ async function boot() {
   route();
 }
 /** Menüband: PathFinder | Prüfungen Respizienz | Notizen | Umfragen … rechts (Schulberatung) Coaching + Eule Lumi */
+/* ---------- Farbschemata: app/themes/<k>.css (nur Farben) und <k>.svg (Symbol); '' = Standard ---------- */
+const THEMES = [['', 'Standard'], ['nacht', 'Nachtblau'], ['blau', 'Blau'], ['weiss', 'Weiß'], ['gold', 'Nachtblau und Gold'], ['gelb', 'Gelb'], ['sepia', 'Sepia']];
+const themeIcon = k => k ? `app/themes/${k}.svg` : 'app/icon.svg';
+const curTheme = () => document.documentElement.dataset.theme || '';
+function applyTheme(k) {
+  if (!THEMES.some(t => t[0] === k)) k = '';
+  let l = document.getElementById('themecss');
+  if (!k) l?.remove(); else { if (!l) { l = document.createElement('link'); l.rel = 'stylesheet'; l.id = 'themecss'; document.head.append(l); } l.href = `app/themes/${k}.css`; }
+  document.documentElement.dataset.theme = k;
+  document.querySelectorAll('.brand img, img.hero-ic').forEach(i => i.src = themeIcon(k));
+  const f = document.querySelector('link[rel=icon][type="image/svg+xml"]'); if (f) f.href = themeIcon(k);
+  try { if (k) localStorage.setItem('probe.theme', k); else localStorage.removeItem('probe.theme'); } catch (e) { } // nur der Name des Schemas
+}
 function drawNav() {
+  if (S.user && (S.user.prefs?.theme || '') !== curTheme()) applyTheme(S.user.prefs?.theme || '');
+  document.querySelectorAll('.brand img').forEach(i => { const s = themeIcon(curTheme()); if (!i.src.endsWith(s)) i.src = s; });
   const n = $('#topnav'); if (!n) return;
   if (!S.user || !S.priv) { n.innerHTML = ''; return; }
   const h = location.hash.replace(/^#/, '') || '/';
@@ -83,12 +98,17 @@ function drawWho() {
   $('#bDemoEnd') && ($('#bDemoEnd').onclick = endDemo);
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
+      <fieldset class="prefs"><legend>Farbe</legend><div class="themes">${THEMES.map(([k, t]) => `<button type="button" data-theme="${k}" aria-pressed="${(S.user.prefs?.theme || '') === k}" title="${t}" aria-label="Farbschema ${t}"><img src="${themeIcon(k)}" alt=""></button>`).join('')}</div></fieldset>
       <fieldset class="prefs"><legend>Im Menü anzeigen</legend>
         ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
           ['planpad', 'PlanPad-Kopplung', 'Noten aus PlanPad (Sitzplan- und Unterrichtsmanager) automatisch in die Klassen von Probe übernehmen – verschlüsselt, nur in eine Richtung']]
           .map(([k, t, h]) => `<label class="pref"><input type="checkbox" data-pref="${k}"${S.user.prefs?.[k] ? ' checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}
       </fieldset>
       <div class="btns"><button class="btn" data-fa>Meine Fächer</button>${S.user.is_demo ? '' : '<button class="btn" data-pw>Passwort ändern</button>'}<button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
+    d.el.querySelectorAll('[data-theme]').forEach(b => b.onclick = async () => {
+      const k = b.dataset.theme, old = S.user.prefs?.theme || ''; applyTheme(k); d.el.querySelectorAll('[data-theme]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      try { S.user.prefs = (await api('set_prefs', { prefs: { theme: k } })).prefs; } catch (er) { applyTheme(old); toast('⚠ ' + esc(er.message)); }
+    });
     d.el.querySelectorAll('[data-pref]').forEach(c => c.onchange = async () => {
       try { S.user.prefs = (await api('set_prefs', { prefs: { [c.dataset.pref]: c.checked } })).prefs; drawNav(); if (c.dataset.pref === 'planpad' && /^#\/k\//.test(location.hash)) route(); }
       catch (er) { c.checked = !c.checked; toast('⚠ ' + esc(er.message)); }
@@ -137,7 +157,7 @@ async function demos(force) {
 
 /* ---------- Einrichtung, Anmeldung, Schlüssel ---------- */
 function viewSetup() {
-  main.innerHTML = `<div class="center"><div class="card narrow stack"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc">Probe einrichten</h1>
+  main.innerHTML = `<div class="center"><div class="card narrow stack"><img class="hero-ic" src="${themeIcon(curTheme())}" alt=""><h1 class="tc">Probe einrichten</h1>
     <p class="help tc">Das erste Konto ist das Admin-Konto. Damit legst du danach Lehrkräfte, Fachschaften und Fächer an.</p>
     ${field('Nutzername', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username">', 'Damit meldest du dich an, z. B. dein Lehrerkürzel.')}
     ${field('Name (optional)', '<input type="text" id="n" autocomplete="name">')}
@@ -160,7 +180,7 @@ function viewSetup() {
   };
 }
 function viewLogin() {
-  main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="app/icon.svg" alt=""><h1 class="tc wm hero-wm" aria-label="Probe">probe</h1><p class="help tc">Digitale Prüfungen – Anmeldung für Lehrkräfte</p>
+  main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="${themeIcon(curTheme())}" alt=""><h1 class="tc wm hero-wm" aria-label="Probe">probe</h1><p class="help tc">Digitale Prüfungen – Anmeldung für Lehrkräfte</p>
     ${field('Nutzername', '<input type="text" id="k" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username" required>')}
     ${field('Passwort', '<input type="password" id="p" autocomplete="current-password" required>')}
     <div class="err" id="err"></div><button class="btn pri">Anmelden</button>
@@ -186,7 +206,7 @@ function viewLogin() {
   };
 }
 function viewUnlock() {
-  main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="app/icon.svg" alt=""><h2 class="tc">Willkommen zurück, ${esc(S.user.kuerzel)}</h2>
+  main.innerHTML = `<div class="center"><form class="card narrow stack" id="f"><img class="hero-ic" src="${themeIcon(curTheme())}" alt=""><h2 class="tc">Willkommen zurück, ${esc(S.user.kuerzel)}</h2>
     <p class="help tc">Zum Entschlüsseln deiner Prüfungen brauchen wir noch einmal dein Passwort. Es verlässt dieses Gerät nicht.</p>
     ${field('Passwort', '<input type="password" id="p" autocomplete="current-password" required>')}
     <div class="err" id="err"></div><div class="btns"><button class="btn pri">Entsperren</button><button type="button" class="btn ghost" id="out">Abmelden</button></div></form></div>`;
@@ -231,7 +251,7 @@ async function endDemo() {
 /** erstes Anmelden (oder nach neuem Startpasswort): eigenes Passwort, Schlüssel neu oder per Wiederherstellungscode behalten */
 function viewKeySetup() {
   const had = S.user.has_keys;
-  main.innerHTML = `<div class="center"><div class="card narrow stack"><img class="hero-ic" src="app/icon.svg" alt=""><h2 class="tc">${had ? 'Neues Passwort festlegen' : `Willkommen bei Probe, ${esc(S.user.name || S.user.kuerzel)}!`}</h2>
+  main.innerHTML = `<div class="center"><div class="card narrow stack"><img class="hero-ic" src="${themeIcon(curTheme())}" alt=""><h2 class="tc">${had ? 'Neues Passwort festlegen' : `Willkommen bei Probe, ${esc(S.user.name || S.user.kuerzel)}!`}</h2>
     <p class="help tc">${had ? 'Der Admin hat dir ein neues Startpasswort gegeben. Mit deinem Wiederherstellungscode bleiben deine Prüfungen lesbar.' : 'Lege jetzt dein eigenes Passwort fest. Damit werden deine Prüfungen verschlüsselt – nicht einmal der Admin kann sie lesen.'}</p>
     ${field('Neues Passwort', '<input type="password" id="p1" autocomplete="new-password">', 'Mindestens 10 Zeichen.')}
     ${field('Passwort wiederholen', '<input type="password" id="p2" autocomplete="new-password">')}
