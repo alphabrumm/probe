@@ -2,7 +2,7 @@
 // Punktespalte rechts, Punkte additiv oder subtraktiv aus den Stempeln, ‹ › zum vorherigen/nächsten Schüler (gleiche Aufgabe).
 // Gespeichert in der (verschlüsselten) Bewertung: g.hk[pid][taskId] = Anmerkung, g.hkMode[taskId] = 'add' | 'sub',
 // die Punkte wie sonst in g.manual[pid][taskId]. Nie an eine KI.
-import { STAMPS, stampVal, annTotal, hasArrows, fmtV, stampSvg, stampIcon, unit, annSvgInner, solutionHtml, ensureCss, IMG_RE, GREEN } from './handview.js';
+import { STAMPS, stampVal, annTotal, hasArrows, fmtV, stampSvg, stampIcon, unit, annSvgInner, solutionHtml, ensureCss, IMG_RE, GREEN, colHtml } from './handview.js';
 
 let TOOL = 'stamp', STAMP = 'ok'; // bleibt beim Wechsel zum nächsten Schüler
 
@@ -50,8 +50,8 @@ export function openKorrektur(ctx, pid, tid) {
     svg.setAttribute('viewBox', `0 0 ${ann.w} ${ann.h}`);
     svg.innerHTML = annSvgInner(ann) + (sel ? `<circle cx="${sel.x}" cy="${sel.y}" r="${u * 0.85}" fill="none" stroke="${GREEN}" stroke-width="${u * 0.04}" stroke-dasharray="${u * 0.15}"/>` : '');
     // ▲▼ neben jedem Stempel, der welche hat; Werte in der Punktespalte auf gleicher Höhe
-    $('#hkr').innerHTML = ann.st.filter(s => hasArrows(s.k, mode)).map(s => `<span class="hkd-ud" style="left:${(100 * (s.x + u * 0.75) / ann.w).toFixed(2)}%;top:${(100 * s.y / ann.h).toFixed(2)}%"><button type="button" data-up="${s.id}" aria-label="plus 0,5">▲</button><button type="button" data-dn="${s.id}" aria-label="minus 0,5">▼</button></span>`).join('');
-    $('#hkc').innerHTML = ann.st.map(s => ({ y: s.y, v: stampVal(s, mode) })).filter(x => x.v != null).map(x => `<span class="${x.v < 0 ? 'neg' : x.v > 0 ? 'pos' : ''}" style="top:${(100 * x.y / ann.h).toFixed(2)}%">${fmtV(x.v)}</span>`).join('');
+    $('#hkr').innerHTML = (sel && ann.st.includes(sel) ? `<button type="button" class="hkd-del" data-del="${sel.id}" aria-label="Stempel löschen" title="Stempel löschen" style="left:${(100 * (sel.x - u * 0.85) / ann.w).toFixed(2)}%;top:${(100 * (sel.y - u * 0.85) / ann.h).toFixed(2)}%">×</button>` : '') + ann.st.filter(s => hasArrows(s.k, mode)).map(s => `<span class="hkd-ud" style="left:${(100 * (s.x + u * 0.75) / ann.w).toFixed(2)}%;top:${(100 * s.y / ann.h).toFixed(2)}%"><button type="button" data-up="${s.id}" aria-label="plus 0,5">▲</button><button type="button" data-dn="${s.id}" aria-label="minus 0,5">▼</button></span>`).join('');
+    $('#hkc').outerHTML = colHtml(ann.st.map(s => ({ y: s.y, v: stampVal(s, mode) })).filter(x => x.v != null), ann.h, 'hkd-col', 50).replace('<div class="hkd-col"', '<div class="hkd-col" id="hkc"');
     const tot = total();
     $('#hkp').value = ann.man != null ? String(ann.man) : tot != null ? String(tot) : '';
     $('#hka').innerHTML = ann.man != null ? `von Hand${tot != null ? ` · aus den Stempeln wären es ${String(tot).replace('.', ',')} <button type="button" class="btn sm" data-k="auto">↺ übernehmen</button>` : ''}`
@@ -112,6 +112,7 @@ export function openKorrektur(ctx, pid, tid) {
     if (b.dataset.m) { mode = g.hkMode[tid] = b.dataset.m; draw(); commit(); return; } // gilt für diese Aufgabe bei allen Schülern
     if (b.dataset.t) { TOOL = b.dataset.t; erase = false; sel = null; return draw(); }
     if (b.dataset.s) { STAMP = b.dataset.s; TOOL = 'stamp'; erase = false; return draw(); }
+    if (b.dataset.del) { const s = ann.st.find(q => q.id === b.dataset.del); if (s) { snap(); ann.st = ann.st.filter(q => q !== s); sel = null; draw(); commit(); } return; }
     const ud = b.dataset.up || b.dataset.dn;
     if (ud) { const s = ann.st.find(q => q.id === ud); if (!s) return; snap(); s.adj = Math.round(((s.adj || 0) + (b.dataset.up ? 0.5 : -0.5)) * 2) / 2; sel = s; draw(); commit(); }
   });
@@ -147,7 +148,9 @@ body.hkd-open{overflow:hidden}
 .hkd-arw{position:absolute;inset:0;pointer-events:none}
 .hkd-ud{position:absolute;transform:translateY(-50%);display:flex;flex-direction:column;gap:2px;pointer-events:auto}
 .hkd-ud button{width:30px;height:24px;border:1px solid ${GREEN};background:#fff;color:${GREEN};border-radius:6px;font-size:12px;line-height:1;cursor:pointer;padding:0}
-.hkd-col{position:relative;width:64px;flex:none;margin-left:8px;border-left:2px dashed ${GREEN}66}
+.hkd-del{position:absolute;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;border:2px solid #fff;background:#d92d2d;color:#fff;font-size:17px;font-weight:800;line-height:1;padding:0;cursor:pointer;pointer-events:auto;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.hkd-del::after{content:'';position:absolute;inset:-9px}
+.hkd-col{position:relative;min-width:64px;flex:none;margin-left:8px;border-left:2px dashed ${GREEN}66}
 .hkd-col span{position:absolute;left:8px;transform:translateY(-50%);font-weight:800;font-size:18px;color:${GREEN};white-space:nowrap}
 .hkd-info{background:var(--surface,#fff);border:1px solid var(--line);border-radius:12px;padding:8px 12px}`;
   document.head.append(st);

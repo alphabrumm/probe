@@ -7,7 +7,7 @@ export { renderMath };
 
 export const GREEN = '#139a43';
 export const IMG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
-export const STAMPS = [['ok', 'Haken – korrekt'], ['x', 'X – nicht korrekt'], ['ring', 'unterringelt – ungenau'], ['miss', 'fehlt'], ['kons', 'Konsequenzfehler'], ['a', 'Ausdruck']];
+export const STAMPS = [['ok', 'Haken – korrekt'], ['x', 'Fehler – nicht korrekt'], ['ring', 'unterringelt – ungenau'], ['miss', 'fehlt'], ['kons', 'Konsequenzfehler'], ['a', 'Ausdruck']];
 // Startwert und ob es ▲▼ gibt – je Modus
 const BASE = { sub: { ok: null, x: -1, ring: null, miss: -1, kons: null, a: null }, add: { ok: 1, x: null, ring: null, miss: null, kons: null, a: null } };
 const ARW = { sub: { ok: false, x: true, ring: false, miss: true, kons: true, a: true }, add: { ok: true, x: true, ring: false, miss: true, kons: true, a: true } };
@@ -32,10 +32,10 @@ export const fmtV = v => (v > 0 ? '+' : v < 0 ? '−' : '') + String(Math.abs(v)
 export function stampSvg(k, x, y, u, extra = '') {
   const P = {
     ok: 'M-.5 .02 L-.14 .42 L.56 -.5',
-    x: 'M-.42 -.42 L.42 .42 M.42 -.42 L-.42 .42',
+    x: 'M.3 -.55 L0 .35 M-.45 .35 H.45', // Fehlerzeichen: Schrägstrich, darunter mittig ein waagrechter Strich
     ring: 'M-1.1 .1 q.275 .32 .55 0 t.55 0 t.55 0 t.55 0',
     miss: 'M-.42 -.5 L0 .48 L.42 -.5 M-.62 .18 L.62 -.2',
-    kons: 'M-.28 .02 L.26 -.6 M-.5 .42 H.48 M.3 .26 L.5 .42 L.3 .58',
+    kons: 'M.3 -.55 L0 .35 M-.45 .35 H.45 M.27 .2 L.45 .35 L.27 .5', // wie Fehler, der Strich als Pfeil nach rechts
     a: 'M-.4 .52 L0 -.52 L.4 .52 M-.24 .14 H.24',
   }[k] || '';
   return `<g transform="translate(${x} ${y}) scale(${u})"${extra}><path d="${P}" fill="none" stroke="${GREEN}" stroke-width=".11" stroke-linecap="round" stroke-linejoin="round"/></g>`;
@@ -58,7 +58,14 @@ export function annViewHtml(img, ann, mode, { link = true } = {}) {
   if (!ann || !ann.w || (!ann.s?.length && !ann.st?.length)) return link ? `<a class="hand-ans" href="${img}" target="_blank" rel="noopener" title="groß ansehen">${pic}</a>` : `<div class="hand-ans">${pic}</div>`;
   const vals = (ann.st || []).map(s => ({ y: s.y, v: s.v !== undefined ? s.v : stampVal(s, mode) })).filter(x => x.v != null);
   return `<div class="hk-view"><div class="hk-pic">${pic}<svg viewBox="0 0 ${ann.w} ${ann.h}" preserveAspectRatio="none" aria-hidden="true">${annSvgInner(ann)}</svg></div>`
-    + `<div class="hk-col">${vals.map(x => `<span class="${x.v < 0 ? 'neg' : x.v > 0 ? 'pos' : ''}" style="top:${(100 * x.y / ann.h).toFixed(2)}%">${fmtV(x.v)}</span>`).join('')}</div></div>`;
+    + colHtml(vals, ann.h, 'hk-col', 44) + '</div>';
+}
+/** Punktespalte: Werte auf Höhe ihres Stempels; liegen Stempel etwa auf gleicher Höhe, stehen die Werte nebeneinander */
+export function colHtml(vals, h, cls, step) {
+  const rows = [], near = h * 0.045;
+  for (const x of vals.slice().sort((a, b) => a.y - b.y)) { const r = rows.find(r => Math.abs(r.y - x.y) < near); if (r) r.items.push(x); else rows.push({ y: x.y, items: [x] }); }
+  const n = Math.max(1, ...rows.map(r => r.items.length));
+  return `<div class="${cls}" style="width:${16 + n * step}px">${rows.flatMap(r => r.items.map((x, j) => `<span class="${x.v < 0 ? 'neg' : x.v > 0 ? 'pos' : ''}" style="top:${(100 * r.y / h).toFixed(2)}%;left:${6 + j * step}px">${fmtV(x.v)}</span>`)).join('')}</div>`;
 }
 /** für die Ergebnisseite: Anmerkung mit fertigen Werten (der Schüler braucht den Modus nicht) */
 export function annForReport(ann, mode) {
