@@ -92,6 +92,15 @@ einer Transaktion), und von Hand unter Admin → „Sicherungen“. Es bleiben d
 Download steht im Protokoll (`sicherungen/protokoll.log`). Wiederherstellen: Datei per FTP als `data/probe.sqlite`
 zurückspielen (vorher `probe.sqlite-wal` und `-shm` entfernen).
 
+## Handschriftliche Aufgaben
+
+Baustein „Handschriftliche Aufgabe“ (PathFinder, `### Handschrift` mit `Erwartung:` und `Lösung:`): Die Schüler fotografieren ihre
+Lösung, das iPad macht daraus ein zugeschnittenes Schwarz-Weiß-Bild (`core/pfscan.js`). Die Musterlösung (Text/LaTeX,
+`core/pfmath.js`) steht nie in der Schülerfassung; sie sehen Lehrkraft, Respizienz und nach dem Veröffentlichen die Ergebnisseite.
+Korrektur (`app/handkorr.js`): Foto antippen → groß, grün frei zeichnen oder stempeln (✓ ✗ unterringelt, fehlt, Konsequenzfehler, A),
+Punktespalte rechts, additiv oder subtraktiv (je Aufgabe), ‹ › zum vorherigen/nächsten Schüler. Gespeichert verschlüsselt in der
+Bewertung (`g.hk`, `g.hkMode`); Anzeige mit `app/handview.js`. Nie an eine KI, Punkte nur von Hand bzw. aus den Stempeln.
+
 ## Farbschemata
 
 Konto-Menü → „Farbe“: Blau (Standard), Nachtblau, Weiß, Nachtblau und Gold, Gelb, Sepia und Bunt (das bunte `app/icon.svg`); die Schemata (`app/themes/<name>.css` setzen nur Farb-Variablen, auch für Kopfleiste

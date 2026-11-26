@@ -8,6 +8,8 @@ import { matchRoster } from './names.js';
 import { tokenFixed } from './pqr.js';
 import { buildExport, parseImport, applyImport } from './ki.js';
 import { codeAnswerHtml, highlight, langOf } from './hl.js';
+import { openKorrektur } from './handkorr.js';
+import { annViewHtml, annForReport, solutionHtml, ensureCss as hkCss } from './handview.js';
 
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, viewExam
 const $ = (s, r = document) => r.querySelector(s);
@@ -286,6 +288,7 @@ function saveGrading() {
   S2.saveT = setTimeout(async () => { try { await X.api('exam_grading', { id: S2.e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, S2.g), notes_enc: await X.K.seal(X.S.keys.pub_key, notesSummary()) }); } catch (er) { X.toast('⚠ Bewertung nicht gespeichert: ' + X.esc(er.message), 5000); } }, 600);
 }
 function drawEval() {
+  hkCss();
   const { esc, main, fmtPts } = X, { e, key, g, comments } = S2, RS = results(), pts = e.skala === 'punkte';
   const max = RS[0]?.R.max ?? key.tasks.reduce((s, t) => s + (g.drop.includes(t.id) ? 0 : t.pts), 0), pending = RS.reduce((s, x) => s + x.R.pending, 0);
   const unread = comments.filter(c => !+c.gelesen).length;
@@ -384,7 +387,7 @@ function personDialog(pid) {
     const it = x.R.items[i], free = !it.auto;
     return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(t.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `<input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-pp="${t.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.`}</div>
       ${only ? kiBox(x.p, t, it) : ''}${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
-      ${free || it.text != null ? `${ansHtml(it)}${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}` : ''}${appBtn(t, it, pid)}
+      ${free || it.text != null ? `${ansHtml(it, pid)}${t.rubric?.length ? `<div class="help">Erwartung: ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)})`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}` : ''}${appBtn(t, it, pid)}
       ${it.overridden ? '<div class="help">Punkte von dir geändert (automatisch wären es anders).</div>' : ''}${only ? '' : kiBox(x.p, t, it)}
       <textarea data-fb="${t.id}" rows="2" placeholder="Rückmeldung zu dieser Aufgabe (sieht der Schüler)">${esc(fbk[t.id] || '')}</textarea></div>`;
   }).join('') + (kiStats(x).open > 1 ? `<div class="btns"><button class="btn ki" data-kiall="${pid}">${KI} Alle ${kiStats(x).open} offenen KI-Vorschläge übernehmen</button></div>` : '') + '<button class="btn pri" data-save>Speichern</button>', { wide: true });
@@ -392,6 +395,7 @@ function personDialog(pid) {
   d.el.onchange = ev => { if (ev.target.matches('[data-kionly]')) { kiOnly = ev.target.checked; reopen(); return; } nameAction(ev, x.p, reopen); };
   d.el.onclick = ev => {
     if (appView(ev, x.p)) return;
+    if (hkAction(ev, () => { save(); d.close(); })) return;
     if (nameAction(ev, x.p, reopen)) return;
     if (kiAction(ev, reopen)) return;
     const nav = ev.target.closest('[data-pnav]');
@@ -418,10 +422,22 @@ function personDialog(pid) {
 /* ---------- Programmier-Aufgaben (JPad …): Code ansehen, in der App öffnen und ausführen ---------- */
 /** Handschrift: Foto der Lösung (nur data:image), antippen = groß in neuem Fenster */
 const imgKB = img => { const b = String(img).split(',')[1] || ''; return Math.max(1, Math.round((b.length * 3 / 4 - (b.endsWith('==') ? 2 : b.endsWith('=') ? 1 : 0)) / 1024)); };
-const handHtml = img => IMG_RE.test(img || '') ? `<a class="hand-ans" href="${img}" target="_blank" rel="noopener" title="groß ansehen"><img src="${img}" alt="Handschriftliche Lösung"></a><div class="help hand-kb">Foto · ${imgKB(img)} KB · Punkte von Hand (nie KI)</div>` : '<div class="ans">– kein Foto abgegeben –</div>';
+const handHtml = (it, pid) => { // Foto (mit Korrektur-Anmerkungen); antippen öffnet den Korrekturdialog
+  const img = it.img; if (!IMG_RE.test(img || '')) return '<div class="ans">– kein Foto abgegeben –</div>';
+  const ann = S2.g.hk?.[pid]?.[it.id], has = ann && (ann.s?.length || ann.st?.length);
+  return `<button type="button" class="hk-open" data-hk="${X.esc(it.id)}" data-pid="${pid}" title="Korrigieren">${annViewHtml(img, ann, S2.g.hkMode?.[it.id] || 'add', { link: false })}</button>
+    <div class="help hand-kb">Foto · ${imgKB(img)} KB · ${has ? '✎ korrigiert · ' : ''}antippen zum Korrigieren · Punkte von Hand (nie KI)</div>`;
+};
+/** Klick auf ein Foto: Korrekturdialog; danach wieder die Schüleransicht (des zuletzt korrigierten Schülers) */
+function hkAction(ev, before) {
+  const b = ev.target.closest('[data-hk]'); if (!b) return false;
+  before?.();
+  openKorrektur({ X, S2, results, saveGrading, onClose: p => { drawEval(); personDialog(p); } }, +b.dataset.pid, b.dataset.hk);
+  return true;
+}
 const IMG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
-const ansHtml = it => it.hand ? handHtml(it.img) : `${it.type === 'app' ? (it.text ? codeAnswerHtml(it.text, S2.key.tasks.find(t => t.id === it.id)?.app) : '<div class="ans">– keine Abgabe –</div>') : `<div class="ans">${X.esc(it.text || '– keine Antwort –')}</div>`}${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
-const solHtml = t => t.type === 'app' ? `<details class="help"><summary>Musterlösung</summary><div class="ans code hl">${highlight(t.solution, langOf(t.app))}</div></details>` : `<div class="help">Musterlösung: ${X.esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>`;
+const ansHtml = (it, pid) => it.hand ? handHtml(it, pid) : `${it.type === 'app' ? (it.text ? codeAnswerHtml(it.text, S2.key.tasks.find(t => t.id === it.id)?.app) : '<div class="ans">– keine Abgabe –</div>') : `<div class="ans">${X.esc(it.text || '– keine Antwort –')}</div>`}${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
+const solHtml = t => t.hand ? solutionHtml(t.solution) : t.type === 'app' ? `<details class="help"><summary>Musterlösung</summary><div class="ans code hl">${highlight(t.solution, langOf(t.app))}</div></details>` : `<div class="help">Musterlösung: ${X.esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>`;
 const appBtn = (t, it, pid) => t.type === 'app' && it.files?.length ? `<div class="btns" style="margin:4px 0"><button class="btn sm" data-appview="${X.esc(t.id)}" data-pid="${pid}">▶ In ${X.esc(S2.M.appName(t.app))} öffnen und ausführen</button></div>` : '';
 let APPM = null;
 /** Klick auf „In JPad öffnen“: Stand des Schülers nur ansehen (Änderungen gehen nicht zurück) */
@@ -439,10 +455,11 @@ function appView(ev, p) {
 function essayDialog(tid) {
   const { esc, fmtPts } = X, { key, g } = S2, i = key.tasks.findIndex(t => t.id === tid), t = key.tasks[i], RS = results();
   const d = X.dialog(`${esc(t.title)} – für alle bewerten`, `${t.rubric?.length ? `<div class="help"><b>Erwartungshorizont:</b> ${t.rubric.map(r => `${esc(r.t)} (${fmtPts(r.p)} P.)`).join(' · ')}</div>` : ''}${t.solution ? solHtml(t) : ''}
-    ${RS.map(x => { const it = x.R.items[i]; return `<div class="pt"><div class="bar" style="margin:0"><b>${esc(x.p.n)}, ${esc(x.p.v)}</b><span class="sp"></span><input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-ep="${x.p.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.</div>${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}</div>`).join('')}${ansHtml(it)}${appBtn(t, it, x.p.id)}${kiBox(x.p, t, it)}<textarea data-ef="${x.p.id}" rows="1" placeholder="Rückmeldung (optional)">${esc(g.feedback[x.p.id]?.[t.id] || '')}</textarea></div>`; }).join('')}
+    ${RS.map(x => { const it = x.R.items[i]; return `<div class="pt"><div class="bar" style="margin:0"><b>${esc(x.p.n)}, ${esc(x.p.v)}</b><span class="sp"></span><input type="number" min="0" max="${t.pts}" step="0.5" inputmode="decimal" data-ep="${x.p.id}" value="${it.pts ?? ''}" placeholder="?" style="width:5.5em"> / ${fmtPts(t.pts)} P.</div>${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}</div>`).join('')}${ansHtml(it, x.p.id)}${appBtn(t, it, x.p.id)}${kiBox(x.p, t, it)}<textarea data-ef="${x.p.id}" rows="1" placeholder="Rückmeldung (optional)">${esc(g.feedback[x.p.id]?.[t.id] || '')}</textarea></div>`; }).join('')}
     <button class="btn pri" data-save>Speichern</button>`, { wide: true });
   d.el.onclick = ev => {
     if (appView(ev, null)) return;
+    if (hkAction(ev, () => d.close())) return;
     if (kiAction(ev, () => { d.close(); essayDialog(tid); })) return;
     if (!ev.target.closest('[data-save]')) return;
     for (const inp of $$('[data-ep]', d.el)) { const pid = +inp.dataset.ep, m = g.manual[pid] = g.manual[pid] || {}; if (inp.value.trim() === '') delete m[t.id]; else m[t.id] = Math.min(t.pts, Math.max(0, +inp.value.replace(',', '.'))); }
@@ -607,7 +624,7 @@ async function publish() {
         const fb = g.feedback[x.p.id] || {};
         const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
           punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
-          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), ...(it.hand ? { hand: true, img: it.img || '' } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true, app: key.tasks[i].app } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
+          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), ...(it.hand ? { hand: true, img: it.img || '', ann: annForReport(g.hk?.[x.p.id]?.[it.id], g.hkMode?.[it.id] || 'add'), solution: key.tasks[i].solution || '' } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true, app: key.tasks[i].app } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
         for (const rc of [x.p.rc, ...x.p.merged.map(q => q.rc)].filter(Boolean)) { // doppelt angemeldet: unter jedem Ergebniscode dieselbe Seite
           const { rid, key: k } = await X.K.reportKeys(rc);
           reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });

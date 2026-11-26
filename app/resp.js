@@ -3,6 +3,7 @@
 // Das Paket (Prüfung mit Lösungen, Antworten, Bewertung) wird im Browser der Lehrkraft für jede Fachleitung einzeln verschlüsselt,
 // ebenso jede Notiz für ihre Empfänger. Der Server sieht nur Klasse, Fach, Datum und Status.
 // Archive: Die Fachleitung exportiert eingereichte Prüfungen als Datei – verschlüsselt für sich selbst, für die Admins und optional mit Passphrase.
+import { annViewHtml, solutionHtml, ensureCss as hkCss } from './handview.js';
 import { protokollPdf } from './protokoll.js';
 import { showPdf } from './pdf.js';
 
@@ -107,6 +108,7 @@ function evaluate(P, M) {
 }
 
 export async function viewResp(id, H) {
+  hkCss();
   X = H; const { esc, main } = X;
   main.innerHTML = '<p class="help">Wird entschlüsselt …</p>';
   let r, P, M, notes, fl;
@@ -162,7 +164,7 @@ function render(ctx) {
       const it = x.R.items[i];
       return `<div class="pt"><div class="bar" style="margin:0"><b>${i + 1}. ${esc(tk.title)}</b><span class="sp"></span>${it.dropped ? '<span class="chip">gestrichen</span>' : `${it.pts == null ? '?' : fmtPts(it.pts)} / ${fmtPts(tk.pts)} P.`}</div>
         ${it.answer ? `<div class="ans">Antwort: ${esc(it.answer)}</div>` : ''}${it.parts.map(p => `<div class="ex-part ${p.ok ? 'ok' : 'no'}">${p.ok ? '✓' : '✗'} ${esc(p.label)} → ${esc(p.given || '–')}${p.ok ? '' : ` <span class="help">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
-        ${!it.auto || it.text != null ? `${it.hand ? (/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(it.img || '') ? `<a class="hand-ans" href="${it.img}" target="_blank" rel="noopener"><img src="${it.img}" alt="Handschriftliche Lösung"></a>` : '<div class="ans">– kein Foto abgegeben –</div>') : `<div class="ans${it.type === 'app' ? ' code' : ''}">${esc(it.text || '– keine Antwort –')}</div>`}${tk.rubric?.length ? `<div class="help">Erwartung: ${tk.rubric.map(q => `${esc(q.t)} (${fmtPts(q.p)})`).join(' · ')}</div>` : ''}` : ''}
+        ${!it.auto || it.text != null ? `${it.hand ? ((annViewHtml(it.img, g.hk?.[x.p.id]?.[tk.id], g.hkMode?.[tk.id] || 'add') || '<div class="ans">– kein Foto abgegeben –</div>') + solutionHtml(tk.solution)) : `<div class="ans${it.type === 'app' ? ' code' : ''}">${esc(it.text || '– keine Antwort –')}</div>`}${tk.rubric?.length ? `<div class="help">Erwartung: ${tk.rubric.map(q => `${esc(q.t)} (${fmtPts(q.p)})`).join(' · ')}</div>` : ''}` : ''}
         ${it.overridden ? '<div class="help">Punkte von der Lehrkraft geändert.</div>' : ''}${fb[tk.id] ? `<div class="help">Rückmeldung: ${esc(fb[tk.id])}</div>` : ''}</div>`;
     }).join(''), { wide: true });
   };

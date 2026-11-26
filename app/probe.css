@@ -335,3 +335,5 @@ label.pref span { display: flex; flex-direction: column; font-weight: 400; } lab
 .themes button img { width: 34px; height: 34px; display: block; }
 .themes button[aria-pressed=true] { border-color: var(--a1); }
 .hand-ans { display: block; max-width: 640px; } .hand-ans img { display: block; width: 100%; height: auto; border: 1px solid var(--line, #ccc); border-radius: 10px; background: #fff; }
+.hk-open { all: unset; display: block; cursor: pointer; max-width: 100%; }
+.hk-open:focus-visible { outline: 3px solid var(--a1); outline-offset: 3px; border-radius: 10px; }
