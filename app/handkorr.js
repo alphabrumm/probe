@@ -2,7 +2,7 @@
 // Punktespalte rechts, Punkte additiv oder subtraktiv aus den Stempeln, ‹ › zum vorherigen/nächsten Schüler (gleiche Aufgabe).
 // Gespeichert in der (verschlüsselten) Bewertung: g.hk[pid][taskId] = Anmerkung, g.hkMode[taskId] = 'add' | 'sub',
 // die Punkte wie sonst in g.manual[pid][taskId]. Nie an eine KI.
-import { STAMPS, stampVal, annTotal, hasArrows, fmtV, stampSvg, stampIcon, unit, annSvgInner, solutionHtml, ensureCss, IMG_RE, GREEN, colHtml } from './handview.js';
+import { STAMPS, stampVal, annTotal, hasArrows, fmtV, stampSvg, stampIcon, unit, annSvgInner, solutionHtml, ensureCss, IMG_RE, GREEN, colHtml, txtSize } from './handview.js';
 
 let TOOL = 'stamp', STAMP = 'ok'; // bleibt beim Wechsel zum nächsten Schüler
 
@@ -15,7 +15,7 @@ export function openKorrektur(ctx, pid, tid) {
   const it = x.R.items[i], img = it.img;
   g.hk = g.hk || {}; g.hkMode = g.hkMode || {};
   const mine = g.hk[pid] = g.hk[pid] || {};
-  const ann = mine[tid] = mine[tid] || { w: 0, h: 0, s: [], st: [] };
+  const ann = mine[tid] = mine[tid] || { w: 0, h: 0, s: [], st: [] }; ann.tx = ann.tx || [];
   if (ann.man == null && !ann.st.length && !ann.s.length && g.manual[pid]?.[tid] != null) ann.man = g.manual[pid][tid]; // schon von Hand bewertet
   let mode = g.hkMode[tid] || 'add', erase = false, hist = [], sel = null;
 
@@ -30,7 +30,7 @@ export function openKorrektur(ctx, pid, tid) {
         <div class="seg" id="hkm"><button type="button" data-m="add">Additiv</button><button type="button" data-m="sub">Subtraktiv</button></div>
         <small id="hka"></small></div>
       <div class="hkd-tools"><div class="seg" id="hkt"><button type="button" data-t="pen">✎ Frei zeichnen</button><button type="button" data-t="stamp">Stempel</button></div>
-        <div class="hkd-st" id="hks">${STAMPS.map(([k, n]) => `<button type="button" data-s="${k}" title="${n}" aria-label="${n}">${stampIcon(k)}</button>`).join('')}</div>
+        <div class="hkd-st" id="hks">${STAMPS.map(([k, n, h]) => `<button type="button" data-s="${k}" title="${h}" aria-label="${h}">${stampIcon(k)}<span>${n}</span></button>`).join('')}<button type="button" data-s="txt" title="Textfeld zum Reintippen" aria-label="Textfeld"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="${GREEN}" stroke-width="2"/><path d="M8 9h8M12 9v7" stroke="${GREEN}" stroke-width="2" stroke-linecap="round"/></svg><span>Textfeld</span></button></div>
         <button type="button" class="btn sm" data-k="erase" aria-pressed="false">⌫ Radierer</button><button type="button" class="btn sm" data-k="undo">↶ Rückgängig</button></div></div>
     <div class="hkd-main"><div class="hkd-pic"><img src="${img}" alt="Lösung von ${esc(x.p.v)}" draggable="false"><svg id="hkv" aria-hidden="true"></svg><div class="hkd-arw" id="hkr"></div></div><div class="hkd-col" id="hkc"></div></div>
     ${t.rubric?.length || t.solution ? `<details class="hkd-info"><summary>Erwartungshorizont und Musterlösung</summary>${t.rubric?.length ? `<div class="help">${t.rubric.map(r => `${esc(r.t)} (${String(r.p).replace('.', ',')} P.)`).join(' · ')}</div>` : ''}${solutionHtml(t.solution)}</details>` : ''}`;
@@ -41,16 +41,18 @@ export function openKorrektur(ctx, pid, tid) {
   function commit() { // Punkte und Bewertung speichern
     const tot = total(), man = g.manual[pid] = g.manual[pid] || {};
     if (ann.man != null) man[tid] = ann.man; else if (tot != null) man[tid] = tot; else delete man[tid];
-    if (!ann.s.length && !ann.st.length && ann.man == null) delete mine[tid];
+    if (!ann.s.length && !ann.st.length && !ann.tx.some(q => q.t) && ann.man == null) delete mine[tid];
     else mine[tid] = ann;
     ctx.saveGrading();
   }
   function draw() {
     const u = unit(ann);
     svg.setAttribute('viewBox', `0 0 ${ann.w} ${ann.h}`);
-    svg.innerHTML = annSvgInner(ann) + (sel ? `<circle cx="${sel.x}" cy="${sel.y}" r="${u * 0.85}" fill="none" stroke="${GREEN}" stroke-width="${u * 0.04}" stroke-dasharray="${u * 0.15}"/>` : '');
+    svg.innerHTML = annSvgInner(ann, { text: false }) + (sel && ann.st.includes(sel) ? `<circle cx="${sel.x}" cy="${sel.y}" r="${u * 0.85}" fill="none" stroke="${GREEN}" stroke-width="${u * 0.04}" stroke-dasharray="${u * 0.15}"/>` : '');
     // ▲▼ neben jedem Stempel, der welche hat; Werte in der Punktespalte auf gleicher Höhe
-    $('#hkr').innerHTML = (sel && ann.st.includes(sel) ? `<button type="button" class="hkd-del" data-del="${sel.id}" aria-label="Stempel löschen" title="Stempel löschen" style="left:${(100 * (sel.x - u * 0.85) / ann.w).toFixed(2)}%;top:${(100 * (sel.y - u * 0.85) / ann.h).toFixed(2)}%">×</button>` : '') + ann.st.filter(s => hasArrows(s.k, mode)).map(s => `<span class="hkd-ud" style="left:${(100 * (s.x + u * 0.75) / ann.w).toFixed(2)}%;top:${(100 * s.y / ann.h).toFixed(2)}%"><button type="button" data-up="${s.id}" aria-label="plus 0,5">▲</button><button type="button" data-dn="${s.id}" aria-label="minus 0,5">▼</button></span>`).join('');
+    const k = im.clientWidth / ann.w, fs = txtSize(ann) * k;
+    $('#hkr').innerHTML = ann.tx.map(q => `<div class="hkd-tx${sel === q ? ' on' : ''}" style="left:${(100 * q.x / ann.w).toFixed(2)}%;top:${(100 * q.y / ann.h).toFixed(2)}%;font-size:${fs.toFixed(1)}px"><span class="grip" data-grip="${q.id}" title="verschieben" aria-hidden="true">⠿</span><textarea data-tx="${q.id}" rows="${Math.max(1, String(q.t).split('\n').length)}" placeholder="Text …" aria-label="Textfeld">${X.esc(q.t)}</textarea>${sel === q ? `<button type="button" class="hkd-del" data-deltx="${q.id}" aria-label="Textfeld löschen" title="Textfeld löschen" style="left:0;top:0">×</button>` : ''}</div>`).join('')
+      + (sel && ann.st.includes(sel) ? `<button type="button" class="hkd-del" data-del="${sel.id}" aria-label="Stempel löschen" title="Stempel löschen" style="left:${(100 * (sel.x - u * 0.85) / ann.w).toFixed(2)}%;top:${(100 * (sel.y - u * 0.85) / ann.h).toFixed(2)}%">×</button>` : '') + ann.st.filter(s => hasArrows(s.k, mode)).map(s => `<span class="hkd-ud" style="left:${(100 * (s.x + u * 0.75) / ann.w).toFixed(2)}%;top:${(100 * s.y / ann.h).toFixed(2)}%"><button type="button" data-up="${s.id}" aria-label="plus 0,5">▲</button><button type="button" data-dn="${s.id}" aria-label="minus 0,5">▼</button></span>`).join('');
     $('#hkc').outerHTML = colHtml(ann.st.map(s => ({ y: s.y, v: stampVal(s, mode) })).filter(x => x.v != null), ann.h, 'hkd-col', 50).replace('<div class="hkd-col"', '<div class="hkd-col" id="hkc"');
     const tot = total();
     $('#hkp').value = ann.man != null ? String(ann.man) : tot != null ? String(tot) : '';
@@ -74,6 +76,8 @@ export function openKorrektur(ctx, pid, tid) {
     if (!ann.w) return; e.preventDefault(); svg.setPointerCapture(e.pointerId);
     const [x0, y0] = pt(e);
     if (erase) {
+      const q = ann.tx.find(q => Math.hypot(q.x - x0, q.y - y0) < unit(ann) * 1.4);
+      if (q) { snap(); ann.tx = ann.tx.filter(z => z !== q); sel = null; draw(); commit(); return; }
       const s = hitStamp(x0, y0), r = unit(ann) * 0.6;
       const k = s ? -1 : ann.s.findIndex(p => { for (let j = 0; j < p.length; j += 2) if (Math.hypot(p[j] - x0, p[j + 1] - y0) < r) return true; return false; });
       if (s || k >= 0) { snap(); if (s) ann.st = ann.st.filter(q => q !== s); else ann.s.splice(k, 1); sel = null; draw(); commit(); }
@@ -86,6 +90,10 @@ export function openKorrektur(ctx, pid, tid) {
       const up = () => { svg.removeEventListener('pointermove', mv); svg.removeEventListener('pointerup', up); svg.removeEventListener('pointercancel', up); if (line.length < 4) line.push(x0 + 1, y0); draw(); commit(); };
       svg.addEventListener('pointermove', mv); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
       return;
+    }
+    if (STAMP === 'txt') { // Textfeld an der Stelle anlegen und gleich zum Tippen öffnen
+      snap(); const q = { id: Math.random().toString(36).slice(2, 9), x: x0, y: y0, t: '' }; ann.tx.push(q); sel = q; draw();
+      setTimeout(() => ov.querySelector(`[data-tx="${q.id}"]`)?.focus(), 30); return;
     }
     // Stempel: auf einen vorhandenen tippen = auswählen und verschieben, sonst neu setzen
     let s = hitStamp(x0, y0), moved = false; snap();
@@ -112,9 +120,23 @@ export function openKorrektur(ctx, pid, tid) {
     if (b.dataset.m) { mode = g.hkMode[tid] = b.dataset.m; draw(); commit(); return; } // gilt für diese Aufgabe bei allen Schülern
     if (b.dataset.t) { TOOL = b.dataset.t; erase = false; sel = null; return draw(); }
     if (b.dataset.s) { STAMP = b.dataset.s; TOOL = 'stamp'; erase = false; return draw(); }
+    if (b.dataset.deltx) { const q = ann.tx.find(z => z.id === b.dataset.deltx); if (q) { snap(); ann.tx = ann.tx.filter(z => z !== q); sel = null; draw(); commit(); } return; }
     if (b.dataset.del) { const s = ann.st.find(q => q.id === b.dataset.del); if (s) { snap(); ann.st = ann.st.filter(q => q !== s); sel = null; draw(); commit(); } return; }
     const ud = b.dataset.up || b.dataset.dn;
     if (ud) { const s = ann.st.find(q => q.id === ud); if (!s) return; snap(); s.adj = Math.round(((s.adj || 0) + (b.dataset.up ? 0.5 : -0.5)) * 2) / 2; sel = s; draw(); commit(); }
+  });
+  // Textfelder: tippen speichert, leer verlassen löscht, am Griff ⠿ verschieben
+  ov.addEventListener('input', e => { const ta = e.target.closest?.('[data-tx]'); if (!ta) return; const q = ann.tx.find(z => z.id === ta.dataset.tx); if (!q) return; q.t = ta.value.slice(0, 2000); ta.rows = Math.max(1, ta.value.split('\n').length); clearTimeout(ov._t); ov._t = setTimeout(commit, 600); });
+  ov.addEventListener('focusin', e => { const ta = e.target.closest?.('[data-tx]'); if (!ta) return; const q = ann.tx.find(z => z.id === ta.dataset.tx); if (q && sel !== q) { sel = q; ta.closest('.hkd-tx').classList.add('on'); } });
+  ov.addEventListener('focusout', e => { const ta = e.target.closest?.('[data-tx]'); if (!ta) return; const q = ann.tx.find(z => z.id === ta.dataset.tx); if (q && !q.t.trim()) { setTimeout(() => { if (document.activeElement?.dataset?.deltx) return; ann.tx = ann.tx.filter(z => z !== q); if (sel === q) sel = null; draw(); commit(); }, 150); } else commit(); });
+  ov.addEventListener('pointerdown', e => {
+    const g0 = e.target.closest?.('[data-grip]'); if (!g0) return;
+    const q = ann.tx.find(z => z.id === g0.dataset.grip); if (!q) return;
+    e.preventDefault(); g0.setPointerCapture?.(e.pointerId); snap(); sel = q;
+    const [x0, y0] = pt(e), dx = q.x - x0, dy = q.y - y0, box = g0.closest('.hkd-tx');
+    const mv = ev => { const [x, y] = pt(ev); q.x = Math.max(0, Math.min(ann.w, x + dx)); q.y = Math.max(0, Math.min(ann.h, y + dy)); box.style.left = (100 * q.x / ann.w) + '%'; box.style.top = (100 * q.y / ann.h) + '%'; };
+    const up = () => { g0.removeEventListener('pointermove', mv); g0.removeEventListener('pointerup', up); g0.removeEventListener('pointercancel', up); draw(); commit(); };
+    g0.addEventListener('pointermove', mv); g0.addEventListener('pointerup', up); g0.addEventListener('pointercancel', up);
   });
   $('#hkp').addEventListener('input', e => { const v = e.target.value.trim().replace(',', '.'); if (v === '') delete ann.man; else if (isFinite(+v)) ann.man = Math.max(0, Math.min(t.pts, Math.round(+v * 2) / 2)); commit(); const a = $('#hka'); a.textContent = ann.man != null ? 'von Hand' : ''; });
   $('#hkp').addEventListener('change', () => draw());
@@ -138,7 +160,14 @@ body.hkd-open{overflow:hidden}
 .hkd .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .hkd .seg button{border:0;background:var(--surface,#fff);padding:8px 12px;font:inherit;font-weight:600;cursor:pointer;color:var(--ink);min-height:40px}
 .hkd .seg button[aria-pressed=true]{background:${GREEN};color:#fff}
-.hkd-st{display:inline-flex;gap:4px}.hkd-st button{width:44px;height:44px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;display:grid;place-items:center}
+.hkd-st{display:inline-flex;flex-wrap:wrap;gap:8px}.hkd-st button{width:68px;min-height:58px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 2px;font:inherit}
+.hkd-st button span{font-size:11px;font-weight:600;color:var(--ink-2,#555);line-height:1.1}
+.hkd-st button[data-s=txt]{margin-left:10px}
+.hkd-tx{position:absolute;display:flex;align-items:flex-start;gap:2px;pointer-events:auto;transform:translate(-14px,0)}
+.hkd-tx .grip{cursor:grab;color:${GREEN};font-size:14px;line-height:1.4;padding:2px;touch-action:none;user-select:none;opacity:.6}
+.hkd-tx textarea{font:inherit;font-weight:600;color:${GREEN};background:rgba(255,255,255,.7);border:1px dashed transparent;border-radius:4px;padding:0 3px;resize:none;min-width:5em;width:auto;field-sizing:content;line-height:1.2;outline:none}
+.hkd-tx.on textarea,.hkd-tx textarea:focus{border-color:${GREEN}}
+.hkd-tx .hkd-del{transform:translate(-60%,-60%)}
 .hkd-st button[aria-pressed=true]{outline:3px solid ${GREEN};outline-offset:-2px;background:color-mix(in srgb,${GREEN} 12%,#fff)}
 .hkd [data-k=erase][aria-pressed=true]{background:#fde6e6;border-color:#d55}
 .hkd-main{display:flex;align-items:flex-start;justify-content:center;flex:1;min-height:0}

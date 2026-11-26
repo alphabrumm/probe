@@ -97,7 +97,7 @@ zurückspielen (vorher `probe.sqlite-wal` und `-shm` entfernen).
 Baustein „Handschriftliche Aufgabe“ (PathFinder, `### Handschrift` mit `Erwartung:` und `Lösung:`): Die Schüler fotografieren ihre
 Lösung, das iPad macht daraus ein zugeschnittenes Schwarz-Weiß-Bild (`core/pfscan.js`). Die Musterlösung (Text/LaTeX,
 `core/pfmath.js`) steht nie in der Schülerfassung; sie sehen Lehrkraft, Respizienz und nach dem Veröffentlichen die Ergebnisseite.
-Korrektur (`app/handkorr.js`): Foto antippen → groß, grün frei zeichnen oder stempeln (✓ ✗ unterringelt, fehlt, Konsequenzfehler – ohne Abzug, A),
+Korrektur (`app/handkorr.js`): Foto antippen → groß, grün frei zeichnen oder stempeln (✓ ✗ unterringelt, fehlt, Konsequenzfehler – ohne Abzug, A, R, S, G) und Textfelder,
 Punktespalte rechts, additiv oder subtraktiv (je Aufgabe), ‹ › zum vorherigen/nächsten Schüler. Gespeichert verschlüsselt in der
 Bewertung (`g.hk`, `g.hkMode`); Anzeige mit `app/handview.js`. Nie an eine KI, Punkte nur von Hand bzw. aus den Stempeln.
 

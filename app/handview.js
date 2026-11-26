@@ -7,10 +7,12 @@ export { renderMath };
 
 export const GREEN = '#139a43';
 export const IMG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
-export const STAMPS = [['ok', 'Haken – korrekt'], ['x', 'Fehler – nicht korrekt'], ['ring', 'unterringelt – ungenau'], ['miss', 'fehlt'], ['kons', 'Konsequenzfehler'], ['a', 'Ausdruck']];
+// [Schlüssel, Beschriftung, Erklärung]
+export const STAMPS = [['ok', 'Korrekt', 'Haken – korrekt'], ['x', 'Fehler', 'Fehler – nicht korrekt'], ['ring', 'Ringel', 'unterringelt – ungenau'], ['miss', 'Fehlt', 'fehlt'],
+  ['kons', 'Konsequent', 'Konsequenzfehler'], ['a', 'Ausdruck', 'Ausdruck'], ['r', 'Rechtschr.', 'Rechtschreibung'], ['s', 'Satzbau', 'Satzbau'], ['gr', 'Grammatik', 'Grammatik']];
 // Startwert und ob es ▲▼ gibt – je Modus
-const BASE = { sub: { ok: null, x: -1, ring: null, miss: -1, kons: null, a: null }, add: { ok: 1, x: null, ring: null, miss: null, kons: null, a: null } };
-const ARW = { sub: { ok: false, x: true, ring: false, miss: true, kons: true, a: true }, add: { ok: true, x: true, ring: false, miss: true, kons: true, a: true } };
+const BASE = { sub: { ok: null, x: -1, ring: null, miss: -1, kons: null, a: null, r: null, s: null, gr: null }, add: { ok: 1, x: null, ring: null, miss: null, kons: null, a: null, r: null, s: null, gr: null } };
+const ARW = { sub: { ok: false, x: true, ring: false, miss: true, kons: true, a: true, r: true, s: true, gr: true }, add: { ok: true, x: true, ring: false, miss: true, kons: true, a: true, r: true, s: true, gr: true } };
 export const hasArrows = (k, mode) => !!ARW[mode]?.[k];
 /** Wert eines Stempels in der Punktespalte (null = kein Eintrag) */
 export function stampVal(st, mode) {
@@ -30,6 +32,8 @@ export const fmtV = v => (v > 0 ? '+' : v < 0 ? '−' : '') + String(Math.abs(v)
 
 /** Stempel als SVG-Gruppe (Mittelpunkt x,y; u = Größe) */
 export function stampSvg(k, x, y, u, extra = '') {
+  const L = { r: 'R', s: 'S', gr: 'G' }[k]; // Buchstaben-Stempel: Rechtschreibung, Satzbau, Grammatik
+  if (L) return `<g transform="translate(${x} ${y}) scale(${u})"${extra}><text x="0" y=".38" font-size="1.08" font-weight="700" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" fill="${GREEN}">${L}</text></g>`;
   const P = {
     ok: 'M-.5 .02 L-.14 .42 L.56 -.5',
     x: 'M.3 -.55 L0 .35 M-.45 .35 H.45', // Fehlerzeichen: Schrägstrich, darunter mittig ein waagrechter Strich
@@ -43,9 +47,12 @@ export function stampSvg(k, x, y, u, extra = '') {
 export const stampIcon = k => `<svg viewBox="-0.75 -0.75 1.5 1.5" width="26" height="26" aria-hidden="true">${stampSvg(k === 'ring' ? 'ring' : k, 0, 0, k === 'ring' ? 0.6 : 1)}</svg>`;
 export const unit = ann => Math.max(12, (ann.w || 1000) * 0.045);
 /** Striche und Stempel als SVG-Inhalt */
-export function annSvgInner(ann) {
-  const lw = Math.max(2, (ann.w || 1000) * 0.0035), u = unit(ann);
-  return (ann.s || []).map(p => `<polyline points="${p.join(' ')}" fill="none" stroke="${GREEN}" stroke-width="${lw}" stroke-linecap="round" stroke-linejoin="round"/>`).join('')
+export const txtSize = ann => Math.max(10, (ann.w || 1000) * 0.03);
+const escX = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+export function annSvgInner(ann, { text = true } = {}) {
+  const lw = Math.max(2, (ann.w || 1000) * 0.0035), u = unit(ann), fs = txtSize(ann);
+  return (text ? (ann.tx || []).filter(t => t.t).map(t => `<text x="${t.x}" y="${t.y}" font-size="${fs}" fill="${GREEN}" font-family="Helvetica, Arial, sans-serif" font-weight="600">${String(t.t).split('\n').map((l, j) => `<tspan x="${t.x}" dy="${j ? 1.2 : 0.9}em">${escX(l)}</tspan>`).join('')}</text>`).join('') : '')
+    + (ann.s || []).map(p => `<polyline points="${p.join(' ')}" fill="none" stroke="${GREEN}" stroke-width="${lw}" stroke-linecap="round" stroke-linejoin="round"/>`).join('')
     + (ann.st || []).map(s => stampSvg(s.k, s.x, s.y, u)).join('');
 }
 /**
@@ -55,7 +62,7 @@ export function annSvgInner(ann) {
 export function annViewHtml(img, ann, mode, { link = true } = {}) {
   if (!IMG_RE.test(img || '')) return '';
   const pic = `<img src="${img}" alt="Handschriftliche Lösung">`;
-  if (!ann || !ann.w || (!ann.s?.length && !ann.st?.length)) return link ? `<a class="hand-ans" href="${img}" target="_blank" rel="noopener" title="groß ansehen">${pic}</a>` : `<div class="hand-ans">${pic}</div>`;
+  if (!ann || !ann.w || (!ann.s?.length && !ann.st?.length && !ann.tx?.some(t => t.t))) return link ? `<a class="hand-ans" href="${img}" target="_blank" rel="noopener" title="groß ansehen">${pic}</a>` : `<div class="hand-ans">${pic}</div>`;
   const vals = (ann.st || []).map(s => ({ y: s.y, v: s.v !== undefined ? s.v : stampVal(s, mode) })).filter(x => x.v != null);
   return `<div class="hk-view"><div class="hk-pic">${pic}<svg viewBox="0 0 ${ann.w} ${ann.h}" preserveAspectRatio="none" aria-hidden="true">${annSvgInner(ann)}</svg></div>`
     + colHtml(vals, ann.h, 'hk-col', 44) + '</div>';
@@ -70,7 +77,7 @@ export function colHtml(vals, h, cls, step) {
 /** für die Ergebnisseite: Anmerkung mit fertigen Werten (der Schüler braucht den Modus nicht) */
 export function annForReport(ann, mode) {
   if (!ann || !ann.w) return null;
-  return { w: ann.w, h: ann.h, s: ann.s || [], st: (ann.st || []).map(s => ({ k: s.k, x: s.x, y: s.y, v: stampVal(s, mode) })) };
+  return { w: ann.w, h: ann.h, s: ann.s || [], tx: (ann.tx || []).filter(t => t.t).map(t => ({ x: t.x, y: t.y, t: String(t.t).slice(0, 2000) })), st: (ann.st || []).map(s => ({ k: s.k, x: s.x, y: s.y, v: stampVal(s, mode) })) };
 }
 export const solutionHtml = sol => sol ? `<div class="hk-solbox"><b>Musterlösung</b><div>${renderMath(sol)}</div></div>` : '';
 let css = false;
