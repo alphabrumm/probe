@@ -94,7 +94,7 @@ zurückspielen (vorher `probe.sqlite-wal` und `-shm` entfernen).
 
 ## Farbschemata
 
-Konto-Menü → „Farbe“: Standard und sechs Schemata (`app/themes/<name>.css` setzen nur Farb-Variablen, auch für Kopfleiste
+Konto-Menü → „Farbe“: Blau (Standard), Nachtblau, Weiß, Nachtblau und Gold, Gelb, Sepia und Bunt (das bunte `app/icon.svg`); die Schemata (`app/themes/<name>.css` setzen nur Farb-Variablen, auch für Kopfleiste
 und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung und Tab). Gespeichert am Konto
 (`prefs.theme`); `app/theme-boot.js` merkt sich nur den Namen auf dem Gerät, damit beim Laden nichts aufflackert.
 

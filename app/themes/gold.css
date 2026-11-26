@@ -1,3 +1,3 @@
 /* Probe – Farbschema „Nachtblau und Gold“ (nur Farben; Symbol: themes/gold.svg) */
-:root { --top-bg: #141c44; --top-ink: #ffffff; --top-ink-2: #c3cbec; --top-sep: color-mix(in srgb, #c3cbec 45%, transparent); --top-line: color-mix(in srgb, #c3cbec 30%, transparent); --top-hover: #243070; --top-on: #ffc24a; --top-on-ink: #141c44; --a1: #1f2c78; --a1s: #e2e6f6; --a2: #d99a12; --a2s: #fdf1d6; --bg: #f3f4f9;  }
+:root { --top-bg: #141c44; --top-ink: #ffffff; --top-ink-2: #c3cbec; --top-sep: color-mix(in srgb, #c3cbec 45%, transparent); --top-line: color-mix(in srgb, #c3cbec 30%, transparent); --top-hover: #243070; --top-on: #ffc24a; --top-on-ink: #141c44; --a1: #1f2c78; --a1s: #e2e6f6; --a2: #d99a12; --a2s: #fdf1d6;  }
 @media (prefers-color-scheme: dark) { :root { --top-bg: #141c44; --a1: #ffc24a; --a1s: #3d2f17;  } }

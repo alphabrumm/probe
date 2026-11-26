@@ -63,20 +63,20 @@ async function boot() {
 }
 /** Menüband: PathFinder | Prüfungen Respizienz | Notizen | Umfragen … rechts (Schulberatung) Coaching + Eule Lumi */
 /* ---------- Farbschemata: app/themes/<k>.css (nur Farben) und <k>.svg (Symbol); '' = Standard ---------- */
-const THEMES = [['', 'Standard'], ['nacht', 'Nachtblau'], ['blau', 'Blau'], ['weiss', 'Weiß'], ['gold', 'Nachtblau und Gold'], ['gelb', 'Gelb'], ['sepia', 'Sepia']];
-const themeIcon = k => k ? `app/themes/${k}.svg` : 'app/icon.svg';
-const curTheme = () => document.documentElement.dataset.theme || '';
+const THEMES = [['blau', 'Blau (Standard)'], ['nacht', 'Nachtblau'], ['weiss', 'Weiß'], ['gold', 'Nachtblau und Gold'], ['gelb', 'Gelb'], ['sepia', 'Sepia'], ['bunt', 'Bunt']];
+const themeIcon = k => k === 'bunt' ? 'app/icon.svg' : `app/themes/${k}.svg`;
+const curTheme = () => document.documentElement.dataset.theme || 'blau';
 function applyTheme(k) {
-  if (!THEMES.some(t => t[0] === k)) k = '';
+  if (!THEMES.some(t => t[0] === k)) k = 'blau';
   let l = document.getElementById('themecss');
-  if (!k) l?.remove(); else { if (!l) { l = document.createElement('link'); l.rel = 'stylesheet'; l.id = 'themecss'; document.head.append(l); } l.href = `app/themes/${k}.css`; }
+  if (k === 'bunt') l?.remove(); else { if (!l) { l = document.createElement('link'); l.rel = 'stylesheet'; l.id = 'themecss'; document.head.append(l); } l.href = `app/themes/${k}.css`; }
   document.documentElement.dataset.theme = k;
   document.querySelectorAll('.brand img, img.hero-ic').forEach(i => i.src = themeIcon(k));
   const f = document.querySelector('link[rel=icon][type="image/svg+xml"]'); if (f) f.href = themeIcon(k);
-  try { if (k) localStorage.setItem('probe.theme', k); else localStorage.removeItem('probe.theme'); } catch (e) { } // nur der Name des Schemas
+  try { localStorage.setItem('probe.theme', k); } catch (e) { } // nur der Name des Schemas
 }
 function drawNav() {
-  if (S.user && (S.user.prefs?.theme || '') !== curTheme()) applyTheme(S.user.prefs?.theme || '');
+  if (S.user && (S.user.prefs?.theme || 'blau') !== curTheme()) applyTheme(S.user.prefs?.theme || 'blau');
   document.querySelectorAll('.brand img').forEach(i => { const s = themeIcon(curTheme()); if (!i.src.endsWith(s)) i.src = s; });
   const n = $('#topnav'); if (!n) return;
   if (!S.user || !S.priv) { n.innerHTML = ''; return; }
@@ -98,7 +98,7 @@ function drawWho() {
   $('#bDemoEnd') && ($('#bDemoEnd').onclick = endDemo);
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
-      <fieldset class="prefs"><legend>Farbe</legend><div class="themes">${THEMES.map(([k, t]) => `<button type="button" data-theme="${k}" aria-pressed="${(S.user.prefs?.theme || '') === k}" title="${t}" aria-label="Farbschema ${t}"><img src="${themeIcon(k)}" alt=""></button>`).join('')}</div></fieldset>
+      <fieldset class="prefs"><legend>Farbe</legend><div class="themes">${THEMES.map(([k, t]) => `<button type="button" data-theme="${k}" aria-pressed="${(S.user.prefs?.theme || 'blau') === k}" title="${t}" aria-label="Farbschema ${t}"><img src="${themeIcon(k)}" alt=""></button>`).join('')}</div></fieldset>
       <fieldset class="prefs"><legend>Im Menü anzeigen</legend>
         ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
           ['planpad', 'PlanPad-Kopplung', 'Noten aus PlanPad (Sitzplan- und Unterrichtsmanager) automatisch in die Klassen von Probe übernehmen – verschlüsselt, nur in eine Richtung']]
@@ -106,7 +106,7 @@ function drawWho() {
       </fieldset>
       <div class="btns"><button class="btn" data-fa>Meine Fächer</button>${S.user.is_demo ? '' : '<button class="btn" data-pw>Passwort ändern</button>'}<button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
     d.el.querySelectorAll('[data-theme]').forEach(b => b.onclick = async () => {
-      const k = b.dataset.theme, old = S.user.prefs?.theme || ''; applyTheme(k); d.el.querySelectorAll('[data-theme]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      const k = b.dataset.theme, old = S.user.prefs?.theme || 'blau'; applyTheme(k); d.el.querySelectorAll('[data-theme]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
       try { S.user.prefs = (await api('set_prefs', { prefs: { theme: k } })).prefs; } catch (er) { applyTheme(old); toast('⚠ ' + esc(er.message)); }
     });
     d.el.querySelectorAll('[data-pref]').forEach(c => c.onchange = async () => {
@@ -185,7 +185,7 @@ function viewLogin() {
     ${field('Passwort', '<input type="password" id="p" autocomplete="current-password" required>')}
     <div class="err" id="err"></div><button class="btn pri">Anmelden</button>
     <p class="help tc">Passwort vergessen? Der Admin setzt ein neues Startpasswort. Deine Prüfungen öffnest du danach mit deinem Wiederherstellungscode.</p></form>
-    <div class="card narrow demo-card"><button type="button" class="demo-btn" id="demo"><img src="app/icon.svg" alt=""><span><b>Demo-Modus starten</b><small>ohne Konto ausprobieren</small></span><i aria-hidden="true">›</i></button>
+    <div class="card narrow demo-card"><button type="button" class="demo-btn" id="demo"><img src="${themeIcon(curTheme())}" alt=""><span><b>Demo-Modus starten</b><small>ohne Konto ausprobieren</small></span><i aria-hidden="true">›</i></button>
     <p class="help tc">Eine Prüfung zum Auswerten und eine startklare, die du mit einem Schüler-iPad per QR-Code ausprobieren kannst. Jede Demo ist für sich – nach 4 Stunden wird alles gelöscht.</p></div></div>`;
   $('#demo').onclick = startDemo;
   setTimeout(() => $('#k').focus(), 50);
@@ -342,7 +342,7 @@ async function viewDashboard() {
   main.innerHTML = `${tabsHtml('p', S)}<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
     <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn" id="neuk">＋ Neue Klasse</button><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
     ${CL.length || lk.length ? cls + rest
-      : `<div class="empty"><img src="app/icon.svg" alt=""><h2>Noch keine Klasse und keine Prüfung in ${esc(S.sj)}</h2><p>Lege zuerst eine Klasse an (Name und Schülerliste) – ihre Prüfungen übernehmen die Namen, und unter „Noten“ siehst du alle Ergebnisse. Oder lege direkt eine Prüfung an.</p></div>`}`;
+      : `<div class="empty"><img src="${themeIcon(curTheme())}" alt=""><h2>Noch keine Klasse und keine Prüfung in ${esc(S.sj)}</h2><p>Lege zuerst eine Klasse an (Name und Schülerliste) – ihre Prüfungen übernehmen die Namen, und unter „Noten“ siehst du alle Ergebnisse. Oder lege direkt eine Prüfung an.</p></div>`}`;
   $('#sj').onchange = e => { S.sj = e.target.value; viewDashboard(); };
   $('#neu').onclick = () => examForm(null);
   $('#neuk').onclick = () => classForm(helpers(), null);
