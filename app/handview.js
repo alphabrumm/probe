@@ -9,7 +9,7 @@ export const GREEN = '#139a43';
 export const IMG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
 export const STAMPS = [['ok', 'Haken – korrekt'], ['x', 'X – nicht korrekt'], ['ring', 'unterringelt – ungenau'], ['miss', 'fehlt'], ['kons', 'Konsequenzfehler'], ['a', 'Ausdruck']];
 // Startwert und ob es ▲▼ gibt – je Modus
-const BASE = { sub: { ok: null, x: -1, ring: null, miss: -1, kons: -1, a: null }, add: { ok: 1, x: null, ring: null, miss: null, kons: null, a: null } };
+const BASE = { sub: { ok: null, x: -1, ring: null, miss: -1, kons: null, a: null }, add: { ok: 1, x: null, ring: null, miss: null, kons: null, a: null } };
 const ARW = { sub: { ok: false, x: true, ring: false, miss: true, kons: true, a: true }, add: { ok: true, x: true, ring: false, miss: true, kons: true, a: true } };
 export const hasArrows = (k, mode) => !!ARW[mode]?.[k];
 /** Wert eines Stempels in der Punktespalte (null = kein Eintrag) */
