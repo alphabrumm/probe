@@ -35,4 +35,4 @@ body.pf-player > .app { flex: 1; min-height: 0; height: auto; }
 /* persönlicher QR-Code: Name fest */
 .me { margin: 6px 0 4px; padding: 12px 14px; border-radius: 12px; background: #eef4ff; font-size: 19px; text-align: center; }
 @media (prefers-color-scheme: dark) { .me { background: #1d2a44; } }
-.screen .ic, .sbar img { image-rendering: pixelated; border-radius: 0; }
+.screen .ic, .sbar img { border-radius: 0; }
