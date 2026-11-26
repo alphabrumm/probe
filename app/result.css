@@ -16,3 +16,4 @@
 .cm .sent { color: var(--good); font-weight: 700; }
 @media print { .top, .no-print, .cm { display: none !important; } body { background: #fff; } .card { box-shadow: none; border: 0; } main { padding: 0; } }
 .ans.code { font: 13px/1.45 ui-monospace, Menlo, monospace; overflow-x: auto; }
+.hand-ans { display: block; max-width: 640px; } .hand-ans img { display: block; width: 100%; height: auto; border: 1px solid var(--line, #ccc); border-radius: 10px; background: #fff; }

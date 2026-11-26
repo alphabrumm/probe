@@ -334,3 +334,4 @@ label.pref span { display: flex; flex-direction: column; font-weight: 400; } lab
 .themes button { width: 44px; height: 44px; padding: 3px; border: 2px solid transparent; border-radius: 13px; background: none; cursor: pointer; }
 .themes button img { width: 34px; height: 34px; display: block; }
 .themes button[aria-pressed=true] { border-color: var(--a1); }
+.hand-ans { display: block; max-width: 640px; } .hand-ans img { display: block; width: 100%; height: auto; border: 1px solid var(--line, #ccc); border-radius: 10px; background: #fff; }

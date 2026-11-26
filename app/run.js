@@ -416,7 +416,10 @@ function personDialog(pid) {
   }
 }
 /* ---------- Programmier-Aufgaben (JPad …): Code ansehen, in der App öffnen und ausführen ---------- */
-const ansHtml = it => `${it.type === 'app' ? (it.text ? codeAnswerHtml(it.text, S2.key.tasks.find(t => t.id === it.id)?.app) : '<div class="ans">– keine Abgabe –</div>') : `<div class="ans">${X.esc(it.text || '– keine Antwort –')}</div>`}${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
+/** Handschrift: Foto der Lösung (nur data:image), antippen = groß in neuem Fenster */
+const handHtml = img => IMG_RE.test(img || '') ? `<a class="hand-ans" href="${img}" target="_blank" rel="noopener" title="groß ansehen"><img src="${img}" alt="Handschriftliche Lösung"></a>` : '<div class="ans">– kein Foto abgegeben –</div>';
+const IMG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+const ansHtml = it => it.hand ? handHtml(it.img) : `${it.type === 'app' ? (it.text ? codeAnswerHtml(it.text, S2.key.tasks.find(t => t.id === it.id)?.app) : '<div class="ans">– keine Abgabe –</div>') : `<div class="ans">${X.esc(it.text || '– keine Antwort –')}</div>`}${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
 const solHtml = t => t.type === 'app' ? `<details class="help"><summary>Musterlösung</summary><div class="ans code hl">${highlight(t.solution, langOf(t.app))}</div></details>` : `<div class="help">Musterlösung: ${X.esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>`;
 const appBtn = (t, it, pid) => t.type === 'app' && it.files?.length ? `<div class="btns" style="margin:4px 0"><button class="btn sm" data-appview="${X.esc(t.id)}" data-pid="${pid}">▶ In ${X.esc(S2.M.appName(t.app))} öffnen und ausführen</button></div>` : '';
 let APPM = null;
@@ -603,7 +606,7 @@ async function publish() {
         const fb = g.feedback[x.p.id] || {};
         const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
           punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
-          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true, app: key.tasks[i].app } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
+          items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), ...(it.hand ? { hand: true, img: it.img || '' } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true, app: key.tasks[i].app } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
         for (const rc of [x.p.rc, ...x.p.merged.map(q => q.rc)].filter(Boolean)) { // doppelt angemeldet: unter jedem Ergebniscode dieselbe Seite
           const { rid, key: k } = await X.K.reportKeys(rc);
           reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });

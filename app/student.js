@@ -221,7 +221,10 @@ function fullscreenScroll() {
   document.addEventListener('fullscreenchange', nudge); document.addEventListener('webkitfullscreenchange', nudge);
 }
 // Fokusverlust: Verlässt der Schüler den Browser, sieht es die Lehrkraft
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && st.token && !st.done) { st.fokus = (st.fokus || 0) + 1; keep(); dirty = true; send(false); } });
+// Kamera für eine handschriftliche Aufgabe (PathFinder setzt data-pf-camera beim Öffnen): kein Fokuswechsel
+const camOpen = () => { const t = +document.documentElement.getAttribute('data-pf-camera') || 0; return t && Date.now() - t < 5 * 60e3; };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && st.token && !st.done && !camOpen()) { st.fokus = (st.fokus || 0) + 1; keep(); dirty = true; send(false); }
+  if (document.visibilityState === 'visible' && camOpen()) setTimeout(() => document.documentElement.removeAttribute('data-pf-camera'), 1500); });
 addEventListener('online', () => { if (st.token && !st.done) send(!!st.pendingFinal); });
 
 boot();
