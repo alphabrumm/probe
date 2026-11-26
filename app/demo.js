@@ -37,13 +37,17 @@ function magnetismus(klasse) {
         { id: 'e1', type: 'essay', pts: 4, title: 'Eisennagel', html: 'Ein Eisennagel ist kein Magnet, wird aber von einem Magneten angezogen. Erkläre das mit dem Modell der Elementarmagnete.', lines: 5, img: '',
           rubric: [{ t: 'Im Eisen gibt es Elementarmagnete, die ungeordnet sind', p: 2 }, { t: 'Sie richten sich im Magnetfeld aus – der Nagel wird selbst zum Magneten', p: 2 }],
           solution: 'Im Eisen liegen viele winzige Elementarmagnete ungeordnet durcheinander, ihre Wirkungen heben sich auf. Kommt ein Magnet in die Nähe, richten sie sich aus; der Nagel wird selbst magnetisch und deshalb angezogen.' },
+        { id: 'h1', type: 'essay', hand: true, pts: 3, title: 'Feldlinienbild', img: '',
+          html: 'Zeichne auf Papier das Magnetfeld eines Stabmagneten mit mindestens sechs Feldlinien. Beschrifte die Pole und gib die Richtung der Feldlinien an. Fotografiere dann deine Zeichnung.',
+          rubric: [{ t: 'Pole beschriftet', p: 1 }, { t: 'Feldlinien außen vom Nord- zum Südpol (Pfeile)', p: 1 }, { t: 'Feldlinien schneiden sich nicht, an den Polen dichter', p: 1 }],
+          solution: 'Feldlinien verlaufen außerhalb des Magneten vom Nordpol (N) zum Südpol (S) und sind geschlossene Linien.\nSie schneiden sich nie; an den Polen liegen sie am dichtesten – dort ist die Kraft am größten: $F_\\text{Pol} > F_\\text{Mitte}$.' },
       ] },
     ],
   };
 }
 
 /* So haben die 15 Schüler abgeschnitten: richtige Quizfragen (von 3), Lücken (von 4), Zuordnungen (von 3), Rechnung (ja/nein), Freitext-Punkte (von 4).
-   Ergibt mit dem Abiturschlüssel die Noten 1 1 2 2 2 3 3 3 3 4 4 4 5 5 6 – Schnitt 3,2. */
+   Dazu eine handschriftliche Aufgabe (3 P., ein Stellvertreter-Foto für alle): bei Ott und Brehm schon korrigiert, sonst noch offen. */
 const LEISTUNG = {
   Alm: [3, 4, 3, 1, 3], Brehm: [2, 3, 1, 1, 1.5], Christ: [3, 4, 3, 1, 2], Dorn: [2, 2, 0, 0, 1], Eck: [3, 3, 2, 1, 2],
   Fink: [2, 2, 1, 0, 2], Graf: [3, 3, 1, 1, 1.5], Hahn: [1, 1, 0, 0, 0], Imhof: [3, 4, 2, 1, 1.5], Jung: [2, 3, 1, 0, 2],
@@ -72,12 +76,20 @@ function answersFor(key, [q, g, m, k, e]) {
   else { a.m1[P[0].kb] = P[1].ka; a.m1[P[1].kb] = P[2].ka; a.m1[P[2].kb] = P[0].ka; }
   a.k1 = k ? '4' : (e < 1.5 ? '2' : '1');
   if (ESSAY[e]) a.e1 = ESSAY[e];
+  if (HAND && e > 0) a.h1 = { img: HAND, w: HAND_W, h: HAND_H, mode: 'bw', at: Date.now() }; // Stellvertreter-Foto für alle
   return a;
 }
 
 /** Beide Beispielprüfungen anlegen. force: auch wenn es sie schon einmal gab (Menü „Beispielprüfungen neu anlegen“). */
+/** Stellvertreter-Foto für die handschriftliche Aufgabe (eine Zeichnung für alle Schüler, nur zum Ausprobieren) */
+let HAND = ''; const HAND_W = 1000, HAND_H = 640;
+async function loadHand() {
+  if (HAND) return; try { const b = await (await fetch('app/demo-hand.png')).blob(); HAND = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(b); }); } catch (e) { HAND = ''; }
+}
+
 export async function seedDemos({ api, K, S }, force = false) {
   const pub = S.keys.pub_key, seal = d => K.seal(pub, d);
+  await loadHand();
   const exams = [];
   const TASKS = new Set(['task', 'quiz', 'gap', 'match', 'essay', 'mark', 'sort', 'order', 'app']);
   for (const [klasse, done, make, titel, fach, art] of [['7d', true, magnetismus, DEMO_TITLE, 'Physik', 'Kurzarbeit'], ['7p', false, magnetismus, DEMO_TITLE, 'Physik', 'Kurzarbeit'],
@@ -108,6 +120,19 @@ export async function seedDemos({ api, K, S }, force = false) {
   const done = exams.find(x => x.done), ids = r.exams.find(x => x.klasse === '7d');
   const g = { v: 1, gkey: GRADE_KEY.slice(), manual: {}, override: {}, feedback: {}, accept: {}, drop: [], days: 14 };
   done.participants.forEach((p, i) => { const pid = ids.pids[i]; g.manual[pid] = { e1: LEISTUNG[p._n][4] }; if (FEEDBACK[p._n]) g.feedback[pid] = FEEDBACK[p._n]; });
+  // Handschrift: zwei Fotos schon korrigiert (subtraktiv), die übrigen warten auf die Korrektur
+  if (HAND) {
+    g.hkMode = { h1: 'sub' }; g.hk = {};
+    done.participants.forEach((p, i) => {
+      const pid = ids.pids[i], e = LEISTUNG[p._n][4];
+      if (p._n === 'Ott') { g.hk[pid] = { h1: { w: HAND_W, h: HAND_H, s: [], tx: [], st: [{ id: 'o1', k: 'ok', x: 650, y: 315, adj: 0 }, { id: 'o2', k: 'ok', x: 870, y: 120, adj: 0 }, { id: 'o3', k: 'ok', x: 560, y: 600, adj: 0 }] } }; g.manual[pid].h1 = 3; }
+      else if (p._n === 'Brehm') {
+        g.hk[pid] = { h1: { w: HAND_W, h: HAND_H, s: [[180, 340, 260, 345, 340, 342]], st: [{ id: 'b1', k: 'ok', x: 650, y: 315, adj: 0 }, { id: 'b2', k: 'x', x: 140, y: 320, adj: 0 }],
+          tx: [{ id: 'b3', x: 30, y: 380, t: 'Feldlinien schneiden\nsich nie!' }] } };
+        g.manual[pid].h1 = 2;
+      }
+    });
+  }
   await api('exam_grading', { id: ids.id, grading_enc: await seal(g) });
   try { await demoMarks({ api, K, S }, r.exams.find(x => x.klasse === '7p')?.id); } catch (er) { } // eigene Noten (mündlich, Referat …) in der Klasse 7p
   return true;
