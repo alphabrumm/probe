@@ -417,7 +417,8 @@ function personDialog(pid) {
 }
 /* ---------- Programmier-Aufgaben (JPad …): Code ansehen, in der App öffnen und ausführen ---------- */
 /** Handschrift: Foto der Lösung (nur data:image), antippen = groß in neuem Fenster */
-const handHtml = img => IMG_RE.test(img || '') ? `<a class="hand-ans" href="${img}" target="_blank" rel="noopener" title="groß ansehen"><img src="${img}" alt="Handschriftliche Lösung"></a>` : '<div class="ans">– kein Foto abgegeben –</div>';
+const imgKB = img => { const b = String(img).split(',')[1] || ''; return Math.max(1, Math.round((b.length * 3 / 4 - (b.endsWith('==') ? 2 : b.endsWith('=') ? 1 : 0)) / 1024)); };
+const handHtml = img => IMG_RE.test(img || '') ? `<a class="hand-ans" href="${img}" target="_blank" rel="noopener" title="groß ansehen"><img src="${img}" alt="Handschriftliche Lösung"></a><div class="help hand-kb">Foto · ${imgKB(img)} KB · Punkte von Hand (nie KI)</div>` : '<div class="ans">– kein Foto abgegeben –</div>';
 const IMG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
 const ansHtml = it => it.hand ? handHtml(it.img) : `${it.type === 'app' ? (it.text ? codeAnswerHtml(it.text, S2.key.tasks.find(t => t.id === it.id)?.app) : '<div class="ans">– keine Abgabe –</div>') : `<div class="ans">${X.esc(it.text || '– keine Antwort –')}</div>`}${it.suggest != null && it.pts == null ? `<div class="help">Vorschlag nach den automatischen Prüfungen: ${X.fmtPts(it.suggest)} P.</div>` : ''}`;
 const solHtml = t => t.type === 'app' ? `<details class="help"><summary>Musterlösung</summary><div class="ans code hl">${highlight(t.solution, langOf(t.app))}</div></details>` : `<div class="help">Musterlösung: ${X.esc(String(t.solution).replace(/<[^>]*>/g, ''))}</div>`;
@@ -474,7 +475,7 @@ function acceptDialog(tid) {
 /** KI-Symbol (Funkelsterne) wie in PathFinder */
 const KI = '<svg class="ki-ico" viewBox="0 0 24 24" width="1.1em" height="1.1em" aria-hidden="true"><path fill="currentColor" d="M10 2.5l1.7 5.3a3 3 0 0 0 1.9 1.9L19 11.5l-5.4 1.8a3 3 0 0 0-1.9 1.9L10 20.5l-1.7-5.3a3 3 0 0 0-1.9-1.9L1 11.5l5.4-1.8a3 3 0 0 0 1.9-1.9z"/><path fill="currentColor" d="M19 1.5l.8 2.2a1.4 1.4 0 0 0 .8.8l2.2.8-2.2.8a1.4 1.4 0 0 0-.8.8l-.8 2.2-.8-2.2a1.4 1.4 0 0 0-.8-.8l-2.2-.8 2.2-.8a1.4 1.4 0 0 0 .8-.8z"/></svg>';
 /* ---------- KI-gestützte Korrektur (app/ki.js): Export ohne Namen, Vorschläge einlesen, je Aufgabe übernehmen oder ablehnen ---------- */
-const kiOf = (pid, tid) => S2.g.ki?.[pid]?.[tid] || null;
+const kiOf = (pid, tid) => S2.key.tasks.find(t => t.id === tid)?.hand ? null : S2.g.ki?.[pid]?.[tid] || null; // Handschrift: nie KI-Vorschläge
 /** offen = noch nicht entschieden und anders als die jetzige Bewertung; diff = davon weicht von bereits vergebenen Punkten ab */
 function kiStats(x) {
   let open = 0, diff = 0, any = 0;
@@ -530,7 +531,7 @@ const kiFree = t => kiKind(t) === 'rec';
  */
 function kiWizard(start = 1) {
   const { esc, fmtPts } = X, { e, key, g } = S2, RS = results();
-  const tasks = key.tasks.map((t, i) => ({ t, i })).filter(x => !g.drop.includes(x.t.id));
+  const tasks = key.tasks.map((t, i) => ({ t, i })).filter(x => !g.drop.includes(x.t.id) && !x.t.hand); // Handschrift bewertest du immer selbst
   const pre = new Set((Array.isArray(g.kiSel) && g.kiSel.some(id => tasks.some(x => x.t.id === id)) ? g.kiSel : tasks.filter(x => kiFree(x.t)).map(x => x.t.id))
     .filter(id => kiKind(key.tasks.find(t => t.id === id) || {}) !== 'fix'));
   const typ = t => ({ quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', mark: 'Markieren', sort: 'Sortieren', order: t.words ? 'Satzpuzzle' : 'Reihenfolge', essay: 'Freitext', app: S2.M.appName(t.app) })[t.type] || (t.short ? 'kurze Antwort' : 'Freitext');

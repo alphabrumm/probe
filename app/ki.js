@@ -75,7 +75,7 @@ async function examText(doc, sel, taskIds) {
 export async function buildExport(S2, RS, selIds = null) {
   const { e, key } = S2, ids = await kennungen(e, S2.people), scrub = scrubber(S2.people);
   const sel = selIds ? new Set(selIds) : null;
-  const tasks = key.tasks.map((t, i) => ({ t, nr: i + 1 })).filter(x => !S2.g.drop.includes(x.t.id) && (!sel || sel.has(x.t.id)));
+  const tasks = key.tasks.map((t, i) => ({ t, nr: i + 1 })).filter(x => !S2.g.drop.includes(x.t.id) && !x.t.hand && (!sel || sel.has(x.t.id))); // Handschrift: nie an die KI
   const nrs = tasks.map(x => x.nr).join(', ');
   const L = [];
   L.push(`# KI-Korrektur · ${e.fach} · ${e.klasse} · ${e.art}`, '',
@@ -184,7 +184,7 @@ export async function applyImport(S2, parsed) {
     const pid = byKid.get(String(r?.schueler || '').trim().toUpperCase());
     const nr = parseInt(r?.aufgabe, 10), t = key.tasks[nr - 1];
     if (pid == null) { if (r?.schueler) out.unknown.add(String(r.schueler)); continue; }
-    if (!t || g.drop.includes(t.id)) { out.bad++; continue; }
+    if (!t || g.drop.includes(t.id) || t.hand) { out.bad++; continue; } // Handschrift bewertet nie die KI
     let pts = +String(r.punkte ?? '').replace(',', '.');
     if (!isFinite(pts)) { out.bad++; continue; }
     pts = Math.max(0, Math.min(t.pts, Math.round(pts * 2) / 2));
