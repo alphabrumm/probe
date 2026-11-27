@@ -347,3 +347,5 @@ h1 .adot { width: 13px; height: 13px; margin-right: 10px; vertical-align: 4px; }
 h1 .brille svg { width: 34px; height: 17px; }
 .brille.lauf { color: #8a8f9c; } .brille.rf { color: #e0861a; } .brille.ok { color: #2f9e5b; }
 .legende { margin-top: 14px; } .legende .adot { margin: 0 3px 0 6px; } .legende .brille svg { width: 22px; height: 11px; }
+/* Übungsprüfung in der Notenübersicht: Note in Klammern, zählt nicht */
+.k-ueb { color: var(--ink-2, #6b7085); } th.k-ex.k-ueb a { opacity: .75; font-style: italic; }
