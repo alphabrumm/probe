@@ -143,7 +143,7 @@ function route() {
   return viewDashboard();
 }
 /** Hilfen für die Ansichten in run.js und resp.js */
-function helpers() { return { S, api, K, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, parseNames, viewExam, cleanLocal, examForm, statusChip, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
+function helpers() { return { S, api, K, examKey, drawWho, route, dialog, toast, withBusy, esc, fmtDate, fmtPts, field, main, pickFile, parseNames, viewExam, cleanLocal, examForm, statusChip, view: x => x.draft ? openEditor(x, x.draft, true) : toast('⚠ Kein Inhalt gespeichert') }; }
 /** Beispielprüfungen anlegen: beim ersten Mal von selbst, später über das Konto-Menü */
 async function demos(force) {
   S.demoTried = true;
@@ -403,6 +403,14 @@ async function examForm(e, cls = null) {
 }
 
 /* ---------- Eine Prüfung ---------- */
+/** Prüfungsschlüssel (für die Schülerfassung): einmal je Prüfung erzeugt, für die Lehrkraft verschlüsselt auf dem Server */
+const EKEYS = new Map();
+async function examKey(e) {
+  if (EKEYS.has(e.id)) return EKEYS.get(e.id);
+  let enc = e.skey_enc;
+  if (!enc) { const r = await api('exam_skey', { id: e.id, skey_enc: await K.seal(S.keys.pub_key, { k: K.newExamKey() }) }); enc = r.exam.skey_enc; e.skey_enc = enc; }
+  const { k } = await K.open(S.priv, enc); EKEYS.set(e.id, k); return k;
+}
 async function loadExam(id) {
   const { exam } = await api('exam_get', { id });
   exam.draft = exam.draft_enc ? await K.open(S.priv, exam.draft_enc) : null;
@@ -414,6 +422,11 @@ async function viewExam(id) {
   stopLive();
   let e; try { e = await loadExam(id); } catch (er) { main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a><p class="err">${esc(er.message)}</p>`; return; }
   const H = helpers();
+  if (e.status === 'entwurf' && e.legacy_doc && e.draft) { // alte, unverschlüsselte Schülerfassung: jetzt verschlüsselt neu fertigstellen
+    try { await withBusy('Prüfung wird verschlüsselt …', () => saveDraft(e, e.draft, true)); e = await loadExam(id);
+      if (e.pqr) toast('🔐 Die Aufgaben sind jetzt verschlüsselt. Persönliche QR-Codes bitte neu drucken – alte Blätter funktionieren nicht mehr.', 9000); }
+    catch (er) { toast('⚠ ' + esc(er.message), 5000); }
+  }
   if (['offen', 'geschlossen'].includes(e.status)) return viewLive(e, H);
   if (['beendet', 'veroeffentlicht'].includes(e.status)) return viewEval(e, H);
   const R = e.roster || [];
@@ -460,7 +473,7 @@ async function viewExam(id) {
       if (!Array.isArray(d?.stations)) throw new Error('Das ist keine Prüfungsdatei aus PathFinder.');
       if (d.form !== 'pruefung') throw new Error('Die Datei ist ein Lernpfad, keine Prüfung. Öffne sie über „Inhalt bauen“ → Aus einem Lernpfad.');
       if (e.draft && !confirm('Den bisherigen Inhalt durch die Datei ersetzen?')) return;
-      await withBusy('Prüfung wird übernommen …', () => saveDraft(e.id, d, true));
+      await withBusy('Prüfung wird übernommen …', () => saveDraft(e, d, true));
       toast('✓ Prüfungsdatei übernommen'); viewExam(e.id);
     } catch (er) { toast('⚠ ' + esc(er.message), 5000); }
   });
@@ -529,7 +542,8 @@ async function qrCodes(e) {
   const d = dialog('▦ Persönliche QR-Codes', `<p>Individuelle QR-Codes für deine Schüler:innen wurden generiert. Drucke sie aus und teile sie am Prüfungstermin deinen Schüler:innen aus.</p>
     <p class="help">Ein A4-Blatt je Schüler:in (${R.length} Seiten): oben Name, Prüfung, Datum, QR-Code und der Zugangscode zur persönlichen Auswertung, darunter Karopapier als Schmierblatt für die Prüfung. Kommen später Namen dazu, einfach erneut generieren – schon gedruckte Blätter bleiben gültig.</p>
     <div class="btns"><button class="btn pri" id="go">⇩ Datei laden</button></div>`);
-  $('#go', d.el).onclick = () => { try { showPdf(qrSheetPdf(e, R), `QR-Codes_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); } catch (er) { toast('⚠ ' + esc(er.message), 5000); } };
+  let k = ''; try { k = await examKey(e); } catch (er) { toast('⚠ ' + esc(er.message), 5000); return; }
+  $('#go', d.el).onclick = () => { try { showPdf(qrSheetPdf(e, R, k), `QR-Codes_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); } catch (er) { toast('⚠ ' + esc(er.message), 5000); } };
 }
 async function saveRoster(e, L) {
   if (!L.length) { toast('⚠ Keine Namen erkannt'); return; }
@@ -541,12 +555,12 @@ async function saveRoster(e, L) {
 /* ---------- Inhalt: PathFinder eingebettet ---------- */
 const EXAM_TYPES = new Set(['task', 'quiz', 'gap', 'match', 'essay', 'mark', 'sort', 'order', 'app']);
 const countTasks = d => { const t = (d.stations || []).flatMap(s => s.blocks || []).filter(b => EXAM_TYPES.has(b.type)); return { aufgaben: t.length, punkte: t.reduce((a, b) => a + Math.max(0, +(b.pts ?? 1) || 0), 0) }; };
-async function saveDraft(id, d, fertig = false) {
-  const data = { id, draft_enc: await K.seal(S.keys.pub_key, d), titel: (d.title || '').replace(/<[^>]*>/g, '').trim(), ...countTasks(d) };
+async function saveDraft(e, d, fertig = false) {
+  const data = { id: e.id, draft_enc: await K.seal(S.keys.pub_key, d), titel: (d.title || '').replace(/<[^>]*>/g, '').trim(), ...countTasks(d) };
   if (fertig) {
     const { splitExam } = await import('../vendor/pathfinder/core/pfsplit.js');
     const { student, key } = splitExam(d);
-    Object.assign(data, { fertig: 1, key_enc: await K.seal(S.keys.pub_key, key), student_doc: JSON.stringify(student) });
+    Object.assign(data, { fertig: 1, key_enc: await K.seal(S.keys.pub_key, key), student_enc: await K.sealExamDoc(await examKey(e), student) });
   }
   return api('exam_draft', data);
 }
@@ -559,7 +573,7 @@ function openEditor(e, doc, ro = false) {
   document.body.appendChild(wrap); document.body.style.overflow = 'hidden';
   const fr = $('iframe', wrap);
   let timer = null, pending = null, saving = Promise.resolve();
-  const flush = () => { clearTimeout(timer); timer = null; if (!pending) return saving; const d = pending; pending = null; saving = saving.then(() => saveDraft(e.id, d)).catch(er => toast('⚠ Speichern fehlgeschlagen: ' + esc(er.message), 5000)); return saving; };
+  const flush = () => { clearTimeout(timer); timer = null; if (!pending) return saving; const d = pending; pending = null; saving = saving.then(() => saveDraft(e, d)).catch(er => toast('⚠ Speichern fehlgeschlagen: ' + esc(er.message), 5000)); return saving; };
   const close = () => { wrap.remove(); document.body.style.overflow = ''; cleanLocal(); viewExam(e.id); };
   const start = () => {
     if (ro) return fr.contentWindow.probeEdit({
@@ -573,7 +587,7 @@ function openEditor(e, doc, ro = false) {
         saved: d => { pending = d; clearTimeout(timer); timer = setTimeout(flush, 1500); },
         done: async d => {
           clearTimeout(timer); pending = null;
-          try { await saving; await withBusy('Prüfung wird fertiggestellt …', () => saveDraft(e.id, d, true)); toast('✓ Prüfung gespeichert und bereit'); close(); }
+          try { await saving; await withBusy('Prüfung wird fertiggestellt …', () => saveDraft(e, d, true)); toast('✓ Prüfung gespeichert und bereit'); close(); }
           catch (er) { toast('⚠ ' + esc(er.message), 5000); }
         },
         doneLabel: 'Fertig – zurück zu Probe', doneTitle: 'Prüfung speichern und zurück zur Übersicht',

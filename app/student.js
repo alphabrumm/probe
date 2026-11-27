@@ -13,6 +13,10 @@ const SK = 'probe.s.' + code;
 const PK = 'probe.p.' + code;
 let personal = readPersonal(location.hash);
 try { if (personal) sessionStorage.setItem(PK, JSON.stringify(personal)); else personal = JSON.parse(sessionStorage.getItem(PK) || 'null'); } catch (e) { }
+/* Prüfungsschlüssel (#k=… im gemeinsamen QR-Code oder im persönlichen): entschlüsselt die Aufgaben; der Server kennt ihn nicht */
+const KK = 'probe.k.' + code;
+let ekey = (String(location.hash).match(/[#&]k=([A-Za-z0-9_-]{22})/) || [])[1] || personal?.k || '';
+try { if (ekey) sessionStorage.setItem(KK, ekey); else ekey = sessionStorage.getItem(KK) || ''; } catch (e) { }
 if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 const screen = $('#screen');
 let st = load(), info = null, ctx = null, skew = 0, deadline = null, auto = true, dirty = false, timer = null, sending = false, finished = false, lastOk = 0;
@@ -47,6 +51,15 @@ async function api(a, data = {}) {
   if (!j.ok) { const er = new Error(j.error || 'Fehler'); er.status = r.status; throw er; }
   return j;
 }
+class NoKey extends Error { }
+/** Aufgaben entschlüsseln (alte Prüfungen kommen noch unverschlüsselt) */
+async function docOf(r) {
+  if (!r.doc_enc) return r;
+  const k = ekey || st.k; if (!k) throw new NoKey('Der Link ist unvollständig.');
+  try { r.doc = await K.openExamDoc(k, r.doc_enc); } catch (e) { throw new NoKey('Die Aufgaben lassen sich mit diesem QR-Code nicht öffnen.'); }
+  delete r.doc_enc; st.k = k; return r;
+}
+const noKey = msg => show(`<img class="ic" src="app/icon.svg" alt=""><h2>Bitte den QR-Code neu scannen</h2><p class="err">${esc(msg)}</p><p class="help">Scanne den QR-Code deiner Lehrkraft (oder deinen persönlichen QR-Code) mit der Kamera – nicht den Link abtippen.</p>`);
 const show = html => { screen.hidden = false; screen.className = 'screen'; screen.innerHTML = `<div class="card">${html}</div>`; };
 const resultLink = () => new URL('e.html', location.href).href.replace(/[?#].*$/, '') + '#' + st.rc;
 
@@ -58,11 +71,14 @@ async function boot() {
     if (st.token) {
       const r = await api('p_resume', { token: st.token });
       if (r.status === 'abgegeben' || ['beendet', 'veroeffentlicht'].includes(r.exam_status)) { st.done = true; keep(); done('', true); return; }
-      return run(r);
+      return run(await docOf(r));
     }
     info = await api('p_info');
+    if (info.exam.enc && !ekey && info.exam.status === 'offen') { noKey('Der Link ist unvollständig.'); return; }
+    if (info.doc_enc) { await docOf({ doc_enc: info.doc_enc }); delete info.doc_enc; } // passt der Schlüssel? (sonst NoKey vor der Anmeldung)
     joinForm();
   } catch (e) {
+    if (e instanceof NoKey) { noKey(e.message); return; }
     if (e instanceof Offline && st.token && st.doc) return run({ doc: st.doc, pub_key: st.pub, deadline: st.deadline, auto: st.auto !== false, now: Math.round(Date.now() / 1000), exam_status: 'offen', status: 'aktiv' }, true);
     show(`<img class="ic" src="app/icon.svg" alt=""><h2>Prüfung nicht erreichbar</h2><p class="err">${esc(e.message)}</p><button class="btn alt" onclick="location.reload()">Nochmal versuchen</button>`);
   }
@@ -83,8 +99,8 @@ function joinForm() {
     const v = personal ? personal.v : $('#v').value.trim(), n = personal ? personal.n : $('#n').value.trim();
     try {
       const rc = personal?.r || K.resultCode(), identity_enc = await K.seal(info.pub_key, personal ? { v, n, rc, t: personal.t } : { v, n, rc });
-      const r = await api('p_join', { pin: $('#pin')?.value || '', identity_enc });
-      st = { token: r.token, pid: r.pid, rc, v, n, pub: r.pub_key, identity_enc, answers: {}, fokus: 0, doc: r.doc, deadline: r.deadline, auto: r.auto !== false };
+      const r = await docOf(await api('p_join', { pin: $('#pin')?.value || '', identity_enc }));
+      st = { k: st.k || ekey, token: r.token, pid: r.pid, rc, v, n, pub: r.pub_key, identity_enc, answers: {}, fokus: 0, doc: r.doc, deadline: r.deadline, auto: r.auto !== false };
       keep(); run(r);
     } catch (e) { $('#err').textContent = e.message; b.disabled = false; }
   };

@@ -185,7 +185,13 @@ Alles wird im Browser verschlüsselt (WebCrypto), der Server speichert nur Chiff
 * Aus dem Passwort entstehen zwei getrennte Werte: der **Login-Wert** (geht an den Server, dort mit `password_hash` gespeichert)
   und der **Passwort-Schlüssel** (verlässt den Browser nie). Der Server kennt das Passwort also nicht.
 * Prüfungsinhalt mit Lösungen, Lösungsschlüssel und Klassenliste sind für den öffentlichen Schlüssel der Lehrkraft verschlüsselt.
-  Im Klartext stehen nur Klasse, Fach, Datum, Art, Titel, Anzahl Aufgaben/Punkte – und die Schülerfassung **ohne** Lösungen.
+  Im Klartext stehen nur Klasse, Fach, Datum, Art, Titel, Anzahl Aufgaben/Punkte.
+* **Schülerfassung** (Aufgaben ohne Lösungen, `exams.student_enc`): AES-256-GCM mit einem zufälligen **Prüfungsschlüssel** je Prüfung.
+  Den Schlüssel hat die Lehrkraft für sich verschlüsselt (`exams.skey_enc`); die Schüler bekommen ihn nur über den QR-Code bzw.
+  Link (`s.html?c=<Code>#k=<Schlüssel>`, persönlicher QR-Code: Feld `k` in `#p=…`) – der Teil hinter „#“ geht nie an den Server.
+  Ohne passenden Schlüssel zeigt die Schülerseite „Bitte den QR-Code neu scannen“, noch vor der Anmeldung. Beim Beenden der Prüfung
+  löscht der Server die Schülerfassung. Ältere, noch unverschlüsselte Entwürfe stellt Probe beim nächsten Öffnen verschlüsselt neu
+  fertig (persönliche QR-Codes dann neu drucken); starten lässt sich eine Prüfung nur noch verschlüsselt (DB v18).
 * Startpasswort vom Admin: rechnet ebenfalls der Browser um. Nach einem neuen Startpasswort öffnet nur der
   Wiederherstellungscode die alten Prüfungen wieder.
 * **Admin-Passwort verloren** (und kein zweiter Admin): GitHub → Actions → „Probe – Notfall-Reset“ mit einem Startpasswort starten.

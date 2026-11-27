@@ -25,7 +25,9 @@ export { matchRoster };
 export async function viewLive(e, helpers) {
   X = helpers; stopLive();
   const { esc, main } = X, ids = new Map();
-  const link = new URL('s.html', location.href).href.replace(/[?#].*$/, '') + '?c=' + e.code;
+  let k = ''; if (e.skey_enc) try { k = await X.examKey(e); } catch (er) { X.toast('⚠ Prüfungsschlüssel nicht lesbar: ' + esc(er.message), 6000); }
+  // der Prüfungsschlüssel steht hinter „#“: er geht nie an den Server, die Schüler-Geräte entschlüsseln damit die Aufgaben
+  const link = new URL('s.html', location.href).href.replace(/[?#].*$/, '') + '?c=' + e.code + (k ? '#k=' + k : '');
   const decrypt = async p => { if (!ids.has(p.id)) { try { ids.set(p.id, await X.K.open(X.S.priv, p.identity_enc)); } catch (er) { ids.set(p.id, { v: '?', n: '(unlesbar)' }); } } return { ...p, ...ids.get(p.id) }; };
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
     <h1>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}</h1><p class="sub">${esc(e.titel)} · ${esc(X.fmtDate(e.datum))} <button class="btn sm ghost" id="ansehen">👁 Prüfung ansehen</button></p>

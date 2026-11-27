@@ -111,11 +111,18 @@ function own_exam(array $u, int $id): array {
     $st = db()->prepare('SELECT * FROM exams WHERE id = ? AND owner_id = ?'); $st->execute([$id, $u['id']]);
     return $st->fetch() ?: fail('Prüfung nicht gefunden', 404);
 }
+/** Schülerfassung für die Schüler-Geräte: verschlüsselt (doc_enc, Schlüssel nur im QR-Code) – alte Prüfungen noch im Klartext */
+function student_doc(array $e): array {
+    if (!empty($e['student_enc'])) return ['doc_enc' => $e['student_enc']];
+    if (!empty($e['student_doc'])) return ['doc' => json_decode((string)$e['student_doc'], true)];
+    return ['doc' => null]; // beendet: die Schülerfassung ist gelöscht
+}
 function exam_meta(array $e): array {
     return ['id' => (int)$e['id'], 'schuljahr' => $e['schuljahr'], 'klasse' => $e['klasse'], 'fach_id' => $e['fach_id'] ? (int)$e['fach_id'] : null, 'fach' => $e['fach'],
         'datum' => $e['datum'], 'art' => $e['art'], 'titel' => $e['titel'], 'erwartet' => (int)$e['erwartet'], 'dauer' => (int)$e['dauer'], 'pin_on' => (bool)$e['pin_on'],
         'skala' => $e['skala'], 'status' => $e['status'], 'roster_n' => (int)$e['roster_n'], 'aufgaben' => (int)$e['aufgaben'], 'punkte' => (float)$e['punkte'],
-        'fertig' => (bool)$e['fertig'], 'has_draft' => (bool)$e['draft_enc'], 'updated' => (int)$e['updated'],
+        'fertig' => (bool)$e['fertig'], 'has_draft' => (bool)$e['draft_enc'], 'updated' => (int)$e['updated'], 'skey_enc' => $e['skey_enc'] ?? null,
+        'legacy_doc' => !empty($e['student_doc']), // alte, unverschlüsselte Schülerfassung: die Lehrkraft stellt sie beim nächsten Öffnen neu (verschlüsselt) fertig
         'code' => $e['code'], 'pin' => $e['pin'], 'join_open' => (bool)$e['join_open'], 'opened' => $e['opened'] ? (int)$e['opened'] : null,
         'ended' => $e['ended'] ? (int)$e['ended'] : null, 'expires' => $e['expires'] ? (int)$e['expires'] : null,
         'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'], 'pqr' => (bool)($e['pqr'] ?? 0), 'class_id' => $e['class_id'] ? (int)$e['class_id'] : null,
@@ -537,14 +544,15 @@ case 'demo_seed': { // Beispielprüfungen: Physik „7d“ geschrieben und zur K
         $art = in_array($x['art'] ?? '', ARTEN, true) ? $x['art'] : 'Kurzarbeit';
         $opened = strtotime($datum . ' 08:05'); if ($opened > $now) $opened = $now - 3600;
         $parts = $done ? (array)($x['participants'] ?? []) : []; if (count($parts) > 40) fail('Zu viele Teilnehmer');
-        $pdo->prepare("INSERT INTO exams (owner_id, schuljahr, klasse, fach_id, fach, datum, art, titel, erwartet, dauer, pin_on, skala, status, draft_enc, key_enc, student_doc, roster_enc, roster_n,
+        $pdo->prepare("INSERT INTO exams (owner_id, schuljahr, klasse, fach_id, fach, datum, art, titel, erwartet, dauer, pin_on, skala, status, draft_enc, key_enc, student_enc, roster_enc, roster_n,
             aufgaben, punkte, fertig, created, updated, code, pin, join_open, opened, ended) VALUES (?,?,?,?,?,?,?,?,?,?,1,'noten',?,?,?,?,?,?,?,?,1,?,?,?,?,0,?,?)")
             ->execute([$u['id'], schuljahr($datum), str($x, 'klasse', 20, true), $f ? (int)$f['id'] : null, $f ? $f['name'] : $fname, $datum, $art, str($x, 'titel', 200),
                 max(0, min(200, (int)($x['roster_n'] ?? 0))), max(0, min(600, (int)($x['dauer'] ?? 20))), $done ? 'beendet' : 'entwurf',
-                str($x, 'draft_enc', 2_000_000, true), str($x, 'key_enc', 2_000_000, true), str($x, 'student_doc', 2_000_000, true), blob($x, 'roster_enc', 2_000_000), max(0, min(500, (int)($x['roster_n'] ?? 0))),
+                str($x, 'draft_enc', 2_000_000, true), str($x, 'key_enc', 2_000_000, true), $done ? null : blob($x, 'student_enc', 3_000_000), blob($x, 'roster_enc', 2_000_000), max(0, min(500, (int)($x['roster_n'] ?? 0))),
                 max(0, (int)($x['aufgaben'] ?? 0)), max(0, (float)($x['punkte'] ?? 0)), $now, $now, $done ? new_code() : null, $done ? str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT) : '',
                 $done ? $opened : null, $done ? $opened + 20 * 60 : null]);
         $eid = (int)$pdo->lastInsertId(); $pids = [];
+        if (!$done && ($sk = blob($x, 'skey_enc', 4000))) $pdo->prepare('UPDATE exams SET skey_enc = ? WHERE id = ?')->execute([$sk, $eid]);
         $ins = $pdo->prepare("INSERT INTO participants (exam_id, token_hash, identity_enc, status, joined, last_seen, saved, n_saves, fokus, answers_enc) VALUES (?,?,?,'abgegeben',?,?,?,?,?,?)");
         foreach ($parts as $p) {
             $t = $opened + max(1, min(20, (int)($p['minute'] ?? 15))) * 60;
@@ -730,11 +738,18 @@ case 'exam_draft': { // Inhalt aus PathFinder: Entwurf (verschlüsselt), beim Fe
     $f = ['draft_enc = ?', 'titel = ?', 'aufgaben = ?', 'punkte = ?', 'updated = ?'];
     $v = [$draft, str($in, 'titel', 200), max(0, (int)($in['aufgaben'] ?? 0)), max(0, (float)($in['punkte'] ?? 0)), time()];
     if (!empty($in['fertig'])) {
-        $key = blob($in, 'key_enc'); $stud = blob($in, 'student_doc');
-        if (!$key || !$stud || !is_array(json_decode($stud, true))) fail('Lösungsschlüssel oder Schülerfassung fehlt');
-        array_push($f, 'key_enc = ?', 'student_doc = ?', 'fertig = 1'); array_push($v, $key, $stud);
+        $key = blob($in, 'key_enc'); $stud = blob($in, 'student_enc', 3_000_000);
+        if (!$key || !$stud) fail(isset($in['student_doc']) ? 'Probe wurde aktualisiert – bitte die Seite neu laden.' : 'Lösungsschlüssel oder Schülerfassung fehlt');
+        if (!$e['skey_enc']) fail('Prüfungsschlüssel fehlt – bitte die Seite neu laden.');
+        array_push($f, 'key_enc = ?', 'student_enc = ?', 'student_doc = NULL', 'fertig = 1'); array_push($v, $key, $stud);
     } else { $f[] = 'fertig = 0'; }
     db()->prepare('UPDATE exams SET ' . implode(', ', $f) . ' WHERE id = ?')->execute([...$v, $e['id']]);
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
+case 'exam_skey': { // Prüfungsschlüssel einmalig hinterlegen (verschlüsselt für die Lehrkraft); ein schon vorhandener bleibt – gedruckte QR-Codes enthalten ihn
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    $k = blob($in, 'skey_enc', 4000); if (!$k) fail('Schlüssel fehlt');
+    db()->prepare('UPDATE exams SET skey_enc = ? WHERE id = ? AND skey_enc IS NULL')->execute([$k, $e['id']]);
     out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
 }
 case 'exam_roster': { // Klassenliste (Vor- und Nachnamen) – verschlüsselt
@@ -1019,7 +1034,8 @@ case 'cfg': { // öffentliche Einstellungen für die Oberfläche
 case 'p_info': {
     $e = exam_by_code(str($in, 'code', 12, true), true);
     out(['exam' => ['status' => $e['status'], 'titel' => $e['status'] === 'entwurf' ? '' : $e['titel'], 'fach' => $e['fach'], 'klasse' => $e['klasse'], 'art' => $e['art'], 'datum' => $e['datum'],
-        'dauer' => (int)$e['dauer'], 'pin_on' => (bool)$e['pin_on'], 'join_open' => (bool)$e['join_open']], 'pub_key' => owner_pub($e), 'now' => time()]);
+        'dauer' => (int)$e['dauer'], 'pin_on' => (bool)$e['pin_on'], 'join_open' => (bool)$e['join_open'], 'enc' => !empty($e['student_enc'])], 'pub_key' => owner_pub($e), 'now' => time()]
+        + ($e['status'] === 'offen' && $e['join_open'] && $e['student_enc'] ? ['doc_enc' => $e['student_enc']] : [])); // verschlüsselt: prüft vor der Anmeldung, ob der QR-Code passt
 }
 case 'p_join': {
     $code = strtoupper(str($in, 'code', 12, true)); throttle('j:' . $code, 15);
@@ -1031,12 +1047,12 @@ case 'p_join': {
     $token = bin2hex(random_bytes(24));
     db()->prepare('INSERT INTO participants (exam_id, token_hash, identity_enc, joined, last_seen) VALUES (?,?,?,?,?)')->execute([$e['id'], hash('sha256', $token), $id, time(), time()]);
     $p = participant($e, $token);
-    out(['token' => $token, 'doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e), 'apps' => apps_cfg()] + student_state($e, $p));
+    out(['token' => $token] + student_doc($e) + ['pub_key' => owner_pub($e), 'apps' => apps_cfg()] + student_state($e, $p));
 }
 case 'p_resume': {
     $e = exam_by_code(str($in, 'code', 12, true)); $p = participant($e, str($in, 'token', 64, true));
     db()->prepare('UPDATE participants SET last_seen = ? WHERE id = ?')->execute([time(), $p['id']]);
-    out(['doc' => json_decode((string)$e['student_doc'], true), 'pub_key' => owner_pub($e), 'apps' => apps_cfg()] + student_state($e, $p));
+    out(student_doc($e) + ['pub_key' => owner_pub($e), 'apps' => apps_cfg()] + student_state($e, $p));
 }
 case 'p_save': { // Zwischenstand oder Abgabe (Antworten verschlüsselt für die Lehrkraft)
     $e = exam_by_code(str($in, 'code', 12, true)); $p = participant($e, str($in, 'token', 64, true));
@@ -1079,7 +1095,7 @@ case 'exam_state': {
     if (!in_array($to, STATES, true)) fail('Unbekannter Zustand');
     $n = (int)$pdo->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn();
     $ok = match ([$from, $to]) {
-        ['entwurf', 'offen'] => (bool)$e['fertig'] ?: fail('Bitte zuerst den Inhalt fertigstellen („✓ Fertig“ im Editor).'),
+        ['entwurf', 'offen'] => ((bool)$e['fertig'] ?: fail('Bitte zuerst den Inhalt fertigstellen („✓ Fertig“ im Editor).')) && ($e['student_enc'] ?: fail('Die Prüfung muss einmal neu fertiggestellt werden (verschlüsselt) – bitte die Seite neu laden.')),
         ['offen', 'geschlossen'], ['geschlossen', 'offen'], ['offen', 'beendet'], ['geschlossen', 'beendet'], ['veroeffentlicht', 'beendet'] => true,
         ['offen', 'entwurf'], ['geschlossen', 'entwurf'] => $n === 0 ?: fail('Es haben schon Schüler teilgenommen – zurück zum Entwurf geht nicht mehr.'),
         default => fail("Von „{$from}“ nach „{$to}“ geht nicht."),
@@ -1095,7 +1111,10 @@ case 'exam_state': {
     } else {
         $col = ['geschlossen' => 'closed', 'beendet' => 'ended', 'offen' => 'closed'][$to];
         $pdo->prepare("UPDATE exams SET status = ?, {$col} = ? WHERE id = ?")->execute([$to, $to === 'offen' ? null : time(), $e['id']]);
-        if ($to === 'beendet') $pdo->prepare("UPDATE participants SET status = 'abgegeben' WHERE exam_id = ?")->execute([$e['id']]); // offene Arbeiten zählen mit dem letzten Stand
+        if ($to === 'beendet') {
+            $pdo->prepare("UPDATE participants SET status = 'abgegeben' WHERE exam_id = ?")->execute([$e['id']]); // offene Arbeiten zählen mit dem letzten Stand
+            $pdo->prepare('UPDATE exams SET student_enc = NULL, student_doc = NULL WHERE id = ?')->execute([$e['id']]); // Schülerfassung wird nicht mehr gebraucht
+        }
     }
     out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
 }

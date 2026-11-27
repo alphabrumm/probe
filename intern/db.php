@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 17;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 18;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -336,6 +336,14 @@ function migrate_steps(PDO $pdo, int $v): void {
         UPDATE users SET prefs = '{"notizen":' || CASE WHEN EXISTS (SELECT 1 FROM talks t WHERE t.owner_id = users.id) THEN 'true' ELSE 'false' END
             || ',"umfragen":' || CASE WHEN EXISTS (SELECT 1 FROM surveys s WHERE s.owner_id = users.id) THEN 'true' ELSE 'false' END || '}'; -- wer sie schon nutzt, behält sie im Menü
         PRAGMA user_version = 17;
+        SQL);
+    }
+    if ($v < 18) { // Schülerfassung nur noch verschlüsselt (Schlüssel kennt nur die Lehrkraft, Schüler bekommen ihn über den QR-Code); nach dem Ende gelöscht
+        $pdo->exec(<<<SQL
+        ALTER TABLE exams ADD COLUMN skey_enc TEXT;     -- Prüfungsschlüssel, verschlüsselt für die Lehrkraft
+        ALTER TABLE exams ADD COLUMN student_enc TEXT;  -- Schülerfassung, AES-GCM mit dem Prüfungsschlüssel
+        UPDATE exams SET student_doc = NULL WHERE status IN ('beendet', 'veroeffentlicht');
+        PRAGMA user_version = 18;
         SQL);
     }
 }

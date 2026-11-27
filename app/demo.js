@@ -98,8 +98,9 @@ export async function seedDemos({ api, K, S }, force = false) {
     const T = doc.stations.flatMap(st => st.blocks).filter(b => TASKS.has(b.type));
     const x = {
       klasse, done, titel, fach, art, aufgaben: T.length, punkte: T.reduce((a, b) => a + Math.max(0, +(b.pts ?? 1) || 0), 0), dauer: 20,
-      draft_enc: await seal(doc), key_enc: await seal(key), student_doc: JSON.stringify(student), roster_enc: await seal(KLASSE), roster_n: KLASSE.length, participants: [],
+      draft_enc: await seal(doc), key_enc: await seal(key), roster_enc: await seal(KLASSE), roster_n: KLASSE.length, participants: [],
     };
+    if (!done) { const k = K.newExamKey(); Object.assign(x, { skey_enc: await seal({ k }), student_enc: await K.sealExamDoc(k, student) }); } // Schülerfassung nur verschlüsselt
     if (done) {
       let i = 0;
       for (const s of KLASSE) {

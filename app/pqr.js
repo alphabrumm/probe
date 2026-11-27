@@ -1,6 +1,7 @@
 // Probe – persönliche QR-Codes: Jede:r Schüler:in meldet sich mit einem eigenen, ausgedruckten QR-Code an.
 //
-// Inhalt des QR-Codes: s.html?c=<Prüfungscode>#p=<base64url({v, n, t, r})>
+// Inhalt des QR-Codes: s.html?c=<Prüfungscode>#p=<base64url({v, n, t, r, k})>
+//   k: Prüfungsschlüssel (entschlüsselt die Aufgaben; kennt der Server nicht)
 //   v/n: Name aus der Klassenliste, t: zufälliger persönlicher Schlüssel, r: Zugangscode zur Auswertung (Ergebniscode) –
 //   beides in der Klassenliste gespeichert (verschlüsselt) und auf dem Blatt gedruckt; das iPad übernimmt r bei der Anmeldung.
 //   Alles nach „#“ bleibt im Browser – es geht nie an den Server, steht also auch nicht im Server-Protokoll.
@@ -24,14 +25,14 @@ export function keepTokens(oldR = [], newR = []) {
 /** fehlende Schlüssel und Zugangscodes ergänzen; true, wenn etwas neu ist */
 export function ensureTokens(R) { let ch = false; for (const r of R) { if (!r.t) { r.t = newToken(); ch = true; } if (!r.r) { r.r = resultCode(); ch = true; } } return ch; }
 
-export function personalLink(code, r) {
+export function personalLink(code, r, k = '') {
   const base = new URL('s.html', location.href).href.replace(/[?#].*$/, '');
-  return `${base}?c=${code}#p=${b64u(new TextEncoder().encode(JSON.stringify({ v: r.v, n: r.n, t: r.t, ...(r.r ? { r: r.r } : {}) })))}`;
+  return `${base}?c=${code}#p=${b64u(new TextEncoder().encode(JSON.stringify({ v: r.v, n: r.n, t: r.t, ...(r.r ? { r: r.r } : {}), ...(k ? { k } : {}) })))}`;
 }
 /** Schülerseite: persönlichen Teil aus dem Link lesen (oder null) */
 export function readPersonal(hash) {
   const m = String(hash || '').match(/[#&]p=([A-Za-z0-9_-]+)/); if (!m) return null;
-  try { const o = JSON.parse(new TextDecoder().decode(unb64u(m[1]))); return o && typeof o.t === 'string' && (o.v || o.n) ? { v: String(o.v || ''), n: String(o.n || ''), t: o.t.slice(0, 64), ...(/^[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){2}$/.test(o.r || '') ? { r: o.r } : {}) } : null; } catch (e) { return null; }
+  try { const o = JSON.parse(new TextDecoder().decode(unb64u(m[1]))); return o && typeof o.t === 'string' && (o.v || o.n) ? { v: String(o.v || ''), n: String(o.n || ''), t: o.t.slice(0, 64), ...(/^[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){2}$/.test(o.r || '') ? { r: o.r } : {}), ...(/^[A-Za-z0-9_-]{22}$/.test(o.k || '') ? { k: o.k } : {}) } : null; } catch (e) { return null; }
 }
 
 /** Zuordnung über den Schlüssel: Map(Anmeldung-id → Index in der Klassenliste) */
@@ -45,7 +46,7 @@ export function tokenFixed(roster, people) {
  * Druckbogen: je Schüler:in ein A4-Blatt. Oben Name, Prüfung, Datum und der Zugangscode zur Auswertung, rechts oben der
  * persönliche QR-Code; darunter Karopapier (5 mm, feine graue Linien) als Schmier- und Notizblatt für die Prüfung.
  */
-export function qrSheetPdf(e, R) {
+export function qrSheetPdf(e, R, k = '') {
   const pdf = new Pdf(`Persönliche QR-Codes ${e.klasse} ${e.fach}`);
   const MM = 72 / 25.4, M = 18 * MM, Q = 31 * MM, cell = 5 * MM;
   const datum = e.datum ? new Date(e.datum + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
@@ -66,7 +67,7 @@ export function qrSheetPdf(e, R) {
     const hint = `Nach der Korrektur einsehbar unter ${site}`;
     pdf.text(fit(hint, 8, false, tw - 20 - textW(r.r || '–', 15, true) - 14), M + tw - 10, y + 20, 8, { col: '#777777', align: 'right' });
     // QR-Code rechts oben (dunkle Module zeilenweise als Streifen)
-    const QM = qrMatrix(personalLink(e.code, r)), c = Q / QM.length, qy = M;
+    const QM = qrMatrix(personalLink(e.code, r, k)), c = Q / QM.length, qy = M;
     pdf.color('#000000');
     QM.forEach((row, yy) => { let s0 = -1; for (let xx = 0; xx <= row.length; xx++) { const on = xx < row.length && row[xx]; if (on && s0 < 0) s0 = xx; if (!on && s0 >= 0) { pdf.ops.push(`${(qx + s0 * c).toFixed(2)} ${(PAGE_H - qy - (yy + 1) * c).toFixed(2)} ${((xx - s0) * c).toFixed(2)} ${c.toFixed(2)} re f`); s0 = -1; } } });
     pdf.text('Zum Start scannen', qx + Q / 2, qy + Q + 11, 8, { col: '#666666', align: 'center' });
