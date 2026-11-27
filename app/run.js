@@ -541,13 +541,28 @@ function kiTake(pid, tid) {
   if (it.auto) { const ov = g.override[pid] = g.override[pid] || {}; if (k.pts === it.pts) delete ov[tid]; else ov[tid] = k.pts; }
   else { (g.manual[pid] = g.manual[pid] || {})[tid] = k.pts; if (g.override[pid]) delete g.override[pid][tid]; }
   k.st = 'ok';
+  // Begründung der KI wird Rückmeldung an den Schüler (sonst weiß er nicht, warum ein Punkt fehlt); eigene Rückmeldung bleibt davor stehen
+  const why = String(k.why || '').trim();
+  if (why) { const fb = g.feedback[pid] = g.feedback[pid] || {}, cur = String(fb[tid] || '').trim(); if (!cur.includes(why)) fb[tid] = cur ? cur + '\n' + why : why; }
+}
+/** Entscheidung zurücknehmen: die übernommene KI-Begründung wieder aus der Rückmeldung nehmen (Ergänzungen der Lehrkraft bleiben) */
+function kiUndoFb(pid, tid, k) {
+  const why = String(k?.why || '').trim(), fb = S2.g.feedback[pid]; if (!why || !fb?.[tid]) return;
+  const rest = String(fb[tid]).replace(why, '').replace(/\n{2,}/g, '\n').trim(); if (rest) fb[tid] = rest; else delete fb[tid];
+}
+/** noch nicht gespeicherte Rückmeldungen aus dem offenen Dialog übernehmen, bevor er neu aufgebaut wird */
+function syncFb(dl, pid, tid) {
+  if (!dl) return; const set = (p, t, v) => { const f = S2.g.feedback[p] = S2.g.feedback[p] || {}; v = v.trim(); if (v) f[t] = v; else delete f[t]; };
+  for (const ta of dl.querySelectorAll('[data-fb]')) set(pid, ta.dataset.fb, ta.value);
+  if (tid) for (const ta of dl.querySelectorAll('[data-ef]')) set(+ta.dataset.ef, tid, ta.value);
 }
 function kiAction(ev, reopen) {
   const b = ev.target.closest?.('[data-kiok],[data-kino],[data-kireset],[data-kiall]'); if (!b) return false;
   const [pid, tid] = (b.dataset.kiok || b.dataset.kino || b.dataset.kireset || '').split('|');
+  syncFb(b.closest('.dlg'), +(pid || b.dataset.kiall), tid);
   if (b.dataset.kiok) kiTake(+pid, tid);
   if (b.dataset.kino) { const k = kiOf(+pid, tid); if (k) k.st = 'nein'; }
-  if (b.dataset.kireset) { const k = kiOf(+pid, tid); if (k) k.st = 'neu'; }
+  if (b.dataset.kireset) { const k = kiOf(+pid, tid); if (k) { if (k.st === 'ok') kiUndoFb(+pid, tid, k); k.st = 'neu'; } }
   if (b.dataset.kiall) { const x = results().find(y => y.p.id === +b.dataset.kiall); S2.key.tasks.forEach((t, i) => { const k = kiOf(x.p.id, t.id); if (k && k.st === 'neu' && k.pts !== x.R.items[i].pts && !x.R.items[i].dropped) kiTake(x.p.id, t.id); }); }
   saveGrading(); drawEval(); reopen(); return true;
 }
