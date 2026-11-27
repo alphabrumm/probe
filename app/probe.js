@@ -10,6 +10,7 @@ import { viewCoachingList, viewCoaching, viewBerater, coachingHint, tabsHtml, pu
 import { viewSurveyList, viewSurvey } from './umfragen.js';
 import { viewTalks, talksHint } from './gespraeche.js';
 import { viewClass, classForm, loadClass } from './klassen.js';
+import { dotHtml, glassesHtml, legendHtml, archivable, archiveExams, importExams, yearArchive } from './archiv.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -333,17 +334,19 @@ async function viewDashboard() {
   const gk = e => `${e.klasse}\u0000${e.fach}`; // ohne Klasse: nach Klassenname und Fach
   for (const e of L) if (e.class_id && inC.has(e.class_id)) inC.get(e.class_id).push(e); else (loose[gk(e)] = loose[gk(e)] || []).push(e);
   const sortK = (a, b) => a.localeCompare(b, 'de', { numeric: true });
-  const tile = e => `<a class="tile" href="#/p/${e.id}"><button class="tdel" data-tdel="${e.id}" title="Prüfung löschen" aria-label="Prüfung löschen">🗑</button><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${statusChip(e)}${e.resp ? ' ' + respChip(e.resp) : ''}</span></a>`;
+  const tile = e => `<a class="tile" href="#/p/${e.id}"><button class="tdel" data-tdel="${e.id}" title="Prüfung löschen" aria-label="Prüfung löschen">🗑</button><span class="k">${esc(e.fach)} · ${esc(e.art)}</span><span class="t">${esc(e.titel || 'ohne Titel')}</span><span class="m">${esc(fmtDate(e.datum))}${e.dauer ? ` · ${e.dauer} min` : ''}${e.erwartet ? ` · ${e.erwartet} Teilnehmer` : ''}</span><span class="s">${dotHtml(e)}${statusChip(e)}${e.resp ? ' ' + glassesHtml(e.resp) + respChip(e.resp) : ''}</span></a>`;
   const n = k => `${k} Prüfung${k === 1 ? '' : 'en'}`;
   const cls = CL.slice().sort((a, b) => sortK(a.name, b.name) || sortK(a.fach, b.fach)).map(c => `<div class="klasse"><h2><a href="#/k/${c.id}">${esc(c.name)}${c.fach ? ' ' + esc(c.fach) : ''}</a></h2><span class="help">${c.roster_n} Schüler:innen · ${n(inC.get(c.id).length)}</span><span class="sp"></span><a class="btn sm" href="#/k/${c.id}">📊 Noten</a><button class="btn sm" data-cx="${c.id}">＋ Prüfung</button></div>
     ${inC.get(c.id).length ? `<div class="tiles">${inC.get(c.id).map(tile).join('')}</div>` : '<p class="help" style="margin:0 0 8px">Noch keine Prüfung.</p>'}`).join('');
   const lk = Object.keys(loose).sort(sortK);
   const rest = lk.map((k, ki) => `<div class="klasse"><h2>${esc(k.replace('\u0000', ' '))}</h2><span class="help">${n(loose[k].length)} · ohne Klasse</span><span class="sp"></span><button class="btn sm ghost" data-mk="${ki}">＋ Als Klasse anlegen</button></div><div class="tiles">${loose[k].map(tile).join('')}</div>`).join('');
   main.innerHTML = `${tabsHtml('p', S)}<h1>Meine Prüfungen</h1><p class="sub">Schuljahr ${esc(S.sj)} · nach Klassen</p>
-    <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn" id="neuk">＋ Neue Klasse</button><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
-    ${CL.length || lk.length ? cls + rest
+    <div class="bar"><select id="sj" style="width:auto">${C.schuljahre.map(s => `<option${s === S.sj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select><span class="sp"></span><button class="btn" id="einl" title="Prüfung aus einer Archiv-Datei wieder in Probe öffnen">📂 Prüfung einlesen</button>${L.some(archivable) ? `<button class="btn" id="arch" title="Alle beendeten Prüfungen dieses Schuljahres als Archiv">📦 Schuljahr archivieren${L.filter(e => archivable(e) && !e.archived_ok).length ? ` (${L.filter(e => archivable(e) && !e.archived_ok).length} offen)` : ''}</button>` : ''}<button class="btn" id="neuk">＋ Neue Klasse</button><button class="btn pri" id="neu">＋ Neue Prüfung</button></div>
+    ${CL.length || lk.length ? cls + rest + (L.some(e => archivable(e) || e.resp) ? legendHtml() : '')
       : `<div class="empty"><img src="${themeIcon(curTheme())}" alt=""><h2>Noch keine Klasse und keine Prüfung in ${esc(S.sj)}</h2><p>Lege zuerst eine Klasse an (Name und Schülerliste) – ihre Prüfungen übernehmen die Namen, und unter „Noten“ siehst du alle Ergebnisse. Oder lege direkt eine Prüfung an.</p></div>`}`;
   $('#sj').onchange = e => { S.sj = e.target.value; viewDashboard(); };
+  $('#einl').onclick = () => importExams(helpers(), () => viewDashboard());
+  $('#arch') && ($('#arch').onclick = async () => { if (await archiveExams(helpers(), L.filter(archivable), { label: `aus dem Schuljahr ${S.sj}` })) viewDashboard(); });
   $('#neu').onclick = () => examForm(null);
   $('#neuk').onclick = () => classForm(helpers(), null);
   main.onclick = async ev => {
@@ -617,7 +620,10 @@ async function viewAdmin() {
     ${D.fachschaften.length ? `<table class="t"><tr><th>Fachschaft</th><th>Fächer</th><th>Fachleitung</th><th></th></tr>${D.fachschaften.map(f => `<tr><td><b>${esc(f.name)}</b></td><td><span class="fl">${D.faecher.filter(x => +x.fachschaft_id === +f.id).map(x => `<span class="chip">${esc(x.name)}</span>`).join('') || '<span class="help">keine</span>'}</span></td><td>${D.users.filter(u => u.fachleitung.includes(+f.id)).map(u => esc(u.kuerzel)).join(', ') || '<span class="help">keine</span>'}</td><td class="act"><button class="btn sm" data-fsedit="${f.id}">Bearbeiten</button> <button class="btn sm danger" data-fsdel="${f.id}">Löschen</button></td></tr>`).join('')}</table>` : '<p class="help">Noch keine Fachschaft. Eine Fachschaft (z. B. „Physik“ oder „Naturwissenschaften“) bündelt Fächer; ihre Fachleitung bekommt die Prüfungen zur Respizienz.</p>'}`;
   if (adminTab === 'fa') h += `<div class="bar"><h2 style="margin:0">Fächer</h2><span class="sp"></span><button class="btn pri" data-faadd>＋ Fach</button></div><p class="help">Vorbelegt nach LehrplanPLUS Gymnasium Bayern. Ausgeblendete Fächer stehen beim Anlegen einer Prüfung nicht zur Wahl.</p>
     <table class="t"><tr><th>Fach</th><th>Fachschaft</th><th>angeboten</th><th></th></tr>${D.faecher.map(f => `<tr><td><b>${esc(f.name)}</b></td><td>${esc(FS[f.fachschaft_id]?.name || '–')}</td><td><label class="ck"><input type="checkbox" data-faakt="${f.id}"${+f.aktiv ? ' checked' : ''}></label></td><td class="act"><button class="btn sm" data-faren="${f.id}">Umbenennen</button></td></tr>`).join('')}</table>`;
-  if (adminTab === 'je') h += `<h2>Schuljahresende</h2><p>Prüfungen werden nur ein Jahr aufbewahrt. Hier löschst du alle Prüfungen eines Schuljahres – oder alle. Konten, Fachschaften und Fächer bleiben.</p>
+  if (adminTab === 'je') h += `<h2>Jahresarchiv</h2><p>Vor dem Löschen: alle beendeten Prüfungen eines Schuljahres aller Lehrkräfte als ZIP-Datei – ein Ordner je Fachschaft, im Dateinamen Klasse, Fach, Art, Datum und Nutzername der Lehrkraft.
+      Die Prüfungen bleiben verschlüsselt: Öffnen kann sie nur die Lehrkraft (über „Prüfung einlesen“) und im Notfall die Schulleitung mit der Schul-Passphrase (Reiter „Schulschlüssel“).</p>
+    ${D.exams.length ? `<div class="row">${field('Schuljahr', `<select id="aj">${D.exams.map(x => `<option>${esc(x.schuljahr)}</option>`).join('')}</select>`)}</div><div class="btns"><button class="btn pri" data-yarch>📦 Jahresarchiv erstellen</button></div>` : '<p class="help">Es sind keine Prüfungen gespeichert.</p>'}
+    <h2 style="margin-top:28px">Schuljahresende</h2><p>Prüfungen werden nur ein Jahr aufbewahrt. Hier löschst du alle Prüfungen eines Schuljahres – oder alle. Konten, Fachschaften und Fächer bleiben.</p>
     <p class="help">Die Respizienz-Einträge werden mitgelöscht. Fachleitungen sollten vorher unter „Respizienz“ ein <b>Archiv exportieren</b>. Archive lassen sich auch mit deinem Admin-Schlüssel öffnen: <button class="btn sm" data-arch>📂 Respizienz-Archiv öffnen</button></p>
     ${D.exams.length ? `<table class="t"><tr><th>Schuljahr</th><th>Prüfungen</th></tr>${D.exams.map(x => `<tr><td>${esc(x.schuljahr)}</td><td>${x.n}</td></tr>`).join('')}</table>` : '<p class="help">Es sind keine Prüfungen gespeichert.</p>'}
     <div class="row" style="margin-top:14px">${field('Löschen', `<select id="pj"><option value="">alle Prüfungen</option>${D.exams.map(x => `<option>${esc(x.schuljahr)}</option>`).join('')}</select>`)}${field('Zur Bestätigung LÖSCHEN eintippen', '<input type="text" id="pc" autocapitalize="characters" autocomplete="off">')}</div>
@@ -645,6 +651,7 @@ async function viewAdmin() {
       return;
     }
     if (d.arch != null) return importArchive(helpers());
+    if (d.yarch != null) return yearArchive(helpers(), $('#aj').value);
     if (d.uadd != null || d.uedit) return userForm(D, d.uedit ? D.users.find(u => u.id === +d.uedit) : null);
     if (d.umany != null) return resetMany(D, $$('[data-usel]').filter(x => x.checked).map(x => +x.dataset.usel));
     if (d.ureset) { const u = D.users.find(x => x.id === +d.ureset); if (!confirm(`Neues Startpasswort für ${u.kuerzel}? Das bisherige Passwort gilt dann nicht mehr. Ihre Prüfungen öffnet die Lehrkraft danach mit ihrem Wiederherstellungscode.`)) return; const pw = K.startPassword(), salt = K.randomSalt(), { auth } = await K.fromPassword(pw, salt); await api('user_reset', { id: u.id, salt, auth }); showStartPw(u.kuerzel, pw); viewAdmin(); return; }

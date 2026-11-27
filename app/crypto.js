@@ -80,6 +80,8 @@ export const sealSym = async (key, data) => aesSeal(key, te.encode(JSON.stringif
    über den QR-Code bzw. Link (Teil hinter „#“, der nicht an den Server geht), die Lehrkraft hat ihn für sich verschlüsselt. ---------- */
 const b64u = u8 => b64(u8).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const unb64u = s => unb64(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+/** Prüfsumme der Bewertung (zeigt an, ob sie sich seit dem Archivieren geändert hat) */
+export async function gradingHash(g) { const h = new Uint8Array(await C.digest('SHA-256', te.encode(JSON.stringify(g ?? null)))); return [...h.slice(0, 16)].map(x => x.toString(16).padStart(2, '0')).join(''); }
 export const EXAM_KEY_RE = /^[A-Za-z0-9_-]{22}$/;
 export const newExamKey = () => b64u(crypto.getRandomValues(new Uint8Array(16)));
 export async function sealExamDoc(k, doc) { if (!EXAM_KEY_RE.test(k || '')) throw new Error('Prüfungsschlüssel ungültig'); return sealSym(await aesKey(unb64u(k)), doc); }

@@ -134,7 +134,7 @@ export async function seedDemos({ api, K, S }, force = false) {
       }
     });
   }
-  await api('exam_grading', { id: ids.id, grading_enc: await seal(g) });
+  await api('exam_grading', { id: ids.id, grading_enc: await seal(g), ghash: await K.gradingHash(g) });
   try { await demoMarks({ api, K, S }, r.exams.find(x => x.klasse === '7p')?.id); } catch (er) { } // eigene Noten (mündlich, Referat …) in der Klasse 7p
   return true;
 }

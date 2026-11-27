@@ -5,6 +5,7 @@
 // Archive: Die Fachleitung exportiert eingereichte Prüfungen als Datei – verschlüsselt für sich selbst, für die Admins und optional mit Passphrase.
 import { annViewHtml, solutionHtml, ensureCss as hkCss } from './handview.js';
 import { protokollPdf } from './protokoll.js';
+import { statsHtml } from './archiv.js';
 import { showPdf } from './pdf.js';
 
 let X; // Hilfen aus probe.js: S, api, K, dialog, toast, withBusy, esc, fmtDate, fmtPts, main, view, pickFile
@@ -77,15 +78,16 @@ export async function viewRespList(H) {
   X.S.respOpen = L.filter(r => r.status === 'eingereicht').length; X.drawWho?.();
   const fs = X.S.user.fachleitung.map(f => esc(f.name)).join(', ');
   const sjs = [...new Set(L.map(r => r.schuljahr))].sort().reverse();
-  const inSj = L.filter(r => !filterSj || r.schuljahr === filterSj), shown = inSj.filter(FILTER[filter][1]);
+  const stats = filter === 'statistik', inSj = L.filter(r => !filterSj || r.schuljahr === filterSj), shown = stats ? [] : inSj.filter(FILTER[filter][1]);
+  let statBox = ''; if (stats) { try { statBox = await statsHtml(H, filterSj || ''); } catch (er) { statBox = `<p class="err">${esc(er.message)}</p>`; } }
   const n = k => inSj.filter(FILTER[k][1]).length;
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Respizienz</h1><p class="sub">Fachleitung ${fs} · ${L.length ? `${L.length} eingereicht · ${n('offen')} offen · ${n('rueckfrage')} mit Rückfrage · ${n('abgezeichnet')} abgezeichnet` : 'noch nichts eingereicht'}</p>
-    <div class="bar"><span class="tabs">${Object.entries(FILTER).map(([k, [t]]) => `<button class="btn sm${k === filter ? ' pri' : ''}" data-f="${k}">${t} (${n(k)})</button>`).join('')}</span>
+    <div class="bar"><span class="tabs">${Object.entries(FILTER).map(([k, [t]]) => `<button class="btn sm${k === filter ? ' pri' : ''}" data-f="${k}">${t} (${n(k)})</button>`).join('')}<button class="btn sm${stats ? ' pri' : ''}" data-f="statistik">📊 Statistik</button></span>
       ${sjs.length > 1 ? `<select id="sj" style="width:auto"><option value="">alle Schuljahre</option>${sjs.map(s => `<option${s === filterSj ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>` : ''}<span class="sp"></span>
       <button class="btn" id="exp"${L.length ? '' : ' disabled'}>📦 Archiv exportieren</button><button class="btn" id="imp">📂 Archiv öffnen</button></div>
-    <section class="card">${shown.length ? `<div class="scroll-x"><table class="t"><tr><th>Datum</th><th>Klasse</th><th>Fach · Art</th><th>Lehrkraft</th><th>Teilnehmer</th><th>Eingereicht</th><th>Stand</th></tr>
+    ${stats ? statBox : `<section class="card">${shown.length ? `<div class="scroll-x"><table class="t"><tr><th>Datum</th><th>Klasse</th><th>Fach · Art</th><th>Lehrkraft</th><th>Teilnehmer</th><th>Eingereicht</th><th>Stand</th></tr>
       ${shown.map(r => `<tr data-r="${r.id}" style="cursor:pointer"><td>${esc(X.fmtDate(r.datum))}</td><td><b>${esc(r.klasse)}</b></td><td>${esc(r.fach)} · ${esc(r.art)}<div class="help">${esc(r.titel)}</div></td><td>${esc(r.lehrkraft)}</td><td>${r.teilnehmer}</td><td>${when(r.updated || r.created)}</td><td>${chip(r.status)}${+r.notes ? ` <span class="chip">💬 ${r.notes}</span>` : ''}</td></tr>`).join('')}</table></div>`
-      : `<p class="help">${L.length ? 'In dieser Auswahl ist nichts.' : 'Sobald eine Lehrkraft eine korrigierte Prüfung zur Respizienz einreicht, erscheint sie hier.'}</p>`}</section>
+      : `<p class="help">${L.length ? 'In dieser Auswahl ist nichts.' : 'Sobald eine Lehrkraft eine korrigierte Prüfung zur Respizienz einreicht, erscheint sie hier.'}</p>`}</section>`}
     <p class="help">Ablauf: Prüfung öffnen → durchsehen, bei Bedarf Notizen ergänzen → <b>Abzeichnen</b> (bei der Lehrkraft erscheint „✓ respiziert“) oder <b>Rückfrage</b> an die Lehrkraft (sie passt an und reicht erneut ein). Am Schuljahresende: <b>Archiv exportieren</b> – bevor der Admin die Prüfungen löscht.</p>`;
   main.onclick = ev => {
     const f = ev.target.closest('[data-f]'); if (f) { filter = f.dataset.f; viewRespList(H); return; }

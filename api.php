@@ -117,6 +117,14 @@ function student_doc(array $e): array {
     if (!empty($e['student_doc'])) return ['doc' => json_decode((string)$e['student_doc'], true)];
     return ['doc' => null]; // beendet: die Schülerfassung ist gelöscht
 }
+/** grüner Punkt: archiviert und die Bewertung seither nicht geändert */
+function archived_ok(array $e): bool { return !empty($e['archived']) && (string)($e['archived_hash'] ?? '') === (string)($e['grading_hash'] ?? ''); }
+const ARCH_STATES = ['beendet', 'veroeffentlicht'];
+/** Fachschaft einer Prüfung (über das Fach) */
+function exam_fachschaft(array $e): string {
+    if (!$e['fach_id']) return '';
+    $st = db()->prepare('SELECT s.name FROM faecher f JOIN fachschaften s ON s.id = f.fachschaft_id WHERE f.id = ?'); $st->execute([(int)$e['fach_id']]); return (string)($st->fetchColumn() ?: '');
+}
 function exam_meta(array $e): array {
     return ['id' => (int)$e['id'], 'schuljahr' => $e['schuljahr'], 'klasse' => $e['klasse'], 'fach_id' => $e['fach_id'] ? (int)$e['fach_id'] : null, 'fach' => $e['fach'],
         'datum' => $e['datum'], 'art' => $e['art'], 'titel' => $e['titel'], 'erwartet' => (int)$e['erwartet'], 'dauer' => (int)$e['dauer'], 'pin_on' => (bool)$e['pin_on'],
@@ -126,6 +134,7 @@ function exam_meta(array $e): array {
         'code' => $e['code'], 'pin' => $e['pin'], 'join_open' => (bool)$e['join_open'], 'opened' => $e['opened'] ? (int)$e['opened'] : null,
         'ended' => $e['ended'] ? (int)$e['ended'] : null, 'expires' => $e['expires'] ? (int)$e['expires'] : null,
         'verlaengert' => (int)$e['verlaengert'], 'auto_abgabe' => (bool)$e['auto_abgabe'], 'pqr' => (bool)($e['pqr'] ?? 0), 'class_id' => $e['class_id'] ? (int)$e['class_id'] : null,
+        'archived' => !empty($e['archived']) ? (int)$e['archived'] : null, 'archived_ok' => archived_ok($e),
         'resp' => db()->query('SELECT status FROM respizienz WHERE exam_id = ' . (int)$e['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn() ?: null,
         'teilnehmer' => (int)(db()->query('SELECT COUNT(*) FROM participants WHERE exam_id = ' . (int)$e['id'])->fetchColumn())];
 }
@@ -1191,8 +1200,77 @@ case 'exam_results': {
 }
 case 'exam_grading': {
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
-    db()->prepare('UPDATE exams SET grading_enc = ?, notes_enc = COALESCE(?, notes_enc), updated = ? WHERE id = ?')->execute([str($in, 'grading_enc', 5_000_000, true), blob($in, 'notes_enc', 400_000), time(), $e['id']]); out([]);
+    $h = preg_match('~^[0-9a-f]{16,64}$~', (string)($in['ghash'] ?? '')) ? (string)$in['ghash'] : null; // Prüfsumme der Bewertung: ändert sie sich nach dem Archivieren, wird der Punkt rot
+    db()->prepare('UPDATE exams SET grading_enc = ?, notes_enc = COALESCE(?, notes_enc), grading_hash = COALESCE(?, grading_hash), updated = ? WHERE id = ?')->execute([str($in, 'grading_enc', 5_000_000, true), blob($in, 'notes_enc', 400_000), $h, time(), $e['id']]);
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
 }
+case 'exam_archive_put': { // Lehrkraft hat archiviert: Archiv-Kopie (für sie und den Schulschlüssel verschlüsselt) für das Jahresarchiv des Admins
+    $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
+    if (!in_array($e['status'], ARCH_STATES, true)) fail('Archivieren geht erst nach dem Beenden der Prüfung.', 409);
+    $a = blob($in, 'archive', 40_000_000); if (!$a || !is_array($j = json_decode($a, true)) || ($j['probe'] ?? '') !== 'archiv') fail('Archiv fehlt');
+    $h = preg_match('~^[0-9a-f]{16,64}$~', (string)($in['ghash'] ?? '')) ? (string)$in['ghash'] : '';
+    db()->prepare('UPDATE exams SET archive_enc = ?, archived = ?, archived_hash = ?, grading_hash = COALESCE(grading_hash, ?) WHERE id = ?')->execute([$a, time(), $h, $h, $e['id']]);
+    out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
+case 'exam_restore': { // Prüfung aus einem Archiv einlesen: neue, beendete Prüfung mit Abgaben (alles für die Lehrkraft verschlüsselt)
+    $u = teacher(); $pdo = db(); $m = (array)($in['meta'] ?? []); $now = time();
+    $datum = preg_match('~^\d{4}-\d{2}-\d{2}$~', (string)($m['datum'] ?? '')) ? $m['datum'] : date('Y-m-d');
+    $fname = str($m, 'fach', 60) ?: 'Fach'; $fst = $pdo->prepare('SELECT id, name FROM faecher WHERE name = ? COLLATE NOCASE'); $fst->execute([$fname]); $f = $fst->fetch();
+    $art = in_array($m['art'] ?? '', ARTEN, true) ? $m['art'] : ARTEN[0];
+    $P = (array)($in['participants'] ?? []); if (count($P) > 300) fail('Zu viele Teilnehmer');
+    $pdo->beginTransaction();
+    $pdo->prepare("INSERT INTO exams (owner_id, schuljahr, klasse, fach_id, fach, datum, art, titel, erwartet, dauer, pin_on, skala, status, draft_enc, key_enc, roster_enc, roster_n, aufgaben, punkte, fertig, created, updated, opened, ended, grading_enc, grading_hash)
+        VALUES (?,?,?,?,?,?,?,?,?,?,0,?,'beendet',?,?,?,?,?,?,1,?,?,?,?,?,?)")
+        ->execute([$u['id'], schuljahr($datum), str($m, 'klasse', 20, true), $f ? (int)$f['id'] : null, $f ? $f['name'] : $fname, $datum, $art, str($m, 'titel', 200),
+            max(0, min(200, (int)($m['erwartet'] ?? 0))), max(0, min(600, (int)($m['dauer'] ?? 0))), ($m['skala'] ?? '') === 'punkte' ? 'punkte' : 'noten',
+            str($in, 'draft_enc', 20_000_000, true), str($in, 'key_enc', 5_000_000, true), blob($in, 'roster_enc', 2_000_000), max(0, min(500, (int)($in['roster_n'] ?? 0))),
+            max(0, (int)($m['aufgaben'] ?? 0)), max(0, (float)($m['punkte'] ?? 0)), $now, $now, (int)($m['opened'] ?? 0) ?: null, (int)($m['ended'] ?? 0) ?: $now,
+            blob($in, 'grading_enc', 5_000_000), null]);
+    $eid = (int)$pdo->lastInsertId(); $ids = [];
+    $ins = $pdo->prepare('INSERT INTO participants (exam_id, token_hash, identity_enc, status, joined, last_seen, saved, n_saves, fokus, zuschlag, imported, answers_enc) VALUES (?,?,?,?,?,?,?,0,?,?,?,?)');
+    foreach ($P as $p) {
+        $t = (int)($p['saved'] ?? 0) ?: $now;
+        $ins->execute([$eid, hash('sha256', random_bytes(32)), str($p, 'identity_enc', 4000, true), 'abgegeben', $t, $t, $t, max(0, (int)($p['fokus'] ?? 0)), max(0, (int)($p['zuschlag'] ?? 0)), !empty($p['imported']) ? 1 : 0, blob($p, 'answers_enc', 10_000_000)]);
+        $ids[] = (int)$pdo->lastInsertId();
+    }
+    $cst = $pdo->prepare('INSERT INTO report_comments (exam_id, rid, comment_enc, created, gelesen) VALUES (?,?,?,?,1)');
+    foreach ((array)($in['comments'] ?? []) as $c) { if (preg_match('~^[0-9a-f]{32,64}$~', (string)($c['rid'] ?? ''))) $cst->execute([$eid, $c['rid'], str($c, 'comment_enc', 20000, true), (int)($c['created'] ?? $now)]); }
+    $pdo->commit();
+    ensure_classes($u, $eid);
+    out(['exam' => exam_meta(own_exam($u, $eid)), 'pids' => $ids]);
+}
+case 'fl_stats': { // Fachleitung: alle freigegebenen Prüfungen ihrer Fachschaften im Schuljahr – nur Rahmendaten, keine Inhalte oder Ergebnisse
+    $u = teacher(); $sj = str($in, 'schuljahr', 9) ?: schuljahr();
+    $st = db()->prepare("SELECT e.id, e.klasse, e.fach, e.art, e.datum, e.titel, e.archived, e.archived_hash, e.grading_hash, s.name AS fachschaft, COALESCE(NULLIF(us.name, ''), us.kuerzel) AS lehrkraft, us.kuerzel
+        FROM exams e JOIN faecher f ON f.id = e.fach_id JOIN fachschaften s ON s.id = f.fachschaft_id JOIN fachleitungen l ON l.fachschaft_id = s.id AND l.user_id = ?
+        JOIN users us ON us.id = e.owner_id WHERE e.schuljahr = ? AND e.status = 'veroeffentlicht' ORDER BY s.name, lehrkraft, e.datum");
+    $st->execute([$u['id'], $sj]);
+    out(['schuljahr' => $sj, 'items' => array_map(fn($e) => ['id' => (int)$e['id'], 'klasse' => $e['klasse'], 'fach' => $e['fach'], 'art' => $e['art'], 'datum' => $e['datum'], 'fachschaft' => $e['fachschaft'],
+        'lehrkraft' => $e['lehrkraft'], 'kuerzel' => $e['kuerzel'], 'archiviert' => archived_ok($e)], $st->fetchAll())]);
+}
+case 'adm_exams': { // Admin: beendete Prüfungen eines Schuljahres aller Lehrkräfte – nur Rahmendaten (für das Jahresarchiv)
+    admin(); $sj = str($in, 'schuljahr', 9) ?: schuljahr();
+    $st = db()->prepare("SELECT e.id, e.klasse, e.fach, e.art, e.datum, e.archived, e.archived_hash, e.grading_hash, (e.archive_enc IS NOT NULL) AS snap, COALESCE(s.name, '') AS fachschaft, u.kuerzel
+        FROM exams e JOIN users u ON u.id = e.owner_id LEFT JOIN faecher f ON f.id = e.fach_id LEFT JOIN fachschaften s ON s.id = f.fachschaft_id
+        WHERE e.schuljahr = ? AND e.status IN ('beendet', 'veroeffentlicht') AND u.is_demo = 0 ORDER BY fachschaft, e.klasse, e.datum");
+    $st->execute([$sj]);
+    out(['schuljahr' => $sj, 'items' => array_map(fn($e) => ['id' => (int)$e['id'], 'klasse' => $e['klasse'], 'fach' => $e['fach'], 'art' => $e['art'], 'datum' => $e['datum'], 'fachschaft' => $e['fachschaft'],
+        'kuerzel' => $e['kuerzel'], 'snap' => (bool)$e['snap'], 'archiviert' => archived_ok($e)], $st->fetchAll())]);
+}
+case 'adm_exam_blob': { // Admin: eine Prüfung fürs Jahresarchiv – nur Verschlüsseltes (Archiv-Kopie, sonst die für die Lehrkraft verschlüsselten Rohdaten)
+    $a = admin(); $pdo = db(); $st = $pdo->prepare('SELECT e.*, u.kuerzel, u.pub_key FROM exams e JOIN users u ON u.id = e.owner_id WHERE e.id = ?'); $st->execute([(int)($in['id'] ?? 0)]);
+    $e = $st->fetch() ?: fail('Prüfung nicht gefunden', 404);
+    if (!in_array($e['status'], ARCH_STATES, true)) fail('Die Prüfung ist nicht beendet.', 409);
+    if ($e['archive_enc'] && archived_ok($e)) out(['archive' => $e['archive_enc']]);
+    $p = $pdo->prepare('SELECT id, identity_enc, answers_enc, status, saved, fokus, zuschlag, imported FROM participants WHERE exam_id = ? ORDER BY id'); $p->execute([$e['id']]);
+    $c = $pdo->prepare('SELECT rid, comment_enc, created FROM report_comments WHERE exam_id = ? ORDER BY id'); $c->execute([$e['id']]);
+    out(['raw' => ['probe' => 'roh', 'v' => 1, 'info' => ['klasse' => $e['klasse'], 'fach' => $e['fach'], 'art' => $e['art'], 'datum' => $e['datum'], 'schuljahr' => $e['schuljahr'], 'von' => $e['kuerzel']],
+        'pub' => $e['pub_key'], 'meta' => ['schuljahr' => $e['schuljahr'], 'klasse' => $e['klasse'], 'fach' => $e['fach'], 'art' => $e['art'], 'datum' => $e['datum'], 'titel' => $e['titel'], 'dauer' => (int)$e['dauer'],
+            'erwartet' => (int)$e['erwartet'], 'skala' => $e['skala'], 'aufgaben' => (int)$e['aufgaben'], 'punkte' => (float)$e['punkte'], 'opened' => (int)$e['opened'], 'ended' => (int)$e['ended']],
+        'draft_enc' => $e['draft_enc'], 'key_enc' => $e['key_enc'], 'roster_enc' => $e['roster_enc'], 'roster_n' => (int)$e['roster_n'], 'grading_enc' => $e['grading_enc'],
+        'participants' => $p->fetchAll(), 'comments' => $c->fetchAll()]]);
+}
+case 'adm_archive_log': { $a = admin(); backup_log('Jahresarchiv ' . str($in, 'schuljahr', 9) . ' erstellt von ' . $a['kuerzel'] . ' (' . (int)($in['n'] ?? 0) . ' Prüfungen)'); out([]); }
 case 'exam_publish': { // Ergebnisse veröffentlichen (Quittieren): Berichte je Schüler, verschlüsselt mit dessen Ergebniscode
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
     if (!in_array($e['status'], ['beendet', 'veroeffentlicht'], true)) fail('Erst die Prüfung beenden.');

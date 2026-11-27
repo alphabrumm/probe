@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 20;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 21;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -359,6 +359,15 @@ function migrate_steps(PDO $pdo, int $v): void {
         $pdo->exec(<<<SQL
         ALTER TABLE exams ADD COLUMN pubdoc_enc TEXT;
         PRAGMA user_version = 20;
+        SQL);
+    }
+    if ($v < 21) { // Archivierung: Stand der Bewertung (Prüfsumme), wann archiviert, Archiv-Kopie (für die Lehrkraft und den Schulschlüssel verschlüsselt)
+        $pdo->exec(<<<SQL
+        ALTER TABLE exams ADD COLUMN grading_hash TEXT;
+        ALTER TABLE exams ADD COLUMN archived INTEGER;
+        ALTER TABLE exams ADD COLUMN archived_hash TEXT;
+        ALTER TABLE exams ADD COLUMN archive_enc TEXT;
+        PRAGMA user_version = 21;
         SQL);
     }
 }

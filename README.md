@@ -27,6 +27,19 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
     Schlüssel verschlüsselt (`exams.pubdoc_enc`, DB v20); der Schlüssel steht in jedem Ergebnisbericht (`dk`). Die Schüler öffnen sie
     schreibgeschützt in PathFinder: „Mit Lösungen“ und Vorschau zum selbst Ausprobieren, ohne Export, Dokumente oder KI. `r_doc` liefert
     sie nur zu einem gültigen Ergebniscode; beim Zurückziehen der Veröffentlichung bzw. nach Ablauf wird sie gelöscht.
+* **Archivierung** (`app/archiv.js`, `app/zip.js`, DB v21):
+  * **📦 Archivieren** (Auswertung) bzw. **📦 Schuljahr archivieren** (Übersicht): Archiv-Datei je Prüfung (`<Klasse>_<Fach>_<Art>_<Datum>_<Login>.probe-archiv.json`,
+    mehrere als ZIP) mit Aufgaben, Lösungsschlüssel, Klassenliste, Abgaben (Namen, Antworten, Fotos), Bewertung und Kommentaren – verschlüsselt für die
+    Lehrkraft und den Schul-Wiederherstellungsschlüssel (Hinweis vor jedem Export). Eine Kopie geht verschlüsselt an den Server (`exams.archive_enc`).
+  * **Punkte:** grün = archiviert und die Bewertung seither unverändert (Prüfsumme `grading_hash` = `archived_hash`), rot = noch nicht bzw. seither
+    geändert. **Brille:** grau = in Respizienz, orange = Rückfrage, grün = respiziert.
+  * **📂 Prüfung einlesen:** Archiv (.json oder .zip, auch das Jahresarchiv) öffnen – mit eigenem Schlüssel oder der Schul-Passphrase – und Prüfungen
+    als neue, beendete Prüfungen mit Abgaben und Noten anlegen (`exam_restore`; Teilnehmer-Nummern in der Bewertung werden umgeschrieben).
+  * **Admin → Schuljahresende → Jahresarchiv:** ZIP aller beendeten Prüfungen eines Schuljahres, Ordner je Fachschaft („ohne Fachschaft“). Archivierte
+    Prüfungen kommen als Archiv-Kopie (Lehrkraft + Schul-Passphrase), nicht archivierte als `…_NICHT-ARCHIVIERT.probe-roh.json` (nur für die Lehrkraft
+    lesbar, ebenfalls einlesbar). Der Admin sieht nur die Dateinamen.
+  * **Respizienz → 📊 Statistik** (Fachleitung): „Prüfungen der Fachschaft“ – alle veröffentlichten Prüfungen des Schuljahres nach Lehrkraft (Klasse, Fach,
+    Art, Datum) mit rotem/grünem Punkt, ohne Inhalte und Ergebnisse (`fl_stats` liest nur Rahmendaten).
 * **KI-gestützte Korrektur** (`app/ki.js`): ein Knopf „KI-Korrektur“ öffnet einen Assistenten in drei Schritten –
   1. Aufgaben wählen (empfohlen: wo getippt oder geschrieben wird; reine Auswahlaufgaben ausgegraut; gemerkt in `g.kiSel`) und
   Export erstellen, 2. Datei laden oder Text kopieren und in einer KI (z. B. ByLKI, Claude) abschicken, 3. Antwort der KI

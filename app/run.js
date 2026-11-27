@@ -3,6 +3,7 @@
 import { qrSvg } from './qr.js';
 import { respState, respHtml, respSubmit } from './resp.js';
 import { protokollPdf } from './protokoll.js';
+import { dotHtml, glassesHtml, archiveExams } from './archiv.js';
 import { showPdf } from './pdf.js';
 import { matchRoster } from './names.js';
 import { tokenFixed } from './pqr.js';
@@ -287,7 +288,8 @@ function notesSummary() {
 }
 function saveGrading() {
   clearTimeout(S2.saveT);
-  S2.saveT = setTimeout(async () => { try { await X.api('exam_grading', { id: S2.e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, S2.g), notes_enc: await X.K.seal(X.S.keys.pub_key, notesSummary()) }); } catch (er) { X.toast('⚠ Bewertung nicht gespeichert: ' + X.esc(er.message), 5000); } }, 600);
+  S2.saveT = setTimeout(async () => { try { const r = await X.api('exam_grading', { id: S2.e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, S2.g), notes_enc: await X.K.seal(X.S.keys.pub_key, notesSummary()), ghash: await X.K.gradingHash(S2.g) });
+    if (r.exam) { S2.e = { ...S2.e, ...r.exam }; const d = document.getElementById('adot'); if (d) d.innerHTML = dotHtml(S2.e); } } catch (er) { X.toast('⚠ Bewertung nicht gespeichert: ' + X.esc(er.message), 5000); } }, 600);
 }
 function drawEval() {
   hkCss();
@@ -296,11 +298,11 @@ function drawEval() {
   const unread = comments.filter(c => !+c.gelesen).length;
   const pub = e.status === 'veroeffentlicht';
   main.innerHTML = `<a class="back" href="#/">‹ Meine Prüfungen</a>
-    <h1>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}</h1><p class="sub">${esc(e.titel)} · ${esc(X.fmtDate(e.datum))} · ${RS.length} Teilnehmer · ${fmtPts(max)} Punkte</p>
+    <h1><span id="adot">${dotHtml(e)}</span>${esc(e.klasse)} · ${esc(e.fach)} · ${esc(e.art)}${e.resp ? ' ' + glassesHtml(e.resp) : ''}</h1><p class="sub">${esc(e.titel)} · ${esc(X.fmtDate(e.datum))} · ${RS.length} Teilnehmer · ${fmtPts(max)} Punkte</p>
     <section class="card"><div class="bar" style="margin:0"><h2 style="margin:0">${pub ? `✓ Veröffentlicht bis ${new Date(e.expires * 1000).toLocaleDateString('de-DE')}` : 'Auswertung'}</h2><span class="sp"></span>
       ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
-      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button><button class="btn" id="pfjson" title="Die Prüfungsvorlage (Aufgaben mit Lösungen) als Datei herunterladen">⇩ Prüfung laden</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button><button class="btn" id="archx" title="Prüfung mit allen Abgaben und Noten verschlüsselt archivieren">📦 Archivieren</button><button class="btn" id="pfjson" title="Die Prüfungsvorlage (Aufgaben mit Lösungen) als Datei herunterladen">⇩ Prüfung laden</button></div>
       <div class="btns ki-bar"><button class="btn ki" id="kiGo">${KI} KI-Korrektur</button>${kiSummary()}</div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
@@ -312,6 +314,7 @@ function drawEval() {
   $('#pub').onclick = publish;
   $('#resp') && ($('#resp').onclick = async () => { try { if (await respSubmit(S2, S2.resp)) { S2.resp = await respState(S2.e, X); drawEval(); } } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); } });
   $('#ansehen').onclick = () => X.view(e);
+  $('#archx').onclick = async () => { const r = await archiveExams(X, [S2.e]); if (r?.[0]) { S2.e = { ...S2.e, ...r[0] }; drawEval(); } };
   $('#pfjson').onclick = () => { // Prüfungsvorlage als PathFinder-Projekt (wie „Prüfungsdatei für Probe“ in PathFinder) – ohne Schülerdaten
     if (!e.draft) { X.toast('⚠ Kein Inhalt gespeichert'); return; }
     const d = X.dialog('⇩ Prüfung laden', `<p>Heruntergeladen wird nur die <b>Prüfungsvorlage</b>: die Aufgaben mit Lösungen, Punkten und Erwartungshorizont.</p>
@@ -648,7 +651,7 @@ async function publish() {
       }
       const r = await X.api('exam_publish', { id: e.id, reports, days: g.days, doc_enc });
       S2.e = { ...S2.e, ...r.exam };
-      await X.api('exam_grading', { id: e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, g) });
+      const rg = await X.api('exam_grading', { id: e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, g), ghash: await X.K.gradingHash(g) }); if (rg.exam) S2.e = { ...S2.e, ...rg.exam };
     });
     X.toast(`✓ ${RS.filter(x => x.p.rc).length} Ergebnisseiten veröffentlicht`); drawEval();
   } catch (er) { X.toast('⚠ ' + esc(er.message), 5000); }
