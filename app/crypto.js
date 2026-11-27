@@ -96,20 +96,39 @@ export function startPassword() {
 /* ---------- Archive (Respizienz) ----------
    Inhalt mit einem zufälligen Archivschlüssel (AES-256-GCM) verschlüsselt. Den Archivschlüssel gibt es mehrfach:
    für die Fachleitung (ihr Schlüsselpaar), für jeden Admin (Rückfallweg) und optional mit einer Passphrase (z. B. für die Nachfolge). */
-export async function archiveSeal(data, { users = [], passphrase = '', info = {} } = {}) {
+export async function archiveSeal(data, { users = [], passphrase = '', info = {}, school = null } = {}) {
   const raw = crypto.getRandomValues(new Uint8Array(32));
   const body = await aesSeal(await aesKey(raw), te.encode(JSON.stringify(data)));
   const rec = [];
   for (const u of users) rec.push({ t: 'key', role: u.role, kuerzel: u.kuerzel, name: u.name || '', pub: u.pub_key, k: await seal(u.pub_key, { k: b64(raw) }) });
+  // Schul-Wiederherstellungsschlüssel: der private Teil liegt (mit der Schul-Passphrase verschlüsselt) im Archiv selbst – öffnen geht dann auch ohne Server
+  if (school?.pub) rec.push({ t: 'school', kid: school.kid, pub: school.pub, salt: school.salt, rounds: school.rounds, priv: school.priv_enc, k: await seal(school.pub, { k: b64(raw) }) });
   if (passphrase) { const salt = randomSalt(); rec.push({ t: 'pass', salt, rounds: PBKDF2_ROUNDS, k: await aesSeal(await aesKey(await pbkdf2(passphrase, salt, PBKDF2_ROUNDS, 256)), raw) }); }
   return { probe: 'archiv', v: 1, created: Date.now(), info, rec, body };
 }
+/* ---------- Schul-Wiederherstellungsschlüssel (Notfallweg, Blatt im Tresor der Schulleitung) ----------
+   Schlüsselpaar wie bei den Lehrkräften; der private Schlüssel ist mit der Schul-Passphrase verschlüsselt (PBKDF2, 600 000 Runden).
+   Die Passphrase hat 120 Bit (24 Zeichen) und steht nur auf dem ausgedruckten Blatt – nie auf dem Server. */
+export function newSchoolPass() {
+  const A = '0123456789ABCDEFGHJKMNPQRSTUVWXYZ'.replace(/[ILO]/g, ''), r = crypto.getRandomValues(new Uint8Array(24));
+  let s = ''; for (let i = 0; i < 24; i++) s += A[r[i] % 32];
+  return s.match(/.{4}/g).join('-');
+}
+export async function keyId(pubB64) { const h = new Uint8Array(await C.digest('SHA-256', unb64(pubB64))); return [...h.slice(0, 8)].map(x => x.toString(16).padStart(2, '0')).join('').toUpperCase().match(/.{4}/g).join('-'); }
+export async function newSchoolKey(pass) {
+  const kp = await newKeyPair(), salt = randomSalt();
+  const priv_enc = await wrapPriv(kp.priv, await aesKey(await pbkdf2(normCode(pass), salt, PBKDF2_ROUNDS, 256)));
+  return { kid: await keyId(kp.pub), pub: kp.pub, priv_enc, salt, rounds: PBKDF2_ROUNDS };
+}
+/** privaten Schulschlüssel mit der Passphrase öffnen (wirft, wenn sie nicht passt) */
+export async function openSchoolKey(sk, pass) { return unwrapPriv(sk.priv_enc || sk.priv, await aesKey(await pbkdf2(normCode(pass), sk.salt, sk.rounds || PBKDF2_ROUNDS, 256))); }
 /** öffnet ein Archiv mit dem eigenen Schlüssel (priv + pub) oder der Passphrase; null, wenn keins passt */
 export async function archiveOpen(A, { priv, pub, passphrase } = {}) {
   if (A?.probe !== 'archiv' || !Array.isArray(A.rec)) throw new Error('Das ist kein Probe-Archiv.');
   let raw = null;
   if (priv && pub) for (const r of A.rec.filter(r => r.t === 'key' && r.pub === pub)) { try { raw = unb64((await open(priv, r.k)).k); break; } catch (e) { } }
   if (!raw && passphrase) for (const r of A.rec.filter(r => r.t === 'pass')) { try { raw = await aesOpen(await aesKey(await pbkdf2(passphrase, r.salt, r.rounds, 256)), r.k); break; } catch (e) { } }
+  if (!raw && passphrase) for (const r of A.rec.filter(r => r.t === 'school')) { try { raw = unb64((await open(await openSchoolKey(r, passphrase), r.k)).k); break; } catch (e) { } }
   if (!raw) return null;
   return JSON.parse(td.decode(await aesOpen(await aesKey(raw), A.body)));
 }

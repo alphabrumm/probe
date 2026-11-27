@@ -644,6 +644,26 @@ case 'resp_reopen': { // Abzeichnung zurücknehmen
     $u = teacher(); $r = resp_for($u, (int)($in['rid'] ?? 0));
     db()->prepare("UPDATE respizienz SET status = 'gesehen', signed = NULL, signer_id = NULL, signer = '' WHERE id = ?")->execute([$r['id']]); out([]);
 }
+case 'school_key': { // aktiver Schul-Wiederherstellungsschlüssel (öffentlicher Teil; der private nur mit der Passphrase vom Blatt lesbar) – oder null
+    teacher();
+    $k = db()->query('SELECT kid, pub, priv_enc, salt, rounds, created FROM school_keys WHERE active = 1 ORDER BY id DESC LIMIT 1')->fetch();
+    out(['key' => $k ?: null]);
+}
+case 'sk_list': { admin();
+    out(['keys' => db()->query('SELECT s.id, s.kid, s.created, s.active, u.kuerzel AS von FROM school_keys s LEFT JOIN users u ON u.id = s.created_by ORDER BY s.id DESC')->fetchAll()]);
+}
+case 'sk_create': { // neuer Schulschlüssel – der bisherige wird inaktiv (ältere Archive brauchen weiterhin ihr altes Blatt)
+    $u = admin(); $pdo = db();
+    $kid = str($in, 'kid', 40, true); if (!preg_match('~^[0-9A-F]{4}(-[0-9A-F]{4}){3}$~', $kid)) fail('Kennung ungültig');
+    $pub = str($in, 'pub', 400, true); $priv = str($in, 'priv_enc', 1000, true); $salt = str($in, 'salt', 64, true); $rounds = (int)($in['rounds'] ?? 0);
+    if ($rounds < 100000) fail('Zu wenige Runden');
+    $pdo->beginTransaction();
+    $pdo->exec('UPDATE school_keys SET active = 0');
+    $pdo->prepare('INSERT INTO school_keys (kid, pub, priv_enc, salt, rounds, created, created_by, active) VALUES (?,?,?,?,?,?,?,1)')->execute([$kid, $pub, $priv, $salt, $rounds, time(), $u['id']]);
+    $pdo->commit();
+    backup_log('Schul-Wiederherstellungsschlüssel ' . $kid . ' angelegt von ' . $u['kuerzel']);
+    out([]);
+}
 case 'archive_recipients': { // öffentliche Schlüssel der Admins: Archive lassen sich auch mit dem Admin-Schlüssel öffnen
     teacher();
     out(['admins' => db()->query('SELECT id, kuerzel, name, pub_key FROM users WHERE is_admin = 1 AND is_demo = 0 AND must_setup = 0 AND pub_key IS NOT NULL ORDER BY kuerzel')->fetchAll()]);

@@ -607,7 +607,7 @@ let adminTab = 'lk';
 async function viewAdmin() {
   let D; try { D = await api('admin_list'); } catch (e) { main.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const FS = Object.fromEntries(D.fachschaften.map(f => [f.id, f]));
-  const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['bk', 'Sicherungen'], ['si', 'Sicherheit']];
+  const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['sk', 'Schulschlüssel'], ['bk', 'Sicherungen'], ['si', 'Sicherheit']];
   let h = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Admin</h1><p class="sub">Lehrkräfte, Fachschaften und Fächer. Prüfungsinhalte und Schülernamen sieht der Admin nicht.</p>
     <div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" aria-pressed="${adminTab === k}">${n}</button>`).join('')}</div><section class="card">`;
   if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn" data-umany id="umany" disabled>🔑 Passwörter zurücksetzen</button><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th style="width:2.2em"><input type="checkbox" id="uall" aria-label="alle auswählen" title="alle auswählen"></th><th>Nutzername</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
@@ -626,6 +626,7 @@ async function viewAdmin() {
     <label class="ck"><input type="checkbox" id="pcr"> auch die anonymisierten Auswertungen der Schulberatung</label>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-cpurge>Coaching-Daten aller Lehrkräfte löschen</button></div>`;
   if (adminTab === 'si') h += `<h2>Sicherheit</h2><div id="sec">wird geprüft …</div>`;
+  if (adminTab === 'sk') h += `<h2>Schul-Wiederherstellungsschlüssel</h2><div id="skbox">lädt …</div>`;
   if (adminTab === 'bk') h += `<div class="bar"><h2 style="margin:0">Datenbank-Sicherungen</h2><span class="sp"></span><button class="btn pri" data-bknew>Jetzt sichern</button></div>
     <p class="help">Vollständige Kopie der Datenbank auf dem Webspace (im gesperrten Datenordner unter <code>sicherungen/</code>). Probe sichert außerdem automatisch, bevor ein Update die Datenbank umbaut. Die letzten Sicherungen bleiben, ältere werden gelöscht.
     Inhalte (Prüfungen, Namenslisten, Noten, Coaching, Notizen) sind darin genauso verschlüsselt wie in Probe; lesbar sind Kürzel, Klassen- und Fachnamen und Termine. Jeder Download wird protokolliert – heruntergeladene Dateien bitte sicher aufbewahren und nach Gebrauch löschen.</p><div id="bk">wird geladen …</div>`;
@@ -674,6 +675,7 @@ async function viewAdmin() {
     if (t.dataset.faakt) { const f = D.faecher.find(x => x.id === +t.dataset.faakt); await api('fach_save', { id: f.id, name: f.name, aktiv: t.checked ? 1 : 0 }); f.aktiv = t.checked ? 1 : 0; S.catalog = null; } };
   if (adminTab === 'si') securityCheck();
   if (adminTab === 'bk') backups();
+  if (adminTab === 'sk') import('./schulschluessel.js').then(m => m.schoolKeyTab($('#skbox'), { ...helpers(), showPdf }));
 }
 async function backups() {
   const box = $('#bk'); if (!box) return; let r;

@@ -207,14 +207,15 @@ function download(name, text) {
 }
 async function exportDialog(L, sjs) {
   const { esc } = X;
-  let admins = []; try { admins = (await X.api('archive_recipients')).admins; } catch (er) { }
+  let admins = [], school = null; try { admins = (await X.api('archive_recipients')).admins; } catch (er) { }
+  try { school = (await X.api('school_key')).key; } catch (er) { }
   const others = admins.filter(a => a.pub_key !== X.S.keys.pub_key);
   const d = X.dialog('Respizienz-Archiv exportieren', `<p>Das Archiv ist eine Datei mit allen ausgewählten Prüfungen – mit Lösungen, Antworten, Noten, Namen und Notizen. Es ist verschlüsselt und lässt sich in Probe wieder öffnen (📂 Archiv öffnen).</p>
     <div class="row">${sjs.length ? `<label class="f">Schuljahr<select id="asj"><option value="">alle</option>${sjs.map(s => `<option${s === sjs[0] ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select></label>` : ''}
     <label class="f">Prüfungen<select id="aw"><option value="alle">alle eingereichten</option><option value="ab">nur abgezeichnete</option></select></label></div>
     <label class="f">Archiv-Passphrase (optional)<input type="password" id="ap" autocomplete="new-password" placeholder="mindestens 10 Zeichen"><span class="h">Damit kann auch eine spätere Fachleitung das Archiv öffnen. Gut aufbewahren – Probe speichert sie nicht.</span></label>
     <label class="f">Passphrase wiederholen<input type="password" id="ap2" autocomplete="new-password"></label>
-    <p class="help">Öffnen können das Archiv: <b>du</b> (mit deinem Passwort bzw. Wiederherstellungscode)${others.length ? `, die <b>Admins</b> ${others.map(a => esc(a.name || a.kuerzel)).join(', ')} (Rückfallweg, falls du Passwort und Passphrase verlierst)` : admins.length ? ' – du bist selbst Admin' : ' – <b>kein Admin hat ein eingerichtetes Konto</b>, es gibt also keinen Rückfallweg über den Admin'}${''}, und jeder, der die Passphrase kennt.</p>
+    <p class="help">Öffnen können das Archiv: <b>du</b> (mit deinem Passwort bzw. Wiederherstellungscode)${others.length ? `, die <b>Admins</b> ${others.map(a => esc(a.name || a.kuerzel)).join(', ')} (Rückfallweg, falls du Passwort und Passphrase verlierst)` : admins.length ? ' – du bist selbst Admin' : ' – <b>kein Admin hat ein eingerichtetes Konto</b>, es gibt also keinen Rückfallweg über den Admin'}${school ? `, im Notfall die Schulleitung mit der <b>Schul-Passphrase</b> aus dem Tresor (Schulschlüssel ${esc(school.kid)})` : ''}, und jeder, der die Passphrase kennt.</p>
     <p class="help">Bewahre die Datei sicher auf (z. B. im Schulnetz oder im verschlüsselten Speicher der Schule) – auch verschlüsselt enthält sie personenbezogene Daten.</p>
     <div class="err" id="err"></div><button class="btn pri" id="go">📦 Archiv erstellen</button>`, { wide: true });
   $('#go', d.el).onclick = async () => {
@@ -237,7 +238,7 @@ async function exportDialog(L, sjs) {
         const fsn = [...new Set(sel.map(r => r.fachschaft).filter(Boolean))];
         const data = { v: 1, created: Date.now(), by: X.S.user.name || X.S.user.kuerzel, fachschaften: fsn, schuljahr: sj || 'alle', items };
         const users = [{ role: 'fachleitung', kuerzel: X.S.user.kuerzel, name: X.S.user.name, pub_key: X.S.keys.pub_key }, ...others.map(a => ({ role: 'admin', kuerzel: a.kuerzel, name: a.name, pub_key: a.pub_key }))];
-        const A = await X.K.archiveSeal(data, { users, passphrase: pp, info: { fachschaften: fsn, schuljahr: sj || 'alle', pruefungen: items.length, von: X.S.user.kuerzel } });
+        const A = await X.K.archiveSeal(data, { users, passphrase: pp, school, info: { fachschaften: fsn, schuljahr: sj || 'alle', pruefungen: items.length, von: X.S.user.kuerzel } });
         return { A, fsn };
       });
       const name = `Respizienz-Archiv_${(file.fsn.join('-') || 'Fachschaft')}_${(sj || 'alle').replace('/', '-')}_${new Date().toISOString().slice(0, 10)}.probe-archiv.json`.replace(/[^\wäöüÄÖÜß.-]+/g, '_');
@@ -258,9 +259,9 @@ export function importArchive(H) {
     const keys = A.rec.filter(r => r.t === 'key').map(r => `${esc(r.name || r.kuerzel)} (${r.role === 'admin' ? 'Admin' : 'Fachleitung'})`).join(', ');
     const done = dt => { X.S.archiv = { A, data: dt, file: f.name }; location.hash = '#/archiv'; X.route?.(); };
     if (data) return done(data);
-    const hasPass = A.rec.some(r => r.t === 'pass');
+    const hasPass = A.rec.some(r => r.t === 'pass' || r.t === 'school'), sch = A.rec.find(r => r.t === 'school');
     if (!hasPass) { X.dialog('Archiv lässt sich nicht öffnen', `<p>Dieses Archiv ist nicht für deinen Schlüssel verschlüsselt und hat keine Passphrase.</p><p class="help">Öffnen können es: ${keys || '–'}.</p>`); return; }
-    const d = X.dialog('Archiv-Passphrase', `<p>Dieses Archiv ist nicht für deinen Schlüssel verschlüsselt. Mit der Archiv-Passphrase lässt es sich öffnen.</p>
+    const d = X.dialog('Archiv-Passphrase', `<p>Dieses Archiv ist nicht für deinen Schlüssel verschlüsselt. Mit der Archiv-Passphrase${sch ? ` oder der Schul-Passphrase aus dem Tresor (Schulschlüssel ${esc(sch.kid)})` : ''} lässt es sich öffnen.</p>
       <label class="f">Passphrase<input type="password" id="pp" autocomplete="off"></label><p class="help">Ohne Passphrase öffnen es: ${keys || '–'}.</p><div class="err" id="err"></div><button class="btn pri" id="go">Öffnen</button>`);
     $('#go', d.el).onclick = async () => {
       const dt = await X.withBusy('Archiv wird geöffnet …', () => X.K.archiveOpen(A, { passphrase: $('#pp', d.el).value })).catch(() => null);

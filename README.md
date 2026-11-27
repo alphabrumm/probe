@@ -192,6 +192,14 @@ Alles wird im Browser verschlüsselt (WebCrypto), der Server speichert nur Chiff
   Ohne passenden Schlüssel zeigt die Schülerseite „Bitte den QR-Code neu scannen“, noch vor der Anmeldung. Beim Beenden der Prüfung
   löscht der Server die Schülerfassung. Ältere, noch unverschlüsselte Entwürfe stellt Probe beim nächsten Öffnen verschlüsselt neu
   fertig (persönliche QR-Codes dann neu drucken); starten lässt sich eine Prüfung nur noch verschlüsselt (DB v18).
+* **Schul-Wiederherstellungsschlüssel** (Admin → Schulschlüssel, DB v19 `school_keys`): Notfallweg für Prüfungsarchive, wenn eine
+  Lehrkraft ihre Archive nicht mehr öffnen kann. Schlüsselpaar wie bei den Lehrkräften; der private Teil ist mit der **Schul-Passphrase**
+  verschlüsselt (24 Zeichen, 120 Bit, PBKDF2 600 000 Runden). Die Passphrase wird nur einmal angezeigt und als Blatt (PDF) für den Tresor
+  der Schulleitung gedruckt – sie steht nie auf dem Server; aktiv wird der Schlüssel erst nach der Bestätigung „ausgedruckt“. Archive
+  bekommen einen Empfänger `{t:'school', kid, pub, salt, rounds, priv, k}`: Der private Teil liegt (passphrase-verschlüsselt) im Archiv
+  selbst, öffnen geht also mit Datei + Blatt auch ohne Server. Ein neuer Schulschlüssel ersetzt den alten; frühere Archive brauchen
+  weiterhin ihr Blatt (Kennung steht im Archiv und auf dem Blatt). „Passphrase vom Blatt prüfen“ für die Tresor-Kontrolle.
+  Gilt nur für Prüfungsarchive (bisher: Respizienz-Archive) – nie für Coaching, Gesprächsnotizen oder Fragebögen.
 * Startpasswort vom Admin: rechnet ebenfalls der Browser um. Nach einem neuen Startpasswort öffnet nur der
   Wiederherstellungscode die alten Prüfungen wieder.
 * **Admin-Passwort verloren** (und kein zweiter Admin): GitHub → Actions → „Probe – Notfall-Reset“ mit einem Startpasswort starten.
