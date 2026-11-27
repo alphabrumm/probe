@@ -1100,6 +1100,13 @@ case 'r_get': {
     if (!$r) { throttle_fail('r'); usleep(300000); fail('Zu diesem Code gibt es (noch) kein Ergebnis. Vielleicht ist die Korrektur noch nicht fertig – oder die Ergebnisseite ist schon abgelaufen.', 404); }
     out(['report_enc' => $r['report_enc'], 'expires' => (int)$r['expires']]);
 }
+case 'r_doc': { // Prüfung mit Musterlösung zur Ergebnisseite (verschlüsselt; den Schlüssel hat nur, wer den Ergebnisbericht öffnen kann)
+    $rid = str($in, 'rid', 64, true); throttle('r', 40);
+    db()->prepare('UPDATE exams SET pubdoc_enc = NULL WHERE pubdoc_enc IS NOT NULL AND expires < ?')->execute([time()]);
+    $st = db()->prepare('SELECT e.pubdoc_enc FROM reports r JOIN exams e ON e.id = r.exam_id WHERE r.rid = ? AND r.expires >= ?'); $st->execute([$rid, time()]); $d = $st->fetchColumn();
+    if (!$d) fail('Die Prüfung ist nicht (mehr) verfügbar.', 404);
+    out(['doc_enc' => $d]);
+}
 case 'r_comment': {
     $rid = str($in, 'rid', 64, true); $c = str($in, 'comment_enc', 20000, true);
     $st = db()->prepare('SELECT exam_id FROM reports WHERE rid = ? AND expires >= ?'); $st->execute([$rid, time()]); $ex = $st->fetchColumn();
@@ -1127,7 +1134,7 @@ case 'exam_state': {
         $pdo->prepare("UPDATE exams SET status = 'entwurf', opened = NULL WHERE id = ?")->execute([$e['id']]);
     } elseif ($to === 'beendet' && $from === 'veroeffentlicht') {
         $pdo->prepare("DELETE FROM reports WHERE exam_id = ?")->execute([$e['id']]);
-        $pdo->prepare("UPDATE exams SET status = 'beendet', published = NULL, expires = NULL WHERE id = ?")->execute([$e['id']]);
+        $pdo->prepare("UPDATE exams SET status = 'beendet', published = NULL, expires = NULL, pubdoc_enc = NULL WHERE id = ?")->execute([$e['id']]);
     } else {
         $col = ['geschlossen' => 'closed', 'beendet' => 'ended', 'offen' => 'closed'][$to];
         $pdo->prepare("UPDATE exams SET status = ?, {$col} = ? WHERE id = ?")->execute([$to, $to === 'offen' ? null : time(), $e['id']]);
@@ -1197,7 +1204,7 @@ case 'exam_publish': { // Ergebnisse veröffentlichen (Quittieren): Berichte je 
         $rid = (string)($r['rid'] ?? ''); if (!preg_match('~^[0-9a-f]{32,64}$~', $rid)) continue;
         $st->execute([$rid, $e['id'], substr((string)($r['report_enc'] ?? ''), 0, 2_000_000), $exp]);
     }
-    $pdo->prepare("UPDATE exams SET status = 'veroeffentlicht', published = ?, expires = ? WHERE id = ?")->execute([time(), $exp, $e['id']]);
+    $pdo->prepare("UPDATE exams SET status = 'veroeffentlicht', published = ?, expires = ?, pubdoc_enc = ? WHERE id = ?")->execute([time(), $exp, blob($in, 'doc_enc', 8_000_000), $e['id']]);
     $pdo->commit();
     out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
 }

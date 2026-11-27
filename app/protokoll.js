@@ -1,6 +1,6 @@
 // Probe – Prüfungsprotokoll als PDF: Übersicht (Notenschlüssel, Verteilung, Ergebnisse, Aufgaben) und je Prüfling eine Seite.
 // Entsteht im Browser der Lehrkraft aus der entschlüsselten Auswertung.
-import { Pdf, Flow, PAGE_H, PAGE_W, fit } from './pdf.js';
+import { Pdf, Flow, PAGE_H, PAGE_W, fit, toJpeg } from './pdf.js';
 
 const TYP = { quiz: 'Quiz', gap: 'Lückentext', match: 'Zuordnen', essay: 'Freitext', mark: 'Markieren', sort: 'Sortieren', order: 'Reihenfolge' };
 const plain = h => String(h ?? '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>\s*<p>/gi, '\n').replace(/<sup>(.*?)<\/sup>/gi, '^$1').replace(/<[^>]*>/g, '')
@@ -12,8 +12,9 @@ const INK = '#1F2340', GREY = '#6B7085', GOOD = '#2F8A5B', BAD = '#C0392B', ACC 
  * @param RS  results(): [{ p, R, note }]
  * @param X   Hilfen (fmtPts, fmtDate, S)
  */
-export function protokollPdf(S2, RS, X) {
+export async function protokollPdf(S2, RS, X) {
   const { e, key, g } = S2, { fmtPts, fmtDate } = X, pts = e.skala === 'punkte';
+  const doc = S2.doc || e.draft || null, imgs = doc ? await examImages(doc) : new Map();
   const noteLabel = pts ? 'Punkte (0–15)' : 'Note', lk = S2.lehrkraft || [X.S.user?.name, X.S.user?.kuerzel && `(${X.S.user.kuerzel})`].filter(Boolean).join(' ');
   const max = RS[0]?.R.max ?? key.tasks.reduce((s, t) => s + (g.drop.includes(t.id) ? 0 : t.pts), 0);
   const head = `${e.klasse} · ${e.fach} · ${e.art} · ${fmtDate(e.datum)}`;
@@ -81,6 +82,9 @@ export function protokollPdf(S2, RS, X) {
   pdf.line(F.M, F.y, F.M + 200, F.y, '#888888', 0.6); pdf.line(F.M + 260, F.y, F.M + F.W, F.y, '#888888', 0.6);
   pdf.text('Ort, Datum', F.M, F.y + 11, 8.5, { col: GREY }); pdf.text('Unterschrift Lehrkraft', F.M + 260, F.y + 11, 8.5, { col: GREY });
 
+  /* ---------- die Prüfung selbst, mit Musterlösung ---------- */
+  if (doc) { F.newPage(); F.y = 58; examSection(F, pdf, doc, imgs, fmtPts); }
+
   /* ---------- je Prüfling eine Seite ---------- */
   for (const x of RS) {
     F.newPage(); F.y = 58;
@@ -110,8 +114,62 @@ export function protokollPdf(S2, RS, X) {
     });
   }
 
-  // Fußzeile „Seite i von n“
+  // Fußzeile „Seite i von n“ (die Prüfung selbst steht nach der Übersicht, vor den Prüflingen)
   const N = pdf.pages.length;
   for (let i = 0; i < N; i++) { pdf.page(i); pdf.text(`Seite ${i + 1} von ${N}`, PAGE_W - F.M, PAGE_H - 30, 8.5, { col: GREY, align: 'right' }); pdf.text('Erstellt mit Probe – vertraulich, enthält Schülerdaten', F.M, PAGE_H - 30, 8.5, { col: GREY }); }
   return pdf.bytes();
+}
+
+/* ---------- Prüfung mit Musterlösung (Text, Bilder; ohne Formatierung) ---------- */
+const TASKS = new Set(['task', 'quiz', 'gap', 'match', 'essay', 'mark', 'sort', 'order', 'app']);
+const imgOf = b => b.type === 'image' ? b.src : TASKS.has(b.type) ? b.img : '';
+async function examImages(doc) {
+  const m = new Map();
+  for (const st of doc.stations || []) for (const b of st.blocks || []) { const s = imgOf(b); if (s && !m.has(s)) m.set(s, await toJpeg(s)); }
+  return m;
+}
+function examSection(F, pdf, doc, imgs, fmtPts) {
+  const SOL = '#2F8A5B';
+  pdf.text('Prüfung mit Musterlösung', F.M, F.y + 16, 18, { bold: true, col: INK }); F.y += 26;
+  if (doc.title) F.para(plain(doc.title), { size: 11, col: INK, after: 6 });
+  const img = (src, maxW = F.W * 0.7, maxH = 260) => {
+    const j = src && imgs.get(src); if (!j) { if (src) F.para('[Bild]', { size: 8.5, col: GREY, after: 2 }); return; }
+    const s = Math.min(maxW / j.w, maxH / j.h, 1.2), w = j.w * s, h = j.h * s; F.need(h + 8); F.y += 4; pdf.image(j, F.M + 6, F.y, w, h); F.y += h + 6;
+  };
+  const sol = (t, o = {}) => F.para(t, { size: 9.5, x: 6, col: SOL, after: 2, ...o });
+  const txt = (t, o = {}) => { const p = plain(t); if (p) F.para(p, { size: 10, x: 6, col: INK, after: 3, ...o }); };
+  let n = 0;
+  for (const st of doc.stations || []) {
+    if (st.title && (doc.stations.length > 1 || plain(st.title))) { F.need(40); F.gap(6); F.para(plain(st.title), { size: 12.5, bold: true, col: INK, after: 4 }); }
+    for (const b of st.blocks || []) {
+      if (!TASKS.has(b.type)) {
+        if (b.type === 'text') txt(b.html, /^h[34]$/.test(b.tag || '') ? { bold: true, size: 11 } : {});
+        else if (b.type === 'info') txt((b.title ? plain(b.title) + ': ' : '') + plain(b.html));
+        else if (b.type === 'image') { img(b.src); if (b.caption) F.para(plain(b.caption), { size: 8.5, x: 6, col: GREY, after: 3 }); }
+        else if (b.type === 'table') (b.rows || []).forEach(r => F.para(r.map(plain).join('  |  '), { size: 9, x: 6, col: INK, after: 1 }));
+        else if (b.type === 'code') F.para(b.code || '', { size: 8.5, x: 6, col: INK, after: 3 });
+        else if (b.type === 'reveal') txt((b.summary ? plain(b.summary) + ': ' : '') + plain(b.html));
+        continue;
+      }
+      n++;
+      F.need(46); F.gap(6); pdf.line(F.M, F.y, PAGE_W - F.M, F.y, '#E1E4EC', 0.6); F.y += 15;
+      const title = plain(b.title || b.qs?.[0]?.q || '') || 'Aufgabe';
+      pdf.text(fit(`${n}. ${title}`, 11, true, F.W - 90), F.M, F.y, 11, { bold: true, col: INK });
+      pdf.text(`${fmtPts(+(b.pts ?? 1) || 0)} P.`, PAGE_W - F.M, F.y, 11, { bold: true, col: INK, align: 'right' }); F.y += 6;
+      img(b.img);
+      if (b.type === 'gap') { txt(String(b.html || '').replace(/\[\[(.*?)\]\]/g, '____')); sol('Lösung: ' + [...String(b.html || '').matchAll(/\[\[(.*?)\]\]/g)].map((m, i) => `(${i + 1}) ${plain(m[1]).split('|').join(' / ')}`).join('   ')); if (b.extra?.length) F.para('Ablenker: ' + b.extra.map(plain).join(', '), { size: 8.5, x: 6, col: GREY, after: 2 }); continue; }
+      if (b.type === 'mark') { txt(String(b.html || '').replace(/\{\{(.*?)\}\}/g, '$1')); sol('Zu markieren: ' + [...String(b.html || '').matchAll(/\{\{(.*?)\}\}/g)].map(m => plain(m[1])).join(', ')); continue; }
+      txt(b.html);
+      if (b.type === 'quiz') (b.qs || []).forEach(q => { if ((b.qs || []).length > 1 || plain(q.q) !== title) F.para(plain(q.q), { size: 10, x: 6, bold: true, col: INK, after: 1 }); (q.opts || []).forEach(o => F.para(`${o.ok ? '[x]' : '[  ]'} ${plain(o.t)}`, { size: 9.5, x: 14, col: o.ok ? SOL : INK, bold: !!o.ok, after: 0 })); F.gap(3); });
+      else if (b.type === 'match') (b.pairs || []).forEach(p => sol(`${plain(p.a)}  ->  ${plain(p.b)}`, { after: 0 }));
+      else if (b.type === 'sort') (b.groups || []).forEach(gr => sol(`${plain(gr.name)}: ${(gr.items || []).map(plain).join(', ')}`, { after: 0 }));
+      else if (b.type === 'order') { sol('Richtige Reihenfolge: ' + (b.words ? (b.items || []).map(plain).join(' ') : ''), { after: 0 }); if (!b.words) (b.items || []).forEach((t, i) => sol(`${i + 1}. ${plain(t)}`, { x: 14, after: 0 })); if (b.alts?.length) F.para(`(${b.alts.length} weitere Reihenfolge${b.alts.length > 1 ? 'n' : ''} ebenfalls richtig)`, { size: 8.5, x: 6, col: GREY, after: 0 }); }
+      else if (b.type === 'task') { if (b.answer) sol('Lösung: ' + b.answer.split('|').map(plain).join(' oder ')); }
+      if (b.type === 'essay' && b.hand) F.para('Handschriftlich (Foto der Lösung auf Papier)', { size: 8.5, x: 6, col: GREY, after: 2 });
+      if (b.type === 'app' && b.expect) sol('Erwartete Ausgabe: ' + plain(b.expect));
+      if (b.rubric?.length) sol('Erwartung: ' + b.rubric.map(r => `${plain(r.t)} (${fmtPts(+r.p || 0)} P.)`).join(' · '));
+      if (b.solution) sol('Musterlösung: ' + plain(b.solution));
+      F.gap(3);
+    }
+  }
 }

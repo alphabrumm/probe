@@ -43,7 +43,7 @@ async function show() {
     <div class="res-head"><div><div class="help">${esc(x.fach)} · ${esc(x.klasse)} · ${esc(x.art)} · ${esc(fmtDate(x.datum))}</div><h1>${esc(x.titel || 'Prüfung')}</h1><p><b>${esc(R.name)}</b></p></div>
       <div class="res-note"><b>${esc(R.note)}</b><span>${R.skala === 'punkte' ? 'Notenpunkte' : 'Note'}</span></div></div>
     <p><b>${fmt(R.punkte)} von ${fmt(R.max)} Punkten</b> (${Math.round(R.pct)} %)</p>
-    <div class="btns no-print"><button class="btn" id="pr">🖨 Als PDF sichern</button><span class="help">Diese Seite ist nur bis ${new Date(R.expires * 1000).toLocaleDateString('de-DE')} abrufbar.</span></div>
+    <div class="btns no-print">${R.dk ? '<button class="btn pri" id="look">👁 Prüfung ansehen</button>' : ''}<button class="btn" id="pr">🖨 Als PDF sichern</button><span class="help">Diese Seite ist nur bis ${new Date(R.expires * 1000).toLocaleDateString('de-DE')} abrufbar.</span></div>
     ${R.items.map((t, i) => `<section class="task"><h3><span>Aufgabe ${i + 1}: ${esc(t.title)}</span><span>${t.dropped ? 'nicht gewertet' : `${fmt(t.pts)} / ${fmt(t.max)} P.`}</span></h3>
       ${t.answer ? `<div class="ans">Deine Antwort: ${esc(t.answer)}</div>` : ''}${t.parts.map(p => `<div class="part ${p.ok ? 'ok' : 'no'}">${esc(p.label)}${/[?:.!]$/.test(p.label) ? '' : ':'} <b>${esc(p.given || '–')}</b>${p.ok ? '' : ` <span class="exp">richtig: ${esc(p.expected)}</span>`}</div>`).join('')}
       ${t.hand ? ((annViewHtml(t.img, t.ann, 'add') || '<div class="ans">– kein Foto abgegeben –</div>') + solutionHtml(t.solution)) : t.text != null ? (t.code && t.text ? codeAnswerHtml(t.text, t.app || 'jpad') : `<div class="ans">${esc(t.text || '– keine Antwort –')}</div>`) : ''}
@@ -52,6 +52,11 @@ async function show() {
       <div class="cm no-print" data-i="${i}"><details><summary class="help">Frage oder Anmerkung zu dieser Aufgabe</summary><textarea placeholder="Was möchtest du deiner Lehrkraft zu dieser Aufgabe sagen?"></textarea><div class="btns" style="margin-top:6px"><button class="btn sm" data-send>Senden</button><span class="st"></span></div></details></div>
     </section>`).join('')}</div>`;
   $('#pr').onclick = () => print();
+  $('#look') && ($('#look').onclick = async ev => {
+    const b = ev.currentTarget; b.disabled = true;
+    try { const r = await api('r_doc', { rid }); look(await K.openExamDoc(R.dk, r.doc_enc)); }
+    catch (e) { alert(e.message); } finally { b.disabled = false; }
+  });
   main.onclick = async ev => {
     const b = ev.target.closest('[data-send]'); if (!b) return;
     const box = b.closest('.cm'), t = R.items[+box.dataset.i], text = $('textarea', box).value.trim(); if (!text) return;
@@ -61,5 +66,21 @@ async function show() {
     finally { b.disabled = false; }
   };
 }
+/** Prüfung mit Musterlösung: PathFinder schreibgeschützt (Ansicht mit Lösungen + Vorschau zum Ausprobieren), ohne Export */
+function look(doc) {
+  const wrap = document.createElement('div'); wrap.className = 'editor';
+  wrap.innerHTML = '<iframe src="editor.html" title="Prüfung mit Musterlösung"></iframe>';
+  document.body.appendChild(wrap); document.body.style.overflow = 'hidden';
+  const fr = wrap.querySelector('iframe');
+  const close = () => { wrap.remove(); document.body.style.overflow = ''; clean(); };
+  const onMsg = ev => {
+    if (ev.source !== fr.contentWindow || ev.data?.probeEditor !== 'ready') return; removeEventListener('message', onMsg);
+    fr.contentWindow.probeEdit({ doc, readOnly: true, readOnlyLabel: 'Prüfung mit Musterlösung', readOnlyTitle: '„Mit Lösungen“ zeigt die Musterlösung, „Vorschau“ lässt dich die Aufgaben noch einmal selbst lösen.',
+      host: { done: close, doneLabel: 'Schließen', doneTitle: 'Zurück zu meinem Ergebnis' } });
+  };
+  addEventListener('message', onMsg);
+}
+/** PathFinder legt im Browser Kopien an – nach dem Ansehen wieder entfernen */
+function clean() { try { for (const k of Object.keys(localStorage)) if (/^probe\.(doc\.|docs$|cur$)|^pathfinder\.vorschau\./.test(k)) localStorage.removeItem(k); } catch (e) { } }
 addEventListener('hashchange', show);
 show();

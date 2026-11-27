@@ -300,7 +300,7 @@ function drawEval() {
     <section class="card"><div class="bar" style="margin:0"><h2 style="margin:0">${pub ? `✓ Veröffentlicht bis ${new Date(e.expires * 1000).toLocaleDateString('de-DE')}` : 'Auswertung'}</h2><span class="sp"></span>
       ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
-      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button><button class="btn" id="pfjson" title="Die ganze Prüfung mit Lösungen als Datei – lässt sich in Probe (Prüfungsdatei laden) oder PathFinder wieder öffnen, z. B. als Nachschrift">⇩ PathFinder-Datei (.json)</button></div>
       <div class="btns ki-bar"><button class="btn ki" id="kiGo">${KI} KI-Korrektur</button>${kiSummary()}</div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
@@ -312,10 +312,15 @@ function drawEval() {
   $('#pub').onclick = publish;
   $('#resp') && ($('#resp').onclick = async () => { try { if (await respSubmit(S2, S2.resp)) { S2.resp = await respState(S2.e, X); drawEval(); } } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); } });
   $('#ansehen').onclick = () => X.view(e);
+  $('#pfjson').onclick = () => { // Prüfung als PathFinder-Projekt (wie „Prüfungsdatei für Probe“ in PathFinder)
+    if (!e.draft) { X.toast('⚠ Kein Inhalt gespeichert'); return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(e.draft, null, 1)], { type: 'application/json' }));
+    a.download = `${(e.titel || 'Pruefung').slice(0, 60)}_${e.klasse}_${e.datum}.probe.json`.replace(/[^\wäöüÄÖÜß.-]+/g, '_'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  };
   $('#kiGo').onclick = () => kiWizard();
   $('#unpub') && ($('#unpub').onclick = async () => { if (!confirm('Ergebnisseiten der Schüler sofort sperren?')) return; await X.api('exam_state', { id: e.id, to: 'beendet' }); S2.e.status = 'beendet'; drawEval(); });
-  $('#prot').onclick = () => { // Übersicht + je Prüfling eine Seite; entsteht hier im Browser
-    try { showPdf(protokollPdf(S2, results(), X), `Pruefungsprotokoll_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); }
+  $('#prot').onclick = async () => { // Übersicht, die Prüfung mit Musterlösung, je Prüfling eine Seite; entsteht hier im Browser
+    try { showPdf(await X.withBusy('Protokoll wird erstellt …', () => protokollPdf(S2, results(), X)), `Pruefungsprotokoll_${e.klasse}_${e.fach}_${e.datum}.pdf`.replace(/[^\wäöüÄÖÜß.-]+/g, '_')); }
     catch (er) { console.error(er); X.toast('⚠ Protokoll konnte nicht erstellt werden: ' + X.esc(er.message), 5000); }
   };
   $('#csv').onclick = () => {
@@ -621,18 +626,20 @@ async function publish() {
   try {
     await X.withBusy('Ergebnisseiten werden verschlüsselt …', async () => {
       const reports = [];
+      // Prüfung mit Musterlösung für „Prüfung ansehen“ auf der Ergebnisseite: einmal verschlüsselt, der Schlüssel steht in jedem Bericht
+      const dk = e.draft ? X.K.newExamKey() : '', doc_enc = dk ? await X.K.sealExamDoc(dk, e.draft) : null;
       for (const x of RS) {
         if (!x.p.rc) continue;
         const fb = g.feedback[x.p.id] || {};
         const rep = { v: 1, exam: { titel: e.titel, fach: e.fach, klasse: e.klasse, art: e.art, datum: e.datum }, name: `${x.p.v} ${x.p.n}`, skala: e.skala, note: x.note,
-          punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key,
+          punkte: x.R.total, max: x.R.max, pct: x.R.pct, pub: X.S.keys.pub_key, ...(dk ? { dk } : {}),
           items: x.R.items.map((it, i) => ({ id: it.id, title: it.title, pts: it.pts || 0, max: key.tasks[i].pts, dropped: !!it.dropped, parts: it.parts, ...(it.answer ? { answer: it.answer } : {}), ...(it.hand ? { hand: true, img: it.img || '', ann: annForReport(g.hk?.[x.p.id]?.[it.id], g.hkMode?.[it.id] || 'add'), solution: key.tasks[i].solution || '' } : {}), text: it.text != null ? it.text : it.auto ? undefined : '', ...(it.type === 'app' ? { code: true, app: key.tasks[i].app } : {}), rubric: key.tasks[i].rubric || [], feedback: fb[it.id] || '' })) };
         for (const rc of [x.p.rc, ...x.p.merged.map(q => q.rc)].filter(Boolean)) { // doppelt angemeldet: unter jedem Ergebniscode dieselbe Seite
           const { rid, key: k } = await X.K.reportKeys(rc);
           reports.push({ rid, report_enc: await X.K.sealSym(k, rep) });
         }
       }
-      const r = await X.api('exam_publish', { id: e.id, reports, days: g.days });
+      const r = await X.api('exam_publish', { id: e.id, reports, days: g.days, doc_enc });
       S2.e = { ...S2.e, ...r.exam };
       await X.api('exam_grading', { id: e.id, grading_enc: await X.K.seal(X.S.keys.pub_key, g) });
     });

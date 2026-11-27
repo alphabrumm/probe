@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 19;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 20;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -353,6 +353,12 @@ function migrate_steps(PDO $pdo, int $v): void {
             created INTEGER NOT NULL, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, active INTEGER NOT NULL DEFAULT 1
         );
         PRAGMA user_version = 19;
+        SQL);
+    }
+    if ($v < 20) { // „Prüfung ansehen“ auf der Ergebnisseite: Prüfung mit Musterlösung, verschlüsselt (Schlüssel steht in den Ergebnisberichten)
+        $pdo->exec(<<<SQL
+        ALTER TABLE exams ADD COLUMN pubdoc_enc TEXT;
+        PRAGMA user_version = 20;
         SQL);
     }
 }

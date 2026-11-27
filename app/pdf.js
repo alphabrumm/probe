@@ -38,6 +38,15 @@ export function wrap(t, size, bold, w) {
 }
 
 export const PAGE_W = 595, PAGE_H = 842;
+/** Bild (data:-URL oder Adresse) als JPEG für image(): weißer Hintergrund, höchstens maxW Pixel breit; null, wenn es nicht lädt */
+export async function toJpeg(src, maxW = 1100) {
+  try {
+    const im = new Image(); im.decoding = 'async'; im.src = src; await im.decode();
+    const s = Math.min(1, maxW / im.naturalWidth), w = Math.max(1, Math.round(im.naturalWidth * s)), h = Math.max(1, Math.round(im.naturalHeight * s));
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(im, 0, 0, w, h);
+    const u = c.toDataURL('image/jpeg', 0.85); return { data: atob(u.slice(u.indexOf(',') + 1)), w, h };
+  } catch (e) { return null; }
+}
 export class Pdf {
   constructor(title = '') { this.pages = [[]]; this.cur = 0; this.title = title; }
   get ops() { return this.pages[this.cur]; }
@@ -46,27 +55,34 @@ export class Pdf {
   color(hex, stroke) { this.ops.push(`${rgb(hex)} ${stroke ? 'RG' : 'rg'}`); return this; }
   rect(x, y, w, h, fill, stroke, lw = 1) { if (fill) this.color(fill); if (stroke) { this.color(stroke, true); this.ops.push(`${lw} w`); } this.ops.push(`${x.toFixed(2)} ${(PAGE_H - y - h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re ${fill && stroke ? 'B' : fill ? 'f' : 'S'}`); return this; }
   line(x1, y1, x2, y2, col = '#999999', lw = 0.6) { this.color(col, true); this.ops.push(`${lw} w ${x1.toFixed(2)} ${(PAGE_H - y1).toFixed(2)} m ${x2.toFixed(2)} ${(PAGE_H - y2).toFixed(2)} l S`); return this; }
+  /** JPEG-Bild ({ data: Binärstring, w, h } aus toJpeg) an x/y (oben links) in Breite dw und Höhe dh */
+  image(img, x, y, dw, dh) {
+    this.imgs = this.imgs || []; let i = this.imgs.indexOf(img); if (i < 0) { this.imgs.push(img); i = this.imgs.length - 1; }
+    this.ops.push(`q ${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} ${x.toFixed(2)} ${(PAGE_H - y - dh).toFixed(2)} cm /Im${i} Do Q`); return this;
+  }
   /** Text mit Grundlinie bei y */
   text(t, x, y, size, { bold, col = '#222222', align = 'left' } = {}) {
     const w = textW(t, size, bold), xx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
     this.color(col); this.ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${xx.toFixed(2)} ${(PAGE_H - y).toFixed(2)} Td ${pdfStr(t)} Tj ET`); return this;
   }
   bytes() {
-    const N = this.pages.length, objs = [];
+    const N = this.pages.length, objs = [], I = this.imgs || [], imgBase = 6 + 2 * N; // Bilder nach den Seiten und der Info
+    const xo = I.length ? ` /XObject << ${I.map((_, k) => `/Im${k} ${imgBase + k} 0 R`).join(' ')} >>` : '';
     objs.push('<< /Type /Catalog /Pages 2 0 R >>');
     objs.push(`<< /Type /Pages /Kids [${this.pages.map((_, i) => `${5 + 2 * i} 0 R`).join(' ')}] /Count ${N} >>`);
     objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
     this.pages.forEach((ops, i) => {
-      objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${6 + 2 * i} 0 R >>`);
+      objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo} >> /Contents ${6 + 2 * i} 0 R >>`);
       const cs = ops.join('\n'); objs.push(`<< /Length ${cs.length} >>\nstream\n${cs}\nendstream`);
     });
-    objs.push(`<< /Title ${pdfStr(this.title)} /Producer (Probe) >>`);
+    objs.push(`<< /Title ${pdfStr(this.title)} /Producer (Probe) >>`); const info = objs.length;
+    for (const im of I) objs.push(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>\nstream\n${im.data}\nendstream`);
     let out = '%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'; const off = [];
     objs.forEach((o, i) => { off.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
     const xref = out.length;
     out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + off.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
-    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info ${objs.length} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF`;
     const b = new Uint8Array(out.length); for (let i = 0; i < out.length; i++) b[i] = out.charCodeAt(i) & 255; return b;
   }
 }

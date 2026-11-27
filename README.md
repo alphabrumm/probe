@@ -19,6 +19,14 @@ kein Konto. Läuft auf normalem Webspace mit PHP und SQLite.
   automatische Abgabe abschaltbar, Schließen/Beenden, Notfall-Abgabe per Datei.
 * **Auswertung:** Notenschlüssel per Regler, Freitext bewerten, Antworten akzeptieren, Aufgaben streichen, Ergebnisseiten
   mit Ergebniscode veröffentlichen, Kommentare der Schüler.
+  * **⇩ PathFinder-Datei (.json):** die ganze Prüfung mit Lösungen (wie „Prüfungsdatei für Probe“ in PathFinder) – z. B. als
+    Nachschrift über „Prüfungsdatei laden“ in einer neuen Prüfung.
+  * **Prüfungsprotokoll (PDF):** Übersicht, dann die **Prüfung mit Musterlösung** (Text, Bilder als JPEG, Lösungen grün), dann je Prüfling
+    eine Seite. Bilder bettet `pdf.js` ein (`toJpeg`, `image()`); das Protokoll entsteht deshalb asynchron.
+  * **„👁 Prüfung ansehen“ auf der Ergebnisseite:** Beim Veröffentlichen wird die Prüfung (mit Musterlösung) einmal mit einem zufälligen
+    Schlüssel verschlüsselt (`exams.pubdoc_enc`, DB v20); der Schlüssel steht in jedem Ergebnisbericht (`dk`). Die Schüler öffnen sie
+    schreibgeschützt in PathFinder: „Mit Lösungen“ und Vorschau zum selbst Ausprobieren, ohne Export, Dokumente oder KI. `r_doc` liefert
+    sie nur zu einem gültigen Ergebniscode; beim Zurückziehen der Veröffentlichung bzw. nach Ablauf wird sie gelöscht.
 * **KI-gestützte Korrektur** (`app/ki.js`): ein Knopf „KI-Korrektur“ öffnet einen Assistenten in drei Schritten –
   1. Aufgaben wählen (empfohlen: wo getippt oder geschrieben wird; reine Auswahlaufgaben ausgegraut; gemerkt in `g.kiSel`) und
   Export erstellen, 2. Datei laden oder Text kopieren und in einer KI (z. B. ByLKI, Claude) abschicken, 3. Antwort der KI
