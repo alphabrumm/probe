@@ -300,7 +300,7 @@ function drawEval() {
     <section class="card"><div class="bar" style="margin:0"><h2 style="margin:0">${pub ? `✓ Veröffentlicht bis ${new Date(e.expires * 1000).toLocaleDateString('de-DE')}` : 'Auswertung'}</h2><span class="sp"></span>
       ${pending ? `<span class="chip warn">${pending} Freitext-Antwort${pending === 1 ? '' : 'en'} noch zu bewerten</span>` : '<span class="chip good">alles bewertet</span>'}
       ${unread ? `<span class="chip bad">💬 ${unread} neue Kommentare</span>` : ''}</div>
-      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button><button class="btn" id="pfjson" title="Die ganze Prüfung mit Lösungen als Datei – lässt sich in Probe (Prüfungsdatei laden) oder PathFinder wieder öffnen, z. B. als Nachschrift">⇩ PathFinder-Datei (.json)</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn pri" id="pub">${pub ? '↻ Neu veröffentlichen' : '✓ Bewertung abschließen und veröffentlichen'}</button>${pub ? '<button class="btn" id="unpub">Veröffentlichung zurückziehen</button>' : ''}<button class="btn" id="prot">📄 Prüfungsprotokoll</button><button class="btn" id="csv">⇩ Notenliste (CSV)</button><button class="btn" id="ansehen">👁 Prüfung ansehen</button><button class="btn" id="pfjson" title="Die Prüfungsvorlage (Aufgaben mit Lösungen) als Datei herunterladen">⇩ Prüfung laden</button></div>
       <div class="btns ki-bar"><button class="btn ki" id="kiGo">${KI} KI-Korrektur</button>${kiSummary()}</div>
       <p class="help">${pub ? 'Änderungen an der Bewertung sehen die Schüler erst nach „Neu veröffentlichen“.' : 'Beim Veröffentlichen bekommt jeder Schüler eine eigene Ergebnisseite (mit seinem Ergebniscode), standardmäßig 14 Tage lang.'}</p></section>
     ${S2.resp ? `<section class="card" style="margin-top:16px"><h2>Respizienz</h2>${respHtml(S2.resp)}</section>` : ''}
@@ -312,8 +312,15 @@ function drawEval() {
   $('#pub').onclick = publish;
   $('#resp') && ($('#resp').onclick = async () => { try { if (await respSubmit(S2, S2.resp)) { S2.resp = await respState(S2.e, X); drawEval(); } } catch (er) { X.toast('⚠ ' + X.esc(er.message), 5000); } });
   $('#ansehen').onclick = () => X.view(e);
-  $('#pfjson').onclick = () => { // Prüfung als PathFinder-Projekt (wie „Prüfungsdatei für Probe“ in PathFinder)
+  $('#pfjson').onclick = () => { // Prüfungsvorlage als PathFinder-Projekt (wie „Prüfungsdatei für Probe“ in PathFinder) – ohne Schülerdaten
     if (!e.draft) { X.toast('⚠ Kein Inhalt gespeichert'); return; }
+    const d = X.dialog('⇩ Prüfung laden', `<p>Heruntergeladen wird nur die <b>Prüfungsvorlage</b>: die Aufgaben mit Lösungen, Punkten und Erwartungshorizont.</p>
+      <p><b>Nicht enthalten</b> sind die Ergebnisse der Schüler – keine Namen, Antworten, Fotos, Korrekturen oder Noten.</p>
+      <p class="help">Die Datei (.json) lässt sich in Probe in einer neuen Prüfung über „Prüfungsdatei laden“ wieder öffnen (z. B. für eine Nachschrift) oder in PathFinder bearbeiten.</p>
+      <div class="btns"><button class="btn pri" id="go">⇩ Herunterladen</button></div>`);
+    $('#go', d.el).onclick = () => { d.close(); dl(); };
+  };
+  const dl = () => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(e.draft, null, 1)], { type: 'application/json' }));
     a.download = `${(e.titel || 'Pruefung').slice(0, 60)}_${e.klasse}_${e.datum}.probe.json`.replace(/[^\wäöüÄÖÜß.-]+/g, '_'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   };
