@@ -1,11 +1,11 @@
 // Probe – QR-Code ohne Bibliothek: Byte-Modus (UTF-8), Fehlerkorrektur M, Versionen 1–10 (bis 213 Zeichen).
 // Aufbau nach ISO/IEC 18004 (Vorgehen wie bei Nayukis „QR Code generator“). Ergebnis: Matrix oder SVG.
 
-const EC_M = { // Version: [Fehlerkorrektur-Bytes je Block, [[Anzahl Blöcke, Datenbytes je Block], …]]
+export const EC_M = { // Version: [Fehlerkorrektur-Bytes je Block, [[Anzahl Blöcke, Datenbytes je Block], …]]
   1: [10, [[1, 16]]], 2: [16, [[1, 28]]], 3: [26, [[1, 44]]], 4: [18, [[2, 32]]], 5: [24, [[2, 43]]],
   6: [16, [[4, 27]]], 7: [18, [[4, 31]]], 8: [22, [[2, 38], [2, 39]]], 9: [22, [[3, 36], [2, 37]]], 10: [26, [[4, 43], [1, 44]]],
 };
-const ALIGN = { 1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50] };
+export const ALIGN = { 1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50] };
 const dataCap = v => EC_M[v][1].reduce((s, [n, d]) => s + n * d, 0);
 
 function gfMul(x, y) { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z & 255; }

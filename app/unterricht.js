@@ -593,7 +593,7 @@ function boardCount(P) {
 /** Vollbild für Beamer oder Tafel: großer QR-Code, PIN, Restzeit */
 async function showBoard(H, P) {
   const { esc } = H, t = tafelOn(P); if (!t?.pin) return;
-  const link = `${new URL('l.html', location.href).href.replace(/[?#].*$/, '')}#t=${P.cid}.${t.s}.${await classKey(H, P)}`;
+  const link = `${new URL('play.html', location.href).href.replace(/[?#].*$/, '')}#t=${P.cid}.${t.s}.${await classKey(H, P)}`;
   $('.u-board')?.remove();
   const el = document.createElement('div'); el.className = 'u-board'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Tafel-QR-Code');
   el.innerHTML = `<div class="ub-top"><b>${esc(P.c.name)}${P.c.fach ? ' · ' + esc(P.c.fach) : ''}</b> · PathFinder Player<span class="sp"></span><button class="btn" data-bclose>Schließen</button><button class="btn ghost danger" data-bend>Tafel-Code beenden</button></div>
@@ -695,7 +695,7 @@ async function qrDialog(H, P, sids) {
     $('#go', d.el).disabled = true;
     try {
       const bytes = await withBusy('QR-Codes werden erstellt …', async () => {
-        const k = await classKey(H, P), base = new URL('l.html', location.href).href.replace(/[?#].*$/, ''), items = [], cards = [];
+        const k = await classKey(H, P), base = new URL('play.html', location.href).href.replace(/[?#].*$/, ''), items = [], cards = [];
         for (const r of R) {
           const s = b64u(crypto.getRandomValues(new Uint8Array(16)));
           items.push({ sid: r.sid, qr_hash: await sha256hex(s) });

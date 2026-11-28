@@ -1,11 +1,12 @@
-// PathFinder Player – Seite der Schüler (l.html, am besten als Symbol auf dem Home-Bildschirm).
-// Einmal den QR-Code der Lehrkraft scannen: l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name> → das Gerät wird mit der Klasse
+// PathFinder Player – Seite der Schüler (play.html, am besten als Symbol auf dem Home-Bildschirm).
+// Einmal den QR-Code der Lehrkraft scannen: play.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name> → das Gerät wird mit der Klasse
 // gekoppelt (Geräteschlüssel). Der Teil hinter „#“ geht nie an den Server. Danach zeigt die Seite je Klasse eine Kachel; in der Klasse:
 //   🟢 laufende Einheiten (der Stand geht verschlüsselt an die Lehrkraft), 🔴 beendete (nur ansehen),
 //   🟡 private Kopien (die Lehrkraft sieht Änderungen nicht – „An Lehrkraft schicken“ bittet sie, die Kopie zu übernehmen),
 //   Apps, die die Lehrkraft für die Klasse freigegeben hat (eigene Projekte nur auf dem iPad, „Mit Lehrkraft teilen“).
 import { startPathFinder } from '../vendor/pathfinder/core/pathfinder.js';
 import * as K from './crypto.js';
+import { openScanner } from './qrscan.js';
 
 const $ = s => document.querySelector(s), home = $('#home');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -64,6 +65,16 @@ async function takeMove() {
   return err && !(await allK()).length ? `<div class="u-hint u-err">${esc(err)}</div>` : '';
 }
 
+/* ---------- QR-Code im Player scannen (Web-Clip aus dem MDM: Koppeln ohne Umweg über Safari) ---------- */
+function scan() {
+  openScanner({ title: 'QR-Code scannen', hint: 'Halte den QR-Code deiner Lehrkraft (oder den Tafel-QR-Code) in den Rahmen.', onText: t => {
+    let u; try { u = new URL(t); } catch (e) { alert('Das ist kein QR-Code von Probe.'); return true; }
+    if (!/^#[ut]=/.test(u.hash) || !/\/(play|l)\.html$/.test(u.pathname)) { alert('Das ist kein QR-Code zum Koppeln.'); return true; }
+    if (u.origin !== location.origin) { alert(`Dieser QR-Code gehört zu einer anderen Probe (${u.host}). Öffne ihn bitte dort.`); return true; }
+    history.replaceState(null, '', location.pathname + u.hash); location.reload(); return true;
+  } });
+}
+
 /* ---------- QR-Code einlösen ---------- */
 async function pairFromHash() {
   const m = location.hash.match(/^#u=(\d+)\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{22})\.(.*)$/); if (!m) return null;
@@ -73,7 +84,7 @@ async function pairFromHash() {
   catch (er) { return { error: er.message }; }
 }
 
-/* ---------- Tafel-QR-Code: l.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel> – mit PIN und eigenem Namen eintragen ---------- */
+/* ---------- Tafel-QR-Code: play.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel> – mit PIN und eigenem Namen eintragen ---------- */
 async function joinFromHash() {
   const m = location.hash.match(/^#t=(\d+)\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{22})$/); if (!m) return false;
   history.replaceState(null, '', location.pathname);
@@ -112,12 +123,13 @@ async function drawHome(msg = '') {
   const k = VIEW.c != null && KL.find(x => x.c === VIEW.c);
   if (k) return drawClass(k, msg);
   home.innerHTML = `${TITLE}${msg}
-    ${!KL.length ? '<div class="u-cl"><h2>Noch nicht gekoppelt</h2><p>Scanne den QR-Code, den du von deiner Lehrkraft bekommen hast (oder den Tafel-QR-Code), mit der Kamera.</p></div>' : ''}
+    ${!KL.length ? `<div class="u-cl"><h2>Noch nicht gekoppelt</h2><p>Scanne den QR-Code, den du von deiner Lehrkraft bekommen hast (oder den Tafel-QR-Code).</p><button class="btn u-scan" data-scan>▦ QR-Code scannen</button></div>` : ''}
     ${MOVE ? INSTALL : ''}
     <div class="u-tiles">${KL.map(k => { const I = INFO.get(k.c), run = I?.units?.length || 0, cp = PL.filter(p => p.c === k.c && p.kind === 'copy').length;
       return `<button class="u-tile" data-class="${k.c}"><span class="u-tk">${I?.class?.fach ? esc(I.class.fach) : 'Klasse'}</span><b>${I?.class ? esc(I.class.name) : '…'}${I?.class?.fach ? ' ' + esc(I.class.fach) : ''}</b>
         <span class="help">${I?.teacher ? 'Lehrkraft ' + esc(I.teacher) : esc(k.v + ' ' + k.n)}</span>
         <span class="u-dots">${I?.error ? `<span class="u-err">⚠ ${esc(I.error)}</span>` : `${run ? `<span>🟢 ${run} läuft</span>` : ''}${cp ? `<span>🟡 ${cp}</span>` : ''}${I?.exam ? '<span>🔒 Prüfung</span>' : ''}${NOTE.get(k.c) ? '<span>✓ Neu</span>' : ''}`}</span></button>`; }).join('')}</div>
+    ${KL.length ? '<button class="btn alt u-scan" data-scan>▦ Weitere Klasse: QR-Code scannen</button>' : ''}
     <p class="help" style="margin-top:24px">Deine Lehrkraft sieht nur, wie weit du in den gestarteten Einheiten bist – verschlüsselt, nur für sie lesbar.</p>`;
 }
 const INSTALL = '<div class="u-hint u-inst">📲 <b>Wichtig:</b> Tippe jetzt in Safari auf <b>Teilen</b> → <b>„Zum Home-Bildschirm“</b> und öffne den Player danach nur noch über das Symbol <b>PathFinder</b>. Deine Kopplung wird dabei übernommen (innerhalb einer Stunde).</div>';
@@ -182,8 +194,9 @@ async function mergeTaken(k, r) {
   }
 }
 home.onclick = async ev => {
-  const t = ev.target.closest('[data-class],[data-home],[data-open],[data-forget],[data-p],[data-psend],[data-pdel],[data-newp]'); if (!t) return;
+  const t = ev.target.closest('[data-class],[data-home],[data-open],[data-forget],[data-p],[data-psend],[data-pdel],[data-newp],[data-scan]'); if (!t) return;
   const D = t.dataset;
+  if (D.scan != null) { scan(); return; }
   if (D.class) { VIEW.c = +D.class; history.pushState({ c: VIEW.c }, '', here()); drawHome(); scrollTo(0, 0); return; }
   if (D.home != null) { history.back(); return; }
   if (D.forget && confirm('Diese Kopplung von diesem Gerät entfernen?')) { await delK(+D.forget); INFO.delete(+D.forget); VIEW.c = null; drawHome(); return; }

@@ -130,13 +130,13 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
 
 ## Modul Unterricht (Variante Lernpfad/Challenge)
 
-`app/unterricht.js` (Lehrkraft), `l.html` + `app/unterricht-s.js` (Schüler), DB v22 (`lpaths`, `ucouplings`, `units`, `uprogress`,
+`app/unterricht.js` (Lehrkraft), `play.html` + `app/unterricht-s.js` (Schüler), DB v22 (`lpaths`, `ucouplings`, `units`, `uprogress`,
 `classes.ukey_enc`), Aktionen `lp_*` und `ut_*`. Im Konto-Menü unter „Module“ einschalten.
 
 * **Meine Lernpfade:** im PathFinder-Editor (Formen Lernpfad und Challenge) erstellen oder einen aus PathFinder exportierten Lernpfad einlesen (HTML-Datei, auch Originaldesign, SCORM-/ZIP-Paket oder .json – übernommen wird nur das eingebettete Dokument `pf-doc`, nicht der Player); Fach, Jahrgangsstufe und Lernbereich aus der PathFinder-Einordnung (⚙ Allgemein) stehen auf der Kachel und dienen als Filter (`lpaths.meta`, Klartext, ohne Inhalt). Beim Starten stehen passende Lernpfade (gleiches Fach, Jahrgangsstufe aus dem Klassennamen) oben;
   verschlüsselt für die Lehrkraft gespeichert, auf allen Geräten gleich.
 * **Klasse** (dieselbe wie bei Prüfungen) trägt die **QR-Kopplung**: je Schüler ein Einmal-QR-Code
-  `l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name>` (der Teil hinter „#“ geht nie an den Server; der Server speichert nur den
+  `play.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name>` (der Teil hinter „#“ geht nie an den Server; der Server speichert nur den
   Hash des Geheimnisses). Beim Scannen bekommt das Gerät einen Geräteschlüssel (IndexedDB); der Code ist danach verbraucht. Neuer
   QR-Code je Person (z. B. zweites Gerät), „Abmelden“ sperrt alle Geräte der Person. Der Server kennt nur die Kennung (sid), keine Namen.
 * **JPad-Lernumgebung bauen:** „＋ Neuer Lernpfad“ → „Mit KI erstellen“, Art Lernpfad, Fach Informatik → im Schritt „Aufgaben“
@@ -159,7 +159,7 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   geht), **In JPad weiterarbeiten** (JPad im neuen Tab mit `?von=probe` übernimmt Code, Lernpfad und Sprites als eigenes Projekt – die
   Lehrkraft sieht das nicht mehr), **Als Datei sichern** (JPad-Projektdatei) oder zur Übersicht. Unter „Beendete JPad-Projekte“
   (dieses Schuljahr, `ut_poll` → `ended`) geht das jederzeit wieder; der eigene Stand kommt aus dem Gerät (IndexedDB).
-* **Tafel-QR-Code** (Knopf in der Klasse, mit „Was ist das?“): gemeinsamer Code `l.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel>`
+* **Tafel-QR-Code** (Knopf in der Klasse, mit „Was ist das?“): gemeinsamer Code `play.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel>`
   plus 4-stellige PIN im Vollbild für Beamer/Tafel, 15 Minuten gültig (Server kennt Geheimnis und PIN nur als Hash; nach 25 falschen PINs
   verfällt der Code). Schüler ohne persönlichen Code tragen PIN, Vor- und Nachnamen ein und sind sofort gekoppelt (sid `T…`); der Name geht
   nur für die Lehrkraft verschlüsselt an den Server (`ucouplings.name_enc`). Genaue Namenstreffer ordnet Probe beim Öffnen der Klasse selbst
@@ -169,13 +169,16 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   und erscheint auf den gekoppelten Geräten (Abfrage alle 10 s). Er läuft über mehrere Stunden, bis die Lehrkraft „Beenden“ tippt
   (wieder öffnen möglich). Schüler senden ihren Stand nur bei Änderungen (gebündelt, für die Lehrkraft verschlüsselt) plus
   Lebenszeichen alle 45 s; „Abgeben“ markiert die Abgabe. PathFinder meldet den Stand über `host.onProgress` (Kurzfassung je Station).
-* **PathFinder Player** (`l.html`, Symbol „PathFinder“): je gekoppelter Klasse eine Kachel; in der Klasse 🟢 laufende Einheiten
+* **PathFinder Player** (`play.html`, Symbol; alte Adresse `l.html` leitet weiter „PathFinder“): je gekoppelter Klasse eine Kachel; in der Klasse 🟢 laufende Einheiten
   (Stand geht an die Lehrkraft), 🔴 beendete (nur ansehen, `opts.readonly` in PathFinder), 🟡 **private Kopien** und eigene Projekte
   (IndexedDB-Store `p`, nur auf dem iPad). „✎ Private Kopie“ einer beendeten Einheit; „📤 An Lehrkraft schicken“ (`ut_share`, für die
   Lehrkraft verschlüsselt, mit Prüfsumme). Die Lehrkraft sieht unter **📥 Anfragen** Kopien und geteilte Projekte: 👁 ansehen,
   **Übernehmen** (wird der Stand in der Einheit, auch nachgereicht nach dem Ende), **Ablehnen**, 💬 Kommentar (Klassenschlüssel).
   Übernommen und seitdem unverändert → die Kopie wird auf dem iPad zum eigenen Stand (wieder 🟢/🔴); geändert → bleibt 🟡.
   Ist nur eine Klasse gekoppelt, öffnet der Player gleich diese Klasse. Datenbank v27 (`ushare`).
+* **QR-Code im Player scannen** („▦ QR-Code scannen“, z. B. im Web-Clip aus dem MDM): Kamera im Player, eigener QR-Leser ohne Bibliothek
+  (`app/qrscan.js`, liest die Codes von `app/qr.js`: Byte-Modus, Fehlerkorrektur M, Versionen 1–10; Test: `node tools/test-qrscan.mjs`).
+  Codes einer anderen Probe-Adresse werden abgelehnt.
 * **Safari → Home-Bildschirm:** iOS gibt dem Symbol einen eigenen, leeren Speicher (IndexedDB wird nicht übernommen – am iPhone
   getestet). Deshalb schreibt der Player in Safari je Kopplung ein Übergabe-Geheimnis hinter „#“ in die Adresse (`ut_move`, eine Stunde
   gültig, bei jedem Laden neu; der Teil hinter „#“ geht nie an den Server). Das Symbol übernimmt beim ersten Start die Kopplung
