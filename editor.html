@@ -38,6 +38,7 @@
 <script type="module">
 import { startPathFinder } from './vendor/pathfinder/core/pathfinder.js';
 import { jpadPlugin } from './vendor/pathfinder/core/pfjpad.js'; // „Programmier-Aufgabe“ für die JPad-Lernumgebung (Modul Unterricht)
+import { pappPlugin, createAppHost } from './vendor/pathfinder/core/pfpapp.js'; // „App-Aufgabe“ für Lernpfade neben einer Probe-App
 // Vorgaben aus Probe (URL): Fach, Klasse → Jahrgangsstufe, Bearbeitungszeit → Umfang, Kopfzeile – für den KI-Dialog
 const q = new URLSearchParams(location.search), SV = q.get('form') === 'befragung', ki = { art: SV ? 'befragung' : 'pruefung' }; // Umfragen: Befragung statt Prüfung
 if (SV) document.title = 'Probe · Fragebogen gestalten';
@@ -47,7 +48,14 @@ if (+q.get('min') > 0 && !SV) ki.min = +q.get('min');
 if (q.get('kopf')) ki.kopf = q.get('kopf');
 // Adressen der Apps (JPad …) für Programmier-Aufgaben – kommen nachträglich, das Objekt wird erst beim Öffnen gelesen
 const apps = {}; fetch('api.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"a":"cfg"}' }).then(r => r.json()).then(j => Object.assign(apps, j.apps || {})).catch(() => { });
-window.probeEdit = opts => startPathFinder({ appName: 'Probe', logo: 'app/icon.svg', storage: 'probe', forms: [SV ? 'befragung' : 'pruefung'], lernpfadStorage: 'pathfinder', examFromLernpfad: false, ki, apps, ...opts, ...(opts.jpad ? { plugins: [jpadPlugin] } : {}) });
+window.probeEdit = opts => startPathFinder({ appName: 'Probe', logo: 'app/icon.svg', storage: 'probe', forms: [SV ? 'befragung' : 'pruefung'], lernpfadStorage: 'pathfinder', examFromLernpfad: false, ki, apps, ...opts, ...withApps(opts) })
+/* Modul Unterricht: JPad- und App-Aufgaben kennen; beim Bauen neben einer Probe-App (opts.papp) meldet die App ihre Ereignisse hierher (window.pappEvent) */
+function withApps(opts) {
+  if (!opts.jpad && !opts.kiApps && !opts.papp) return {};
+  const ah = createAppHost({ events: opts.papp?.events || [], name: opts.papp?.name || 'App' });
+  window.pappEvent = n => ah.event(n);
+  return { plugins: [jpadPlugin, pappPlugin], host: Object.assign(ah, opts.host || {}) };
+};
 window.dispatchEvent(new Event('probe-editor-ready'));
 parent.postMessage({ probeEditor: 'ready' }, location.origin);
 </script>

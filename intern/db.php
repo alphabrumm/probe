@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 26;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 27;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -426,6 +426,21 @@ function migrate_steps(PDO $pdo, int $v): void {
           files_enc TEXT, comments_enc TEXT, cupd INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL DEFAULT 0,
           PRIMARY KEY (unit_id, sid));
         PRAGMA user_version = 26;
+        SQL);
+    }
+    if ($v < 27) { // Probe-Apps: Freigaben (Admin), Apps je Klasse (für die Schüler, mit dem Klassenschlüssel verschlüsselt), Anfragen und Geteiltes der Schüler
+        $pdo->exec(<<<SQL
+        CREATE TABLE IF NOT EXISTS papp_rules (app_id TEXT PRIMARY KEY, rule TEXT NOT NULL, updated INTEGER NOT NULL DEFAULT 0);
+        ALTER TABLE classes ADD COLUMN apps TEXT;
+        CREATE TABLE IF NOT EXISTS capps (
+          class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE, app_id TEXT NOT NULL, doc_enc TEXT NOT NULL, updated INTEGER NOT NULL,
+          PRIMARY KEY (class_id, app_id));
+        CREATE TABLE IF NOT EXISTS ushare (
+          id INTEGER PRIMARY KEY, class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE, sid TEXT NOT NULL,
+          unit_id INTEGER REFERENCES units(id) ON DELETE SET NULL, kind TEXT NOT NULL, title TEXT, app TEXT, local_id TEXT, hash TEXT,
+          data_enc TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'offen', created INTEGER NOT NULL, decided INTEGER, reply_enc TEXT);
+        CREATE INDEX IF NOT EXISTS ushare_class ON ushare(class_id, status);
+        PRAGMA user_version = 27;
         SQL);
     }
 }

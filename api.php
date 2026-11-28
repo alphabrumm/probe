@@ -1226,7 +1226,7 @@ case 'lp_list': { $u = teacher(); $st = db()->prepare('SELECT id, title, form, m
 case 'lp_get': { $u = teacher(); $st = db()->prepare('SELECT * FROM lpaths WHERE id = ? AND owner_id = ?'); $st->execute([(int)($in['id'] ?? 0), $u['id']]); out(['item' => $st->fetch() ?: fail('Lernpfad nicht gefunden', 404)]); }
 case 'lp_save': { // Lernpfad der Lehrkraft (verschlüsselt); Titel und Art im Klartext für die Liste
     $u = teacher(); $pdo = db(); $id = (int)($in['id'] ?? 0); $doc = str($in, 'doc_enc', 20_000_000, true);
-    $title = str($in, 'title', 200); $form = in_array($in['form'] ?? '', ['lernpfad', 'challenge', 'jpad'], true) ? $in['form'] : 'lernpfad';
+    $title = str($in, 'title', 200); $form = in_array($in['form'] ?? '', ['lernpfad', 'challenge', 'jpad', 'papp', 'app'], true) ? $in['form'] : 'lernpfad';
     $m = (array)($in['meta'] ?? []); $jg = (int)($m['jg'] ?? 0);
     $meta = array_filter(['fach' => str($m, 'fach', 60), 'jg' => $jg >= 5 && $jg <= 13 ? $jg : null, 'lbt' => str($m, 'lbt', 200)]);
     $meta = $meta ? json_encode($meta, JSON_UNESCAPED_UNICODE) : null;
@@ -1247,7 +1247,7 @@ case 'ut_class': {
     $k = $pdo->prepare('SELECT id, sid, created, paired, last_seen, revoked, (qr_hash IS NOT NULL AND token_hash IS NULL) AS open, name_enc FROM ucouplings WHERE class_id = ? ORDER BY id'); $k->execute([$c['id']]);
     $n = $pdo->prepare('SELECT id, title, form, targets, status, started, ended FROM units WHERE class_id = ? ORDER BY started DESC'); $n->execute([$c['id']]);
     $tu = (int)($c['tafel_until'] ?? 0) > time() && $c['tafel_hash'] ? (int)$c['tafel_until'] : null;
-    out(['class' => ['id' => (int)$c['id'], 'name' => $c['name'], 'fach' => $c['fach'], 'schuljahr' => $c['schuljahr'], 'tafel_until' => $tu], 'ukey_enc' => $c['ukey_enc'], 'apps' => uapps(), 'couplings' => $k->fetchAll(), 'units' => $n->fetchAll(), 'now' => time()]);
+    out(['class' => ['id' => (int)$c['id'], 'name' => $c['name'], 'fach' => $c['fach'], 'schuljahr' => $c['schuljahr'], 'tafel_until' => $tu, 'apps' => json_decode((string)($c['apps'] ?? ''), true) ?: []], 'ukey_enc' => $c['ukey_enc'], 'apps' => uapps(), 'couplings' => $k->fetchAll(), 'units' => $n->fetchAll(), 'now' => time()]);
 }
 case 'ut_key': { // Klassenschlüssel einmalig hinterlegen (ein vorhandener bleibt – gedruckte QR-Codes enthalten ihn)
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $k = blob($in, 'ukey_enc', 4000) ?: fail('Schlüssel fehlt');
@@ -1310,6 +1310,61 @@ case 'ut_edit': { // JPad: Lehrkraft übernimmt den Code einer Person (lock → 
     elseif ($op !== 'state') fail('Unbekannt');
     $e = $g(); out(['lock' => (int)$e['lock'], 'v' => (int)$e['v'], 'ack' => (int)$e['ack'], 'cupd' => (int)$e['cupd']] + ($op === 'state' ? ['files_enc' => $e['files_enc'], 'comments_enc' => $e['comments_enc']] : []));
 }
+/* ---------- Probe-Apps: Freigaben, Apps je Klasse, Anfragen und Geteiltes ---------- */
+case 'papp_rules': { // Freigaben der Apps (Admin): je App { alle, faecher: [Namen], lehrkraefte: [ids] }; ohne Eintrag gilt das Fach aus dem Steckbrief
+    $u = teacher(); $R = [];
+    foreach (db()->query('SELECT app_id, rule FROM papp_rules') as $x) $R[$x['app_id']] = json_decode($x['rule'], true);
+    $f = db()->query('SELECT name FROM faecher WHERE aktiv = 1 ORDER BY sort, name')->fetchAll(PDO::FETCH_COLUMN);
+    $m = db()->prepare('SELECT f.name FROM user_faecher x JOIN faecher f ON f.id = x.fach_id WHERE x.user_id = ?'); $m->execute([$u['id']]);
+    out(['rules' => (object)$R, 'faecher' => $f, 'meine' => $m->fetchAll(PDO::FETCH_COLUMN), 'me' => (int)$u['id']]);
+}
+case 'adm_papp_rule': {
+    $a = admin(); $id = str($in, 'app', 60, true); if (!preg_match('~^[a-z0-9_-]{2,60}$~', $id)) fail('App unbekannt');
+    if (!empty($in['reset'])) { db()->prepare('DELETE FROM papp_rules WHERE app_id = ?')->execute([$id]); out([]); }
+    $r = (array)($in['rule'] ?? []);
+    $rule = ['alle' => !empty($r['alle']), 'faecher' => array_values(array_slice(array_map(fn($x) => mb_substr((string)$x, 0, 60), (array)($r['faecher'] ?? [])), 0, 40)),
+        'lehrkraefte' => array_values(array_slice(array_map('intval', (array)($r['lehrkraefte'] ?? [])), 0, 400))];
+    db()->prepare('INSERT INTO papp_rules (app_id, rule, updated) VALUES (?,?,?) ON CONFLICT(app_id) DO UPDATE SET rule = excluded.rule, updated = excluded.updated')->execute([$id, json_encode($rule, JSON_UNESCAPED_UNICODE), time()]);
+    out([]);
+}
+case 'adm_teachers': { admin(); out(['items' => db()->query('SELECT id, kuerzel, name FROM users WHERE is_demo = 0 ORDER BY kuerzel')->fetchAll()]); }
+case 'ut_class_apps': { // Apps, die die Schüler dieser Klasse frei nutzen dürfen; docs = je App ihr Inhalt (mit dem Klassenschlüssel verschlüsselt)
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db(); $pdo->beginTransaction();
+    $ids = array_values(array_unique(array_filter(array_map(fn($x) => preg_replace('~[^a-z0-9_-]~', '', strtolower((string)$x)), (array)($in['apps'] ?? [])))));
+    $pdo->prepare('UPDATE classes SET apps = ? WHERE id = ?')->execute([json_encode($ids), $c['id']]);
+    $pdo->prepare('DELETE FROM capps WHERE class_id = ? AND app_id NOT IN (' . implode(',', array_fill(0, count($ids) ?: 1, '?')) . ')')->execute(array_merge([$c['id']], $ids ?: ['-']));
+    foreach ((array)($in['docs'] ?? []) as $k => $d) { $k = preg_replace('~[^a-z0-9_-]~', '', strtolower((string)$k)); if (!in_array($k, $ids, true)) continue;
+        $pdo->prepare('INSERT INTO capps (class_id, app_id, doc_enc, updated) VALUES (?,?,?,?) ON CONFLICT(class_id, app_id) DO UPDATE SET doc_enc = excluded.doc_enc, updated = excluded.updated')->execute([$c['id'], $k, mb_substr((string)$d, 0, 8_000_000), time()]); }
+    $pdo->commit(); out(['apps' => $ids]);
+}
+case 'ut_shares': { // Anfragen („bitte übernehmen“) und Geteiltes der Schüler einer Klasse
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0));
+    $st = db()->prepare("SELECT id, sid, unit_id, kind, title, app, status, created, decided, data_enc, reply_enc FROM ushare WHERE class_id = ? AND (status = 'offen' OR created > ?) ORDER BY created DESC LIMIT 200");
+    $st->execute([$c['id'], time() - 120 * 86400]); out(['items' => $st->fetchAll()]);
+}
+case 'ut_share_decide': { // übernehmen (Stand wird der Stand des Schülers in der Einheit), ablehnen, gesehen; reply_enc = Kommentare (Klassenschlüssel)
+    $u = teacher(); $pdo = db(); $st = $pdo->prepare('SELECT s.* FROM ushare s JOIN classes c ON c.id = s.class_id WHERE s.id = ? AND c.owner_id = ?'); $st->execute([(int)($in['share'] ?? 0), $u['id']]);
+    $s = $st->fetch() ?: fail('Nicht gefunden', 404); $op = (string)($in['op'] ?? '');
+    $to = ['uebernehmen' => 'uebernommen', 'ablehnen' => 'abgelehnt', 'gesehen' => 'gesehen'][$op] ?? fail('Unbekannt');
+    if ($op === 'uebernehmen') {
+        if (!$s['unit_id']) fail('Diese Anfrage gehört zu keiner Einheit.');
+        $pdo->prepare('INSERT INTO uprogress (unit_id, sid, data_enc, updated, submitted) VALUES (?,?,?,?,NULL) ON CONFLICT(unit_id, sid) DO UPDATE SET data_enc = excluded.data_enc, updated = excluded.updated')
+            ->execute([$s['unit_id'], $s['sid'], $s['data_enc'], time()]);
+    }
+    $pdo->prepare('UPDATE ushare SET status = ?, decided = ?, reply_enc = COALESCE(?, reply_enc) WHERE id = ?')->execute([$to, time(), isset($in['reply_enc']) ? str($in, 'reply_enc', 200_000) : null, $s['id']]);
+    out(['status' => $to]);
+}
+case 'ut_share': { // Schüler: private Kopie „an die Lehrkraft schicken“ (kind copy, mit Einheit) oder eigenes Projekt teilen (kind share)
+    $pdo = db(); $k = ucoupling($in); $kind = ($in['kind'] ?? '') === 'copy' ? 'copy' : 'share'; $unit = null;
+    if ($kind === 'copy') { $q = $pdo->prepare('SELECT id FROM units WHERE id = ? AND class_id = ?'); $q->execute([(int)($in['unit'] ?? 0), $k['class_id']]); $unit = $q->fetchColumn() ?: fail('Einheit nicht gefunden', 404); }
+    $n = $pdo->prepare("SELECT COUNT(*) FROM ushare WHERE class_id = ? AND sid = ? AND created > ?"); $n->execute([$k['class_id'], $k['sid'], time() - 3600]);
+    if ((int)$n->fetchColumn() > 30) fail('Zu viele Anfragen – bitte später noch einmal.', 429);
+    $lid = str($in, 'local_id', 40);
+    $pdo->prepare("UPDATE ushare SET status = 'ersetzt' WHERE class_id = ? AND sid = ? AND local_id = ? AND status = 'offen'")->execute([$k['class_id'], $k['sid'], $lid]); // ältere offene Anfrage desselben Projekts
+    $pdo->prepare('INSERT INTO ushare (class_id, sid, unit_id, kind, title, app, local_id, hash, data_enc, created) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$k['class_id'], $k['sid'], $unit, $kind, str($in, 'title', 120), str($in, 'app', 60), $lid, str($in, 'hash', 80), str($in, 'data_enc', 600_000, true), time()]);
+    out(['id' => (int)$pdo->lastInsertId()]);
+}
 case 'ut_watch': { // Lehrkraft schaut live zu (JPad): das Gerät sendet Änderungen schneller und zeigt „Lehrkraft schaut zu“
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $sid = str($in, 'sid', 40, true);
     db()->prepare('UPDATE ucouplings SET watch_until = ? WHERE class_id = ? AND sid = ?')->execute([empty($in['off']) ? time() + 25 : null, $c['id'], $sid]); out([]);
@@ -1321,7 +1376,7 @@ case 'ut_revoke': { // alle Geräte eines Schülers sperren (und offene QR-Codes
 case 'ut_start': { // Unterrichtseinheit starten: Lernpfad, mit dem Klassenschlüssel verschlüsselt; targets = Liste von Kennungen oder null (alle)
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db();
     $t = isset($in['targets']) && is_array($in['targets']) ? json_encode(array_values(array_map('strval', $in['targets']))) : null;
-    $form = in_array($in['form'] ?? '', ['lernpfad', 'challenge', 'jpad'], true) ? $in['form'] : 'lernpfad';
+    $form = in_array($in['form'] ?? '', ['lernpfad', 'challenge', 'jpad', 'papp', 'app'], true) ? $in['form'] : 'lernpfad';
     $pdo->prepare("INSERT INTO units (class_id, title, form, doc_enc, targets, status, started) VALUES (?,?,?,?,?,'laeuft',?)")->execute([$c['id'], str($in, 'title', 200), $form, str($in, 'doc_enc', 20_000_000, true), $t, time()]);
     out(['id' => (int)$pdo->lastInsertId()]);
 }
@@ -1389,7 +1444,13 @@ case 'ut_poll': { // Gerät fragt nach: laufende Einheiten (Lernpfad nur, wenn n
         $E[] = ['id' => (int)$x['id'], 'title' => $x['title'], 'form' => $x['form'], 'ended' => (int)$x['ended']] + (in_array((int)$x['id'], $have, true) ? [] : ['doc_enc' => $x['doc_enc']]);
     }
     $w = $pdo->prepare('SELECT MAX(watch_until) FROM ucouplings WHERE class_id = ? AND sid = ?'); $w->execute([$k['class_id'], $k['sid']]);
-    out(['class' => ['name' => $k['name'], 'fach' => $k['fach']], 'teacher' => $ow['kuerzel'], 'pub_key' => $ow['pub_key'], 'units' => $L, 'ended' => $E, 'now' => time(), 'watch' => (int)$w->fetchColumn() > time(), 'apps' => uapps()]);
+    // Apps, die die Lehrkraft für diese Klasse freigegeben hat (gesperrt, solange in der Klasse eine Prüfung läuft)
+    $x = $pdo->prepare("SELECT COUNT(*) FROM exams WHERE class_id = ? AND status = 'offen'"); $x->execute([$k['class_id']]); $exam = (int)$x->fetchColumn() > 0;
+    $ha = array_map('strval', (array)($in['have_apps'] ?? [])); $A = [];
+    if (!$exam) { $q = $pdo->prepare('SELECT app_id, doc_enc, updated FROM capps WHERE class_id = ?'); $q->execute([$k['class_id']]);
+        foreach ($q->fetchAll() as $y) $A[] = ['id' => $y['app_id'], 'v' => (int)$y['updated']] + (in_array($y['app_id'] . ':' . $y['updated'], $ha, true) ? [] : ['doc_enc' => $y['doc_enc']]); }
+    $q = $pdo->prepare("SELECT id, local_id, kind, status, decided, hash, reply_enc FROM ushare WHERE class_id = ? AND sid = ? AND created > ? ORDER BY id"); $q->execute([$k['class_id'], $k['sid'], time() - 120 * 86400]);
+    out(['class' => ['name' => $k['name'], 'fach' => $k['fach']], 'teacher' => $ow['kuerzel'], 'pub_key' => $ow['pub_key'], 'units' => $L, 'ended' => $E, 'capps' => $A, 'exam' => $exam, 'shares' => $q->fetchAll(), 'now' => time(), 'watch' => (int)$w->fetchColumn() > time(), 'apps' => uapps()]);
 }
 case 'ut_save': { // Bearbeitungsstand (für die Lehrkraft verschlüsselt); submit = Abgabe
     $pdo = db(); $k = ucoupling($in); $uid = (int)($in['unit'] ?? 0);

@@ -7,12 +7,13 @@ import { loadClass } from './klassen.js';
 import { qrMatrix, qrSvg } from './qr.js';
 import { Pdf, PAGE_W, PAGE_H, fit, wrap } from './pdf.js';
 import { unzip } from './zip.js';
+import * as PA from './papps.js';
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const b64u = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const sha256hex = async s => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(x => x.toString(16).padStart(2, '0')).join('');
 const plain = s => String(s || '').replace(/<[^>]*>/g, '').trim();
-const FORM = { lernpfad: 'Lernpfad', challenge: 'Challenge', jpad: '☕ JPad' };
+const FORM = { lernpfad: 'Lernpfad', challenge: 'Challenge', jpad: '☕ JPad', papp: '🧩 Lernpfad + App' };
 /** Einordnung als kurze Zeile: „Physik · 8. Jgst. · 2 Optik“ */
 const metaLine = m => [m?.fach, m?.jg ? `${m.jg}. Jgst.` : '', m?.lbt].filter(Boolean).join(' · ');
 /** Jahrgangsstufe aus dem Klassennamen („8b“ → 8, „Q11“ → 11) */
@@ -30,6 +31,7 @@ export async function viewUnterricht(H) {
   main.innerHTML = '<p class="help">lädt …</p>';
   let C, L; try { [C, L] = await Promise.all([api('ut_classes', { schuljahr: S.sj }), api('lp_list')]); } catch (er) { main.innerHTML = `<p class="err">${esc(er.message)}</p>`; return; }
   UAPPS = L.apps || UAPPS;
+  L.items = L.items.filter(x => x.form !== 'app'); // eigene Probe-Apps stehen unten unter „Probe-Apps“
   main.innerHTML = `<h1>Unterricht</h1><p class="sub">Lernpfade und Challenges in der Klasse starten und live sehen, wie weit die Schüler sind. Schuljahr ${esc(C.schuljahr)}</p>
     <h2>Klassen</h2>
     ${C.items.length ? `<div class="tiles">${C.items.map(c => `<a class="tile" href="#/uk/${c.id}"><span class="k">${esc(c.fach || 'alle Fächer')}</span><span class="t">${esc(c.name)}</span>
@@ -41,7 +43,11 @@ export async function viewUnterricht(H) {
     ${L.items.length ? `<div class="tiles">${L.items.filter(x => (!LPF.fach || x.meta?.fach === LPF.fach) && (!LPF.jg || +x.meta?.jg === +LPF.jg)).map(x => `<div class="tile lp-t"><span class="k">${esc(FORM[x.form] || 'Lernpfad')}${x.meta ? ' · ' + esc(metaLine(x.meta)) : ''}</span><span class="t">${esc(x.title || 'ohne Titel')}</span>
       <span class="m">geändert ${esc(fmtDate(new Date(x.updated * 1000).toISOString().slice(0, 10)))}</span><span class="s"><button class="btn sm" data-ed="${x.id}">✎ Bearbeiten</button><button class="btn sm ghost danger" data-del="${x.id}" title="Löschen">🗑</button></span></div>`).join('')}</div>`
       : '<p class="help">Noch keine Lernpfade. Erstelle einen mit „＋ Neuer Lernpfad“ (PathFinder-Editor) oder lies einen aus PathFinder exportierten Lernpfad ein (HTML-Datei, SCORM-Paket oder .json) – gespeichert wird nur der Lernpfad selbst, ohne den Player.</p>'}
-    <p class="help">Lernpfade liegen verschlüsselt auf dem Server und sind auf all deinen Geräten gleich. Gestartet wird ein Lernpfad in einer Klasse (Klasse öffnen → „＋ Lernpfad starten“).</p>`;
+    <p class="help">Lernpfade liegen verschlüsselt auf dem Server und sind auf all deinen Geräten gleich. Gestartet wird ein Lernpfad in einer Klasse (Klasse öffnen → „＋ Lernpfad starten“).</p>
+    <div class="bar" style="margin-top:28px"><h2 style="margin:0">Probe-Apps</h2><span class="sp"></span><button class="btn" id="paOwn" title="Eine eigene kleine Lern-App mit KI bauen lassen">＋ Eigene Probe-App</button></div>
+    <p class="help" style="margin-top:0">Probe-Apps laufen im Unterricht links neben einem Lernpfad; App-Aufgaben im Lernpfad prüfen, was die Schüler in der App tun. Im KI-Dialog erscheinen sie in Schritt 2 als „Umsetzung“, wenn das Fach passt.</p>
+    <div id="paList"><p class="help">lädt …</p></div>`;
+  drawAppList(H);
   $('#lpNew').onclick = () => editLp(H, null, null);
   $('#lpJPad').onclick = () => jpadDialog(H, null, null);
   main.onchange = ev => { if (ev.target.id === 'lfF') LPF.fach = ev.target.value; else if (ev.target.id === 'lfJ') LPF.jg = ev.target.value; else return; viewUnterricht(H); };
@@ -50,7 +56,8 @@ export async function viewUnterricht(H) {
   });
   main.onclick = async ev => {
     const ed = ev.target.closest('[data-ed]'), del = ev.target.closest('[data-del]');
-    if (ed) { try { const { item } = await api('lp_get', { id: +ed.dataset.ed }), d = await H.K.open(S.priv, item.doc_enc); if (d?.form === 'jpad') { if (d.jcode || !d.project) jpadDialog(H, item.id, d); else authorJPad(H, item.id, d); } else editLp(H, item.id, d); } catch (er) { H.toast('⚠ ' + esc(er.message)); } }
+    if (ed) { try { const { item } = await api('lp_get', { id: +ed.dataset.ed }), d = await H.K.open(S.priv, item.doc_enc); if (d?.form === 'jpad') { if (d.jcode || !d.project) jpadDialog(H, item.id, d); else authorJPad(H, item.id, d); } else if (d?.form === 'papp') authorApp(H, item.id, d); else editLp(H, item.id, d); } catch (er) { H.toast('⚠ ' + esc(er.message)); } }
+    const pa = ev.target.closest('[data-pa]'); if (pa) return appAction(H, pa.dataset.pa, pa.dataset.app);
     if (del && confirm('Diesen Lernpfad löschen? Schon gestartete Einheiten bleiben erhalten.')) { await api('lp_del', { id: +del.dataset.del }); viewUnterricht(H); }
   };
 }
@@ -135,12 +142,47 @@ function jpadDialog(H, id, doc) {
     try { await withBusy('wird verschlüsselt …', () => saveLp(H, id, m)); d.close(); toast('✓ Gespeichert'); viewUnterricht(H); } catch (er) { $('#err', d.el).textContent = er.message; }
   };
 }
+/* ---------- Probe-Apps (Liste, Lernpfad + App bauen, eigene App) ---------- */
+async function drawAppList(H) {
+  const { esc } = H, el = $('#paList'); if (!el) return;
+  let C; try { C = await PA.loadApps(H); } catch (er) { el.innerHTML = `<p class="err">${esc(er.message)}</p>`; return; }
+  const A = C.apps.filter(a => PA.allowed(C, a));
+  el.innerHTML = `<div class="tiles">${A.map(a => `<div class="tile pa-t"><span class="k">${esc(a.icon || '🧩')} ${esc(a.own ? 'eigene App' : a.kind === 'jpad' ? 'App' : 'Probe-App')}${a.fach ? ' · ' + esc(a.fach) : ''}${a.jg ? ' · ' + esc(a.jg) : ''}</span><span class="t">${esc(a.name)}</span>
+    <span class="m">${esc(a.beschreibung || '')}</span><span class="s">${a.ready === false ? '<span class="chip">in Vorbereitung</span>'
+      : a.kind === 'jpad' ? '<button class="btn sm" data-pa="jpad">＋ JPad-Projekt</button>'
+      : `<button class="btn sm" data-pa="new" data-app="${esc(a.id)}" title="Lernpfad + App anlegen${a.m?.lernpfadText || a.m?.lernpfad ? ' – mit dem Beispiel-Lernpfad der App' : ''}">＋ Lernpfad + App</button>${a.own ? `<button class="btn sm ghost danger" data-pa="del" data-app="${esc(a.id)}" title="App löschen">🗑</button>` : ''}`}</span></div>`).join('')}</div>`;
+  $('#paOwn').onclick = () => PA.ownAppDialog(H, { faecher: C.faecher, save: d => saveLp(H, null, d), onDone: () => drawAppList(H) });
+}
+async function appAction(H, what, appId) {
+  const { esc, toast } = H;
+  if (what === 'jpad') return jpadDialog(H, null, null);
+  const C = await PA.loadApps(H), a = C.apps.find(x => x.id === appId); if (!a) return;
+  if (what === 'del') { if (!confirm(`App „${a.name}“ löschen? Schon gebaute Lernpfade mit dieser App behalten ihre Kopie.`)) return; await H.api('lp_del', { id: a.lpid }); PA.dropCache(); drawAppList(H); return; }
+  if (what === 'new') { // mit dem Beispiel-Lernpfad der App bzw. einem Gerüst aus ihren Ereignissen
+    let lp = null; try { lp = await PA.builtinLernpfad(a); } catch (e) { }
+    if (!lp) lp = skeletonDoc(a);
+    authorApp(H, null, PA.material(a, lp));
+    toast(`🧩 „${esc(a.name)}“: links die App, rechts der Lernpfad – App-Aufgaben prüfen die Ereignisse der App`, 5000);
+  }
+}
+/** Gerüst eines Lernpfads zu einer App: eine Station mit einer App-Aufgabe je Ereignis (höchstens 3) */
+function skeletonDoc(a) {
+  const id = () => Math.random().toString(36).slice(2, 10), ev = (a.m?.events || []).slice(0, 3);
+  return { v: 2, id: id(), form: 'lernpfad', design: { pal: 0, font: 'pixel', shape: 'eckig', hero: 'logo', heroImg: '' }, kicker: a.fach ? String(a.fach).split(',')[0] : '', title: a.name, subtitle: a.beschreibung || '', goals: [], rank: '', anim: {}, typeLines: [],
+    stations: [{ id: id(), title: 'Los geht\'s', sub: a.name, check: false, blocks: [{ id: id(), type: 'text', html: `Links siehst du die App <b>${a.name}</b>.` }, ...ev.map(e => ({ id: id(), type: 'apptask', title: e.text || e.name, html: '', event: e.name, count: 1, xp: 10, tips: [], solution: '', solHide: true, img: '' }))] }],
+    cert: { on: true, need: 'immer', pct: 80, text: 'hat den Lernpfad mit folgendem Ergebnis bearbeitet:', show: { zeit: true, tipps: true, quiz: true, xp: true } } };
+}
+function authorApp(H, id, mat) {
+  PA.authorPapp(H, { id, mat, save: (i, m) => saveLp(H, i, m), onDone: () => { if (location.hash === '#/unterricht') viewUnterricht(H); } });
+}
 async function saveLp(H, id, d) {
-  return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: ['challenge', 'jpad'].includes(d.form) ? d.form : 'lernpfad', meta: d.meta || {}, doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
+  return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: ['challenge', 'jpad', 'papp', 'app'].includes(d.form) ? d.form : 'lernpfad', meta: d.meta || {}, doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
 }
 const blankDoc = d => !plain(d?.title) && !(d?.stations || []).some(s => plain(s.title) || (s.blocks || []).some(b => b.type !== 'text' || plain(b.html)));
+let KIAPPS = []; // Apps für den KI-Dialog (Schritt 2), vor dem Öffnen des Editors geladen
 /** PathFinder-Editor im Overlay (Formen Lernpfad und Challenge); speichert laufend verschlüsselt */
-function editLp(H, id, doc) {
+async function editLp(H, id, doc) {
+  try { KIAPPS = await PA.kiApps(H); } catch (e) { KIAPPS = []; }
   const { esc, toast } = H, w = document.createElement('div'); w.className = 'editor';
   w.innerHTML = '<iframe src="editor.html" title="Lernpfad bearbeiten"></iframe>'; document.body.appendChild(w); document.body.style.overflow = 'hidden';
   const fr = $('iframe', w); let timer = null, pending = null, saving = Promise.resolve();
@@ -150,6 +192,8 @@ function editLp(H, id, doc) {
     if (ev.source !== fr.contentWindow || ev.data?.probeEditor !== 'ready') return; removeEventListener('message', onMsg);
     fr.contentWindow.probeEdit({ doc: doc || undefined, startDialog: !doc, forms: ['lernpfad', 'challenge'],
       // „JPad-Lernumgebung“ (Informatik): weiter in JPad – Startcode und Lernpfad nebeneinander
+      kiApps: KIAPPS, appCreate: async (appId, d) => { pending = null; clearTimeout(timer); if (id) H.api('lp_del', { id }).catch(() => { }); w.remove(); document.body.style.overflow = ''; removeEventListener('message', onMsg);
+        const C = await PA.loadApps(H), a = C.apps.find(x => x.id === appId); if (a) authorApp(H, null, PA.material(a, d)); },
       jpad: { create: d => { pending = null; clearTimeout(timer); if (id) H.api('lp_del', { id }).catch(() => { }); w.remove(); document.body.style.overflow = ''; removeEventListener('message', onMsg);
         authorJPad(H, null, { form: 'jpad', title: plain(d?.title) || 'JPad-Lernumgebung', meta: d?.meta || { fach: 'Informatik' }, project: { name: plain(d?.title) || 'JPad-Lernumgebung', modules: [{ name: 'Hauptprogramm.java', text: '' }] } }, d || { form: 'lernpfad', title: 'Neuer JPad-Lernpfad', stations: [] }); } },
       host: { saved: d => { if (!id && blankDoc(d)) return; pending = d; clearTimeout(timer); timer = setTimeout(flush, 1500); }, /* leerer Entwurf (z. B. Startdialog abgebrochen): nicht speichern */ done: d => { pending = d; close(); }, doneLabel: 'Fertig – zurück zu Probe', doneTitle: 'Lernpfad speichern und zurück' } });
@@ -345,16 +389,24 @@ async function watchJPad(H, P, uid, sid) {
     const x = cur(); if (x && x.updated !== S.last) { S.last = x.updated; if (x.files) A.updateApp(x.files); } line();
   }, 3000);
 }
+/** Lernpfad + App: App schreibgeschützt mit dem Stand der Person, aktualisiert sich */
+async function watchApp(H, P, uid, sid) {
+  const { api, esc, toast, K } = H, u = P.units.find(x => x.id === uid), r = P.roster.find(x => x.sid === sid); if (!u || !r) return;
+  let doc; try { doc = await K.openExamDoc(await classKey(H, P), (await api('ut_unit', { unit: uid, op: 'doc' })).doc_enc); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
+  const iv = u.status === 'laeuft' ? setInterval(() => pull(H, P).catch(() => { }), 3000) : null;
+  PA.watchPapp(H, { title: `👁 ${r.v} ${r.n} · ${doc.app?.m?.icon || '🧩'} ${u.title || ''}`, html: doc.app?.html || '', get: () => P.prog.get(uid)?.get(sid), onClose: () => clearInterval(iv) });
+}
 function liveTable(H, P, u, frozen = false) {
   if (u.form === 'jpad') return jpadTable(H, P, u, frozen);
   const { esc } = H, M = P.prog.get(u.id) || new Map(), R = P.roster.filter(r => forSid(u, r.sid) || M.has(r.sid));
   const st = [...M.values()].find(x => x.sum?.st)?.sum.st || [];
   const sub = [...M.values()].filter(x => x.submitted).length, act = R.filter(r => P.now - (P.dev.get(r.sid)?.seen || 0) < 120).length;
   return `<p class="help" style="margin:6px 0">${frozen ? '' : `${act} gerade aktiv · `}${M.size} von ${R.length} haben begonnen · ${sub} abgegeben</p>
-    <div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${frozen ? '' : '<th>zuletzt</th>'}<th>Fortschritt</th>${st.map((s, i) => `<th class="u-st" title="${esc(s.t)}">${i + 1}</th>`).join('')}<th title="geöffnete Tipps">Tipps</th><th title="aktive Bearbeitungszeit">Zeit</th><th>Abgabe</th></tr>
+    <div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${frozen ? '' : '<th>zuletzt</th>'}<th>Fortschritt</th>${u.form === 'papp' ? '<th>App</th>' : ''}${st.map((s, i) => `<th class="u-st" title="${esc(s.t)}">${i + 1}</th>`).join('')}<th title="geöffnete Tipps">Tipps</th><th title="aktive Bearbeitungszeit">Zeit</th><th>Abgabe</th></tr>
     ${R.map(r => { const x = M.get(r.sid), s = x?.sum, seen = P.dev.get(r.sid)?.seen;
       return `<tr><td>${nameCell(esc, r)}</td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : '<span title="noch nicht gekoppelt">nicht gekoppelt</span>'}</td>`}
         <td>${s ? `<span class="u-bar"><i style="width:${s.pct}%"></i></span> ${s.pct} %${s.total ? ` <span class="help">(${s.solved}/${s.total})</span>` : ''}` : '<span class="help">nicht begonnen</span>'}</td>
+        ${u.form === 'papp' ? `<td>${x?.app?.summary ? `<span class="u-bar"><i style="width:${x.app.summary.pct}%"></i></span> <span class="help">${esc(x.app.summary.text || x.app.summary.pct + ' %')}</span>` : ''} <button class="btn sm" data-pwatch="${u.id}|${esc(r.sid)}" title="App mit dem Stand dieser Person ansehen"${x ? '' : ' disabled'}>👁</button></td>` : ''}
         ${st.map(t => { const y = s?.st?.find(z => z.id === t.id); return `<td class="u-st ${!y ? '' : y.of ? (y.n === y.of ? 'ok' : y.n ? 'half' : y.v ? 'seen' : '') : y.v ? 'ok' : ''}" title="${esc(t.t)}${y ? `: ${y.of ? `${y.n}/${y.of} gelöst` : y.v ? 'angesehen' : ''}${y.tips ? `, ${y.tips} Tipp${y.tips === 1 ? '' : 's'}` : ''}${y.sols ? `, ${y.sols} Lösung${y.sols === 1 ? '' : 'en'}` : ''}` : ''}">${y ? (y.of ? (y.n === y.of ? '✓' : y.n ? `${y.n}/${y.of}` : y.v ? '·' : '') : y.v ? '✓' : '') : ''}</td>`; }).join('')}
         <td>${s ? s.st.reduce((a, z) => a + (z.tips || 0), 0) || '' : ''}</td><td class="help">${s ? `${s.mins} min` : ''}</td><td>${x?.submitted ? `<span class="chip good" title="${esc(new Date(x.submitted * 1000).toLocaleString('de-DE'))}">✓</span>` : ''}</td></tr>`; }).join('')}</table></div>`;
 }
@@ -388,8 +440,9 @@ function couplingHtml(H, P) {
 }
 async function onClick(H, P, ev) {
   if (!ev.target.closest('#uWhat,#uTip') && $('#uTip') && !$('#uTip').hidden) { $('#uTip').hidden = true; $('#uWhat').setAttribute('aria-expanded', 'false'); }
-  const { api, esc, toast, dialog } = H, b = ev.target.closest('[data-uend],[data-uqr],[data-urev],[data-uopen],[data-tshow],[data-tend],[data-uwatch]'); if (!b) return;
+  const { api, esc, toast, dialog } = H, b = ev.target.closest('[data-uend],[data-uqr],[data-urev],[data-uopen],[data-tshow],[data-tend],[data-uwatch],[data-pwatch]'); if (!b) return;
   if (b.dataset.uwatch) { const [uid, sid] = b.dataset.uwatch.split('|'); return watchJPad(H, P, +uid, sid); }
+  if (b.dataset.pwatch) { const [uid, sid] = b.dataset.pwatch.split('|'); return watchApp(H, P, +uid, sid); }
   if (b.dataset.tshow) return showBoard(H, P);
   if (b.dataset.tend) return endTafel(H, P);
   if (b.dataset.uend && confirm(P.units.find(x => x.id === +b.dataset.uend)?.form === 'jpad' ? 'Einheit beenden? Der Stand wird für dich eingefroren (wieder öffnen ist möglich). Die Schüler können ihr Projekt danach ansehen oder als eigenes Projekt in JPad weiterbauen – das siehst du dann nicht mehr.' : 'Einheit beenden? Der Stand wird eingefroren, die Schüler können nicht mehr weiterarbeiten (wieder öffnen ist möglich).')) { await api('ut_unit', { unit: +b.dataset.uend, op: 'end' }); return reload(H, P); }
@@ -494,7 +547,7 @@ async function classKey(H, P) {
 /* ---------- Lernpfad starten ---------- */
 async function startDialog(H, P) {
   const { api, esc, dialog, toast, S, K, withBusy } = H;
-  let L; try { L = (await api('lp_list')).items; } catch (er) { toast('⚠ ' + esc(er.message)); return; }
+  let L; try { L = (await api('lp_list')).items.filter(x => x.form !== 'app'); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
   if (!L.length) { toast('Noch keine Lernpfade – lege unter „Unterricht“ → „Meine Lernpfade“ einen an.', 6000); return; }
   // passende zuerst: gleiches Fach und gleiche Jahrgangsstufe wie die Klasse
   const jg = jgOf(P.c.name), fit2 = x => (x.meta?.fach && P.c.fach && x.meta.fach.toLowerCase() === P.c.fach.toLowerCase() ? 2 : 0) + (jg && +x.meta?.jg === jg ? 1 : 0);

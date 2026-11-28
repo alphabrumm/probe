@@ -396,3 +396,17 @@ td.u-st.ok { background: #e3f4ea; color: #1f7a45; font-weight: 700; } td.u-st.ha
 .pfapp-ov .u-cin label { display: block; margin-top: 10px; } .pfapp-ov .u-cin textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line, #ccd); }
 .pfapp-ov .u-cin code { font-size: 13px; background: #f1f3f8; padding: 1px 5px; border-radius: 5px; }
 .pfapp-ov .u-cin .btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+/* Probe-Apps: Bauen (links App, rechts Lernpfad-Editor) und Live-Ansicht */
+.papp-author { position: fixed; inset: 0; z-index: 900; background: var(--bg, #f4f6fb); display: flex; flex-direction: column; }
+.papp-author .pa-bar { display: flex; align-items: center; gap: 10px; padding: 4px 12px; min-height: 30px; font-size: 14px; border-bottom: 1px solid var(--line, #dfe3ec); background: var(--card, #fff); }
+.papp-author .pa-bar .sp { flex: 1; }
+.papp-author .pa-split { flex: 1; min-height: 0; display: flex; }
+.papp-author .pa-app { flex: 55 1 0; min-width: 0; border-right: 1px solid var(--line, #dfe3ec); background: #fff; }
+.papp-author .pa-app.pa-full { flex: 1; border: 0; }
+.papp-author .pa-lp { flex: 45 1 0; min-width: 0; }
+.papp-author .pa-lp iframe { border: 0; width: 100%; height: 100%; display: block; }
+@media (max-width: 800px) { .papp-author .pa-split { flex-direction: column; } .papp-author .pa-app { border-right: 0; border-bottom: 1px solid var(--line, #dfe3ec); } }
+.pa-steps h3 { margin: 16px 0 6px; font-size: 16px; }
+.pa-steps .row { display: flex; gap: 10px; flex-wrap: wrap; } .pa-steps .row .f { flex: 1; min-width: 160px; }
+.pa-steps ul.bad { color: #b3261e; } .pa-steps ul.warn { color: #8a5a00; } .pa-steps p.good { color: #1f7a45; font-weight: 600; } .pa-steps p.bad { color: #b3261e; font-weight: 600; }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
