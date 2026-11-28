@@ -122,6 +122,14 @@ Korrektur (`app/handkorr.js`): Foto antippen → groß, grün frei zeichnen oder
 Punktespalte rechts, additiv oder subtraktiv (je Aufgabe), ‹ › zum vorherigen/nächsten Schüler. Gespeichert verschlüsselt in der
 Bewertung (`g.hk`, `g.hkMode`); Anzeige mit `app/handview.js`. Nie an eine KI, Punkte nur von Hand bzw. aus den Stempeln.
 
+## Icons
+
+`app/icons.js`, Stil „Linie“ (2 px, abgerundet, Farbe = Textfarbe – passt so zu jedem Farbschema, hell und dunkel). Das Modul ersetzt Emojis
+in der Oberfläche automatisch durch Icons (`EMOJI`-Tabelle; auch später eingefügter Inhalt, per MutationObserver). Nicht angefasst:
+Lernpfad-Inhalte (`.lp`), Eingabefelder, `<option>`, Code, `class="no-ic"`, Texte in `alert()`/`confirm()`. Status: 🟢 Kreis (läuft),
+🔴 Quadrat (beendet), 🟡 Raute (private Kopie) – Farbe und Form. Steht ein Emoji allein in einem Knopf, bekommt das Icon eine Bezeichnung
+für Screenreader. Neues Icon: Pfad in `PATHS`, Emoji in `EMOJI`, Bezeichnung in `LABEL`; im Code auch direkt `ic('name')`.
+
 ## Farbschemata
 
 Konto-Menü → „Farbe“: Blau (Standard), Nachtblau, Weiß, Nachtblau und Gold, Gelb, Sepia und Bunt (das bunte `app/icon.svg`); die Schemata (`app/themes/<name>.css` setzen nur Farb-Variablen, auch für Kopfleiste

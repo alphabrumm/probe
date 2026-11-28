@@ -3,6 +3,7 @@
 // Anonyme Umfragen schicken weder Namen noch Uhrzeit mit. Nichts bleibt dauerhaft auf dem Gerät: ein Entwurf liegt nur
 // bis zum Schließen des Tabs im sessionStorage; nach dem Abschicken wird alles entfernt. In IndexedDB steht nur, dass
 // dieses Gerät an einer anonymen Umfrage schon teilgenommen hat (gegen versehentliches doppeltes Ausfüllen).
+import './icons.js';
 import * as K from './crypto.js';
 import { startPathFinder, LUMI_OWL, LUMI_STARS } from '../vendor/pathfinder/core/pathfinder.js';
 import { answersFromSvy } from '../vendor/pathfinder/core/pfsurvey.js';

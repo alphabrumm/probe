@@ -1,5 +1,6 @@
 // Probe – Oberfläche: Einrichtung, Anmeldung, Prüfungen der Lehrkraft, Admin.
 // Alles Persönliche (Schülernamen, Inhalte mit Lösungen) wird hier im Browser verschlüsselt, bevor es zum Server geht.
+import './icons.js';
 import { tip, ensureTokens, keepTokens, qrSheetPdf } from './pqr.js';
 import * as K from './crypto.js';
 import { viewLive, viewEval, stopLive } from './run.js';

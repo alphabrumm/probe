@@ -4,6 +4,7 @@
 //   🟢 laufende Einheiten (der Stand geht verschlüsselt an die Lehrkraft), 🔴 beendete (nur ansehen),
 //   🟡 private Kopien (die Lehrkraft sieht Änderungen nicht – „An Lehrkraft schicken“ bittet sie, die Kopie zu übernehmen),
 //   Apps, die die Lehrkraft für die Klasse freigegeben hat (eigene Projekte nur auf dem iPad, „Mit Lehrkraft teilen“).
+import './icons.js';
 import { startPathFinder } from '../vendor/pathfinder/core/pathfinder.js';
 import * as K from './crypto.js';
 import { openScanner } from './qrscan.js';

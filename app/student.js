@@ -1,5 +1,6 @@
 // Probe – Schüler-Seite: Einlass mit Namen (und PIN), Prüfung im PathFinder-Abspieler, Zwischenstände, Abgabe, Ergebniscode.
 // Antworten und Name gehen nur verschlüsselt an den Server (mit dem öffentlichen Schlüssel der Lehrkraft).
+import './icons.js';
 import { startPathFinder } from '../vendor/pathfinder/core/pathfinder.js';
 import * as K from './crypto.js';
 import { qrSvg } from './qr.js';

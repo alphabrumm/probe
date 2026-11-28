@@ -1,5 +1,6 @@
 // Probe – Ergebnisseite für Schüler: e.html#ERGEBNISCODE
 // Aus dem Code entstehen Bericht-ID und Schlüssel; der Server kennt weder Namen noch Noten. Kommentare gehen verschlüsselt an die Lehrkraft.
+import './icons.js';
 import * as K from './crypto.js';
 import { codeAnswerHtml } from './hl.js';
 import { annViewHtml, solutionHtml, ensureCss } from './handview.js';

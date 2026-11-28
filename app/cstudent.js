@@ -1,6 +1,7 @@
 // Probe – Coaching, Schülerseite: Fragebogen vor dem Coachinggespräch. Nur mit persönlichem QR-Code.
 // Name und Antworten verschlüsselt dieses Gerät mit dem öffentlichen Schlüssel der Klassleitung – nur sie kann sie lesen.
 // Nichts bleibt dauerhaft auf dem Gerät: ein Entwurf liegt nur bis zum Schließen des Tabs im sessionStorage.
+import './icons.js';
 import * as K from './crypto.js';
 import { VORLAGEN, formHtml, readForm, answered, questions } from './cvorlagen.js';
 
