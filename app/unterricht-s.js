@@ -38,6 +38,32 @@ async function hashOf(x) { const b = await crypto.subtle.digest('SHA-256', new T
 /** Projekt sichern (mit Prüfsumme: so sieht das Gerät, ob sich seit dem Schicken etwas geändert hat) */
 async function saveP(p) { p.updated = Date.now(); p.hash = await hashOf(p.data); await putP(p); }
 
+/* ---------- Übergabe Safari → Symbol auf dem Home-Bildschirm ----------
+   iOS gibt dem Symbol einen eigenen, leeren Speicher. Deshalb trägt die Seite in Safari hinter „#“ (geht nie an den Server) je Kopplung
+   ein Übergabe-Geheimnis ein (eine Stunde gültig, bei jedem Laden neu); das Symbol merkt sich diese Adresse und übernimmt beim ersten Start
+   die Kopplung (ut_take: neuer Geräteschlüssel, der von Safari gilt danach nicht mehr). */
+const b64e = o => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64d = s => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))));
+let MOVE = '';
+const here = () => location.pathname + MOVE;
+async function prepMove() {
+  if (standalone) return; const L = [];
+  for (const k of await allK()) try { const r = await api('ut_move', { token: k.token }); L.push({ c: k.c, s: r.secret, k: k.k, v: k.v, n: k.n }); } catch (er) { }
+  MOVE = L.length ? '#m=' + b64e(L) : ''; history.replaceState(history.state, '', here());
+}
+async function takeMove() {
+  const m = location.hash.match(/^#m=([A-Za-z0-9_-]+)$/); history.replaceState(null, '', location.pathname); if (!m || !standalone) return '';
+  let L; try { L = b64d(m[1]); } catch (e) { return ''; }
+  const have = await allK(); let ok = 0, err = '';
+  for (const x of Array.isArray(L) ? L : []) {
+    if (!/^\d+$/.test(String(x.c)) || !/^[A-Za-z0-9_-]{22}$/.test(x.s || '') || !/^[A-Za-z0-9_-]{22}$/.test(x.k || '') || have.some(h => h.c === +x.c)) continue;
+    try { const r = await api('ut_take', { class: +x.c, secret: x.s }); await putK({ c: +x.c, token: r.token, k: x.k, v: String(x.v || '').slice(0, 40), n: String(x.n || '').slice(0, 40), at: Date.now() }); ok++; }
+    catch (er) { err = er.message; }
+  }
+  if (ok) return `<div class="u-hint">✓ Übernommen – ${ok === 1 ? 'deine Klasse ist' : 'deine Klassen sind'} jetzt hier im Player.</div>`;
+  return err && !(await allK()).length ? `<div class="u-hint u-err">${esc(err)}</div>` : '';
+}
+
 /* ---------- QR-Code einlösen ---------- */
 async function pairFromHash() {
   const m = location.hash.match(/^#u=(\d+)\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{22})\.(.*)$/); if (!m) return null;
@@ -87,17 +113,18 @@ async function drawHome(msg = '') {
   if (k) return drawClass(k, msg);
   home.innerHTML = `${TITLE}${msg}
     ${!KL.length ? '<div class="u-cl"><h2>Noch nicht gekoppelt</h2><p>Scanne den QR-Code, den du von deiner Lehrkraft bekommen hast (oder den Tafel-QR-Code), mit der Kamera.</p></div>' : ''}
-    ${KL.length && !standalone ? '<div class="u-hint">📲 Tipp: In Safari auf <b>Teilen</b> → <b>„Zum Home-Bildschirm“</b>. Dann startest du den PathFinder Player wie eine App – und bleibst gekoppelt.</div>' : ''}
+    ${MOVE ? INSTALL : ''}
     <div class="u-tiles">${KL.map(k => { const I = INFO.get(k.c), run = I?.units?.length || 0, cp = PL.filter(p => p.c === k.c && p.kind === 'copy').length;
       return `<button class="u-tile" data-class="${k.c}"><span class="u-tk">${I?.class?.fach ? esc(I.class.fach) : 'Klasse'}</span><b>${I?.class ? esc(I.class.name) : '…'}${I?.class?.fach ? ' ' + esc(I.class.fach) : ''}</b>
         <span class="help">${I?.teacher ? 'Lehrkraft ' + esc(I.teacher) : esc(k.v + ' ' + k.n)}</span>
         <span class="u-dots">${I?.error ? `<span class="u-err">⚠ ${esc(I.error)}</span>` : `${run ? `<span>🟢 ${run} läuft</span>` : ''}${cp ? `<span>🟡 ${cp}</span>` : ''}${I?.exam ? '<span>🔒 Prüfung</span>' : ''}${NOTE.get(k.c) ? '<span>✓ Neu</span>' : ''}`}</span></button>`; }).join('')}</div>
     <p class="help" style="margin-top:24px">Deine Lehrkraft sieht nur, wie weit du in den gestarteten Einheiten bist – verschlüsselt, nur für sie lesbar.</p>`;
 }
+const INSTALL = '<div class="u-hint u-inst">📲 <b>Wichtig:</b> Tippe jetzt in Safari auf <b>Teilen</b> → <b>„Zum Home-Bildschirm“</b> und öffne den Player danach nur noch über das Symbol <b>PathFinder</b>. Deine Kopplung wird dabei übernommen (innerhalb einer Stunde).</div>';
 function drawClass(k, msg = '') {
   const I = INFO.get(k.c) || {}, run = I.units || [], ended = I.ended || [], P = PL.filter(p => p.c === k.c).sort((a, b) => b.updated - a.updated);
   const apps = [...APPD.entries()].filter(([key]) => key.startsWith(k.c + ':')).map(([, a]) => a);
-  home.innerHTML = `<button class="u-back" data-home>‹ Klassen</button>${msg}
+  home.innerHTML = `<button class="u-back" data-home>‹ Klassen</button>${msg}${MOVE ? INSTALL : ''}
     <h1>${I.class ? esc(I.class.name) + (I.class.fach ? ' · ' + esc(I.class.fach) : '') : 'Klasse'}</h1>
     <div class="help">${esc(k.v)} ${esc(k.n)}${I.teacher ? ` · Lehrkraft ${esc(I.teacher)}` : ''}</div>
     ${NOTE.get(k.c) ? `<div class="u-hint">${NOTE.get(k.c)}</div>` : ''}
@@ -157,7 +184,7 @@ async function mergeTaken(k, r) {
 home.onclick = async ev => {
   const t = ev.target.closest('[data-class],[data-home],[data-open],[data-forget],[data-p],[data-psend],[data-pdel],[data-newp]'); if (!t) return;
   const D = t.dataset;
-  if (D.class) { VIEW.c = +D.class; history.pushState({ c: VIEW.c }, '', '#k' + VIEW.c); drawHome(); scrollTo(0, 0); return; }
+  if (D.class) { VIEW.c = +D.class; history.pushState({ c: VIEW.c }, '', here()); drawHome(); scrollTo(0, 0); return; }
   if (D.home != null) { history.back(); return; }
   if (D.forget && confirm('Diese Kopplung von diesem Gerät entfernen?')) { await delK(+D.forget); INFO.delete(+D.forget); VIEW.c = null; drawHome(); return; }
   if (D.open) { const [c, id, mode] = D.open.split(':'); openUnit(+c, +id, mode); return; }
@@ -166,7 +193,7 @@ home.onclick = async ev => {
   if (D.pdel) { const p = PL.find(x => x.id === D.pdel); if (p && confirm(`„${p.title}“ von diesem iPad löschen?${p.kind === 'copy' ? ' Dein Stand in der Einheit bleibt.' : ''}`)) { await delP(p.id); drawHome(); } return; }
   if (D.newp) { const [c, app] = D.newp.split(':'); newProject(+c, app); }
 };
-addEventListener('popstate', () => { if (cur || J || !$('#app').hidden) { location.reload(); return; } VIEW.c = location.hash.startsWith('#k') ? +location.hash.slice(2) : null; drawHome(); });
+addEventListener('popstate', () => { if (cur || J || !$('#app').hidden) { location.reload(); return; } VIEW.c = history.state?.c ?? null; drawHome(); });
 /** nach dem Neuladen (z. B. „Private Kopie“) gleich das Richtige öffnen bzw. in die Klasse zurück */
 const goNext = x => { try { sessionStorage.setItem('pfp-next', JSON.stringify(x)); } catch (e) { } location.hash = ''; location.reload(); };
 const backHome = () => goNext({ c: VIEW.c ?? cur?.k?.c ?? J?.k?.c ?? null });
@@ -193,7 +220,7 @@ function bar(title, mode, extra = '') {
   $('#sbT').textContent = title; $('#sbSt').textContent = { live: '🟢', ro: '🔴 nur ansehen', copy: '🟡 private Kopie', own: '' }[mode] || '';
   $('#sbSt').title = { live: 'läuft – deine Lehrkraft sieht deinen Stand', ro: 'beendet – nur ansehen', copy: 'deine Lehrkraft sieht deine Änderungen nicht' }[mode] || '';
   $('#sbX').innerHTML = extra; $('#sbSub').hidden = mode !== 'live';
-  history.pushState({ u: 1 }, '', '#lernpfad');
+  history.pushState({ u: 1 }, '', here());
 }
 $('#sbX').onclick = ev => { const b = ev.target.closest('[data-x]'); if (b) X[b.dataset.x]?.(); };
 const X = {}; // Aktionen der Kopfleiste (je nach Ansicht belegt)
@@ -498,9 +525,11 @@ addEventListener('visibilitychange', () => { if (document.visibilityState === 'h
   try { next = JSON.parse(sessionStorage.getItem('pfp-next') || 'null'); sessionStorage.removeItem('pfp-next'); } catch (e) { }
   if (location.hash.startsWith('#t=')) msg = (await joinFromHash()) || '';
   else if (location.hash.startsWith('#u=')) { const p = await pairFromHash(); msg = p?.ok ? `<div class="u-hint">✓ Gekoppelt${p.v ? ` – hallo ${esc(p.v)}!` : ''}</div>` : `<div class="u-hint u-err">${esc(p?.error || 'QR-Code ungültig')}</div>`; }
+  else if (location.hash.startsWith('#m=')) msg = await takeMove();
   else if (location.hash) history.replaceState(null, '', location.pathname);
-  if (next?.c != null) { VIEW.c = next.c; history.replaceState(null, '', location.pathname); history.pushState({ c: next.c }, '', '#k' + next.c); }
-  else if ((await allK()).length === 1) { /* eine Klasse: gleich hinein */ VIEW.c = (await allK())[0].c; history.replaceState(null, '', location.pathname); history.pushState({ c: VIEW.c }, '', '#k' + VIEW.c); }
+  await prepMove();
+  if (next?.c != null) { VIEW.c = next.c; history.replaceState(null, '', here()); history.pushState({ c: next.c }, '', here()); }
+  else if ((await allK()).length === 1) { /* eine Klasse: gleich hinein */ VIEW.c = (await allK())[0].c; history.replaceState(null, '', here()); history.pushState({ c: VIEW.c }, '', here()); }
   await drawHome(msg); await pollAll(); await drawHome(msg); startPoll();
   if (next?.p) openProject(next.p);
 })();

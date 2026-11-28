@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 28;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 29;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -447,6 +447,14 @@ function migrate_steps(PDO $pdo, int $v): void {
         $pdo->exec(<<<SQL
         ALTER TABLE units ADD COLUMN stats TEXT;
         PRAGMA user_version = 28;
+        SQL);
+    }
+    if ($v < 29) { // PathFinder Player: Kopplung von Safari an das Symbol auf dem Home-Bildschirm übergeben (iOS: getrennte Speicher)
+        $pdo->exec(<<<SQL
+        ALTER TABLE ucouplings ADD COLUMN move_hash TEXT;
+        ALTER TABLE ucouplings ADD COLUMN move_until INTEGER;
+        ALTER TABLE ucouplings ADD COLUMN moved_hash TEXT;
+        PRAGMA user_version = 29;
         SQL);
     }
 }

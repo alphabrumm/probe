@@ -137,7 +137,9 @@ function exam_fachschaft(array $e): string {
 function ucoupling(array $in): array {
     $t = (string)($in['token'] ?? ''); if (!preg_match('~^[0-9a-f]{48}$~', $t)) fail('Nicht gekoppelt', 401);
     $st = db()->prepare('SELECT k.*, c.name, c.fach, c.owner_id FROM ucouplings k JOIN classes c ON c.id = k.class_id WHERE k.token_hash = ?'); $st->execute([hash('sha256', $t)]); $k = $st->fetch();
-    if (!$k) fail('Diese Kopplung gibt es nicht mehr. Bitte deine Lehrkraft um einen neuen QR-Code.', 401);
+    if (!$k) { $m = db()->prepare('SELECT 1 FROM ucouplings WHERE moved_hash = ?'); $m->execute([hash('sha256', $t)]);
+        if ($m->fetchColumn()) fail('Diese Kopplung ist jetzt im Symbol „PathFinder“ auf dem Home-Bildschirm. Öffne den Player bitte nur noch dort.', 401);
+        fail('Diese Kopplung gibt es nicht mehr. Bitte deine Lehrkraft um einen neuen QR-Code.', 401); }
     if ((int)$k['revoked']) fail('Dieses Gerät wurde von deiner Lehrkraft abgemeldet. Bitte um einen neuen QR-Code.', 401);
     return $k;
 }
@@ -1411,6 +1413,19 @@ case 'ut_pair': { // Einmal-QR-Code einlösen → Geräteschlüssel
     if (!$k) { throttle_fail('u'); fail('Dieser QR-Code ist schon benutzt oder nicht mehr gültig. Bitte deine Lehrkraft um einen neuen.', 403); }
     $tok = bin2hex(random_bytes(24));
     $pdo->prepare('UPDATE ucouplings SET token_hash = ?, qr_hash = NULL, paired = ?, last_seen = ? WHERE id = ?')->execute([hash('sha256', $tok), time(), time(), $k['id']]);
+    out(['token' => $tok]);
+}
+case 'ut_move': { // Safari: Übergabe-Geheimnis für das Symbol auf dem Home-Bildschirm (eine Stunde gültig, jedes Laden erneuert es)
+    $k = ucoupling($in); $sec = rtrim(strtr(base64_encode(random_bytes(16)), '+/', '-_'), '=');
+    db()->prepare('UPDATE ucouplings SET move_hash = ?, move_until = ? WHERE id = ?')->execute([hash('sha256', $sec), time() + 3600, $k['id']]);
+    out(['secret' => $sec]);
+}
+case 'ut_take': { // Symbol auf dem Home-Bildschirm übernimmt die Kopplung aus Safari: neuer Geräteschlüssel, der von Safari gilt nicht mehr
+    throttle('u', 30); $pdo = db(); $sec = str($in, 'secret', 80, true);
+    $st = $pdo->prepare('SELECT id, token_hash FROM ucouplings WHERE class_id = ? AND move_hash = ? AND move_until > ? AND revoked = 0'); $st->execute([(int)($in['class'] ?? 0), hash('sha256', $sec), time()]); $k = $st->fetch();
+    if (!$k) { throttle_fail('u'); fail('Die Übergabe aus Safari ist abgelaufen oder schon benutzt. Öffne den Player in Safari noch einmal und lege das Symbol neu an – oder bitte deine Lehrkraft um einen neuen QR-Code.', 403); }
+    $tok = bin2hex(random_bytes(24));
+    $pdo->prepare('UPDATE ucouplings SET token_hash = ?, moved_hash = ?, move_hash = NULL, move_until = NULL, last_seen = ? WHERE id = ?')->execute([hash('sha256', $tok), $k['token_hash'], time(), $k['id']]);
     out(['token' => $tok]);
 }
 case 'ut_tafel_info': // Tafel-QR-Code: Klasse und öffentlicher Schlüssel der Lehrkraft (zum Verschlüsseln des Namens)

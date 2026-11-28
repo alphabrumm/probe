@@ -176,6 +176,10 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   **Übernehmen** (wird der Stand in der Einheit, auch nachgereicht nach dem Ende), **Ablehnen**, 💬 Kommentar (Klassenschlüssel).
   Übernommen und seitdem unverändert → die Kopie wird auf dem iPad zum eigenen Stand (wieder 🟢/🔴); geändert → bleibt 🟡.
   Ist nur eine Klasse gekoppelt, öffnet der Player gleich diese Klasse. Datenbank v27 (`ushare`).
+* **Safari → Home-Bildschirm:** iOS gibt dem Symbol einen eigenen, leeren Speicher (IndexedDB wird nicht übernommen – am iPhone
+  getestet). Deshalb schreibt der Player in Safari je Kopplung ein Übergabe-Geheimnis hinter „#“ in die Adresse (`ut_move`, eine Stunde
+  gültig, bei jedem Laden neu; der Teil hinter „#“ geht nie an den Server). Das Symbol übernimmt beim ersten Start die Kopplung
+  (`ut_take`: neuer Geräteschlüssel; der von Safari gilt danach nicht mehr und zeigt einen Hinweis aufs Symbol). Datenbank v29.
 * **Live-Ansicht für Lernpfad, Challenge und Lernpfad + App:** 👁 neben dem Namen öffnet den Stand der Person (`lv.html`: PathFinder
   schreibgeschützt mit `setProgress`, bei Lernpfad + App links die App mit ihrem Stand), alle 2 s neu; „📍 mitgehen“ springt zur Station,
   in der die Person gerade ist (`prog.here`). Das iPad zeigt „👁 Deine Lehrkraft schaut zu“ und sendet schneller (`ut_watch`, Abfrage alle 8 s).
