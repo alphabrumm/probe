@@ -155,6 +155,10 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   übergibt ihren Stand, **✕ Verwerfen** gibt ohne Änderung frei (Schließen gibt automatisch zurück). **💬 Kommentar** zur Cursorzeile:
   blinkender grüner Kreis in der Haltepunkt-Spalte und Eintrag unter „Achtung“ (Zeilentext zum Wiederfinden). Inhalte mit dem
   Klassenschlüssel verschlüsselt (`uedit`, `ut_edit`, Datenbank v26).
+* **Beendete JPad-Einheit:** Beendet die Lehrkraft, erscheint auf dem iPad ein Dialog: **Ansehen** (JPad schreibgeschützt, ausführen
+  geht), **In JPad weiterarbeiten** (JPad im neuen Tab mit `?von=probe` übernimmt Code, Lernpfad und Sprites als eigenes Projekt – die
+  Lehrkraft sieht das nicht mehr), **Als Datei sichern** (JPad-Projektdatei) oder zur Übersicht. Unter „Beendete JPad-Projekte“
+  (dieses Schuljahr, `ut_poll` → `ended`) geht das jederzeit wieder; der eigene Stand kommt aus dem Gerät (IndexedDB).
 * **Tafel-QR-Code** (Knopf in der Klasse, mit „Was ist das?“): gemeinsamer Code `l.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel>`
   plus 4-stellige PIN im Vollbild für Beamer/Tafel, 15 Minuten gültig (Server kennt Geheimnis und PIN nur als Hash; nach 25 falschen PINs
   verfällt der Code). Schüler ohne persönlichen Code tragen PIN, Vor- und Nachnamen ein und sind sofort gekoppelt (sid `T…`); der Name geht

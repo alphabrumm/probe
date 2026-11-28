@@ -1381,8 +1381,15 @@ case 'ut_poll': { // Gerät fragt nach: laufende Einheiten (Lernpfad nur, wenn n
             + ($x['e_v'] !== null ? ['edit' => ['lock' => (int)$x['e_lock'], 'v' => (int)$x['e_v'], 'files_enc' => $x['e_files'], 'comments_enc' => $x['e_cm'], 'cupd' => (int)$x['e_cupd']]] : []);
     }
     $o = $pdo->prepare('SELECT u.pub_key, u.kuerzel FROM users u WHERE u.id = ?'); $o->execute([$k['owner_id']]); $ow = $o->fetch();
+    // beendete Einheiten (dieses Schuljahr): auf dem Gerät nur ansehen bzw. als eigenes Projekt übernehmen
+    $e = $pdo->prepare("SELECT id, title, form, targets, ended, doc_enc FROM units WHERE class_id = ? AND status = 'beendet' AND ended > ? ORDER BY ended DESC LIMIT 30");
+    $e->execute([$k['class_id'], time() - 300 * 86400]); $E = [];
+    foreach ($e->fetchAll() as $x) {
+        if ($x['targets'] !== null && !in_array($k['sid'], json_decode($x['targets'], true) ?: [], true)) continue;
+        $E[] = ['id' => (int)$x['id'], 'title' => $x['title'], 'form' => $x['form'], 'ended' => (int)$x['ended']] + (in_array((int)$x['id'], $have, true) ? [] : ['doc_enc' => $x['doc_enc']]);
+    }
     $w = $pdo->prepare('SELECT MAX(watch_until) FROM ucouplings WHERE class_id = ? AND sid = ?'); $w->execute([$k['class_id'], $k['sid']]);
-    out(['class' => ['name' => $k['name'], 'fach' => $k['fach']], 'teacher' => $ow['kuerzel'], 'pub_key' => $ow['pub_key'], 'units' => $L, 'now' => time(), 'watch' => (int)$w->fetchColumn() > time(), 'apps' => uapps()]);
+    out(['class' => ['name' => $k['name'], 'fach' => $k['fach']], 'teacher' => $ow['kuerzel'], 'pub_key' => $ow['pub_key'], 'units' => $L, 'ended' => $E, 'now' => time(), 'watch' => (int)$w->fetchColumn() > time(), 'apps' => uapps()]);
 }
 case 'ut_save': { // Bearbeitungsstand (für die Lehrkraft verschlüsselt); submit = Abgabe
     $pdo = db(); $k = ucoupling($in); $uid = (int)($in['unit'] ?? 0);

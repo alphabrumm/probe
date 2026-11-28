@@ -73,20 +73,23 @@ async function drawHome(msg = '') {
     ${KL.map(k => { const I = INFO.get(k.c); return `<div class="u-cl"><h2>${I ? `${esc(I.class.name)}${I.class.fach ? ' · ' + esc(I.class.fach) : ''}` : 'Klasse …'}</h2>
       <div class="help">${esc(k.v)} ${esc(k.n)}${I ? ` · Lehrkraft ${esc(I.teacher)}` : ''}</div>
       ${I?.error ? `<p class="u-err">${esc(I.error)}</p>${I.gone ? `<button class="btn alt" data-forget="${k.c}">Kopplung entfernen</button>` : ''}`
-        : I ? (I.units.length ? I.units.map(u => `<button class="u-un" data-open="${k.c}:${u.id}">▶ <b>${esc(u.title || 'Lernpfad')}</b>${u.submitted ? '<span class="ok">✓ abgegeben</span>' : ''}</button>`).join('') : '<p class="help">Gerade ist nichts gestartet.</p>') : '<p class="help">wird geladen …</p>'}</div>`; }).join('')}
+        : I ? (I.units.length ? I.units.map(u => `<button class="u-un" data-open="${k.c}:${u.id}">▶ <b>${esc(u.title || 'Lernpfad')}</b>${u.submitted ? '<span class="ok">✓ abgegeben</span>' : ''}</button>`).join('') : '<p class="help">Gerade ist nichts gestartet.</p>')
+          + ((I.ended || []).filter(u => u.form === 'jpad').length ? `<details class="u-old"><summary>Beendete JPad-Projekte (${I.ended.filter(u => u.form === 'jpad').length})</summary>${I.ended.filter(u => u.form === 'jpad').map(u => `<button class="u-un u-ended" data-ended="${k.c}:${u.id}">📁 <b>${esc(u.title || 'JPad')}</b><span class="help">beendet ${new Date(u.ended * 1000).toLocaleDateString('de-DE')}</span></button>`).join('')}</details>` : '')
+          : '<p class="help">wird geladen …</p>'}</div>`; }).join('')}
     <p class="help" style="margin-top:24px">Deine Lehrkraft sieht nur, wie weit du in den gestarteten Lernpfaden bist – verschlüsselt, nur für sie lesbar.</p>`;
 }
 async function pollAll() {
   for (const k of await allK()) {
     try {
       const r = await api('ut_poll', { token: k.token, have: [...DOCS.keys()].filter(x => x.startsWith(k.c + ':')).map(x => +x.split(':')[1]) });
-      for (const u of r.units) if (u.doc_enc) DOCS.set(`${k.c}:${u.id}`, { enc: u.doc_enc });
+      for (const u of [...r.units, ...(r.ended || [])]) if (u.doc_enc) DOCS.set(`${k.c}:${u.id}`, { enc: u.doc_enc });
       INFO.set(k.c, r);
     } catch (er) { if (!er.offline) INFO.set(k.c, { error: er.message, gone: er.status === 401, units: [] }); }
   }
 }
 home.onclick = async ev => {
-  const o = ev.target.closest('[data-open]'), f = ev.target.closest('[data-forget]');
+  const o = ev.target.closest('[data-open]'), f = ev.target.closest('[data-forget]'), en = ev.target.closest('[data-ended]');
+  if (en) { const [c, id] = en.dataset.ended.split(':').map(Number); openEnded(c, id); return; }
   if (f && confirm('Diese Kopplung von diesem Gerät entfernen?')) { await delK(+f.dataset.forget); INFO.delete(+f.dataset.forget); drawHome(); }
   if (o) { const [c, id] = o.dataset.open.split(':').map(Number); openUnit(c, id); }
 };
@@ -132,7 +135,7 @@ async function openJPad(k, u, doc, I) {
       const r = await api('ut_poll', { token: k.token, have: [u.id] });
       J.watch = !!r.watch;
       const uu = r.units.find(x => x.id === u.id);
-      if (!uu) { await sendJ(); alert('Deine Lehrkraft hat diese Einheit beendet. Dein Stand ist gespeichert.'); A.closeApp(true); J = null; location.hash = ''; location.reload(); return; }
+      if (!uu) { await A.flushApp(800); const j = J; J = null; endedDialog(j, doc, I); return; } // Server nimmt nichts mehr an; der letzte Stand liegt im Gerät
       await applyEdit(uu.edit); badge();
     } catch (er) { if (er.status === 401) { alert(er.message); return; } }
     if (J) J.pt = setTimeout(tick, J.watch || J.locked ? 3000 : 8000);
@@ -160,6 +163,69 @@ async function applyEdit(e) {
     if (was) alert(e.files_enc ? 'Deine Lehrkraft hat dir deinen Code zurückgegeben – mit ihren Änderungen. Du kannst weiterarbeiten.' : 'Du kannst weiterarbeiten.');
     sendJ();
   }
+}
+/* ---------- Beendete JPad-Einheit: ansehen (schreibgeschützt), in JPad weiterarbeiten oder als Datei sichern ---------- */
+/** eigener Stand als JPad-Projekt: Code, dazu Lernpfad und Sprites aus dem Material bzw. der JCode (JPad lädt ihn selbst) */
+function projectOf(title, files, doc) {
+  return { name: title || 'Projekt aus Probe', files: files || [], ...(doc?.jcode ? { jcode: doc.jcode } : {}),
+    ...(doc?.project?.lernpfadHtml ? { lernpfadHtml: doc.project.lernpfadHtml } : {}), ...(doc?.project?.spritesheetBase64 ? { spritesheetBase64: doc.project.spritesheetBase64 } : {}) };
+}
+/** „In JPad weiterarbeiten“: JPad im neuen Tab (?von=probe) holt das Projekt per Nachricht ab und legt es als eigenes Projekt an */
+function toJPad(url, p) {
+  if (!url) { alert('JPad ist hier nicht eingerichtet.'); return; }
+  const w = window.open(url + (url.includes('?') ? '&' : '?') + 'von=probe', '_blank'), origin = new URL(url, location.href).origin;
+  if (!w) { alert('Das neue Fenster wurde blockiert. Sichere das Projekt stattdessen als Datei und öffne es in JPad.'); return; }
+  let done = false;
+  const on = ev => { if (ev.source !== w || ev.origin !== origin || ev.data?.type !== 'jpad-import-ready' || done) return; done = true; removeEventListener('message', on); w.postMessage({ type: 'jpad-import', project: p }, origin); };
+  addEventListener('message', on);
+  setTimeout(() => { if (!done) { removeEventListener('message', on); alert('JPad hat sich nicht gemeldet. Sichere das Projekt stattdessen als Datei („⇩ Als Datei“) und öffne die Datei in JPad.'); } }, 20000);
+}
+/** Projektdatei im Format von JPad / Online-IDE herunterladen */
+function saveFile(p) {
+  const data = { name: p.name, modules: (p.files || []).map((f, i) => ({ name: String(f.name).replace(/\.java$/, '') + '.java', text: f.text || '', id: i, isFolder: false })),
+    ...(p.lernpfadHtml ? { lernpfadHtml: p.lernpfadHtml } : {}), ...(p.spritesheetBase64 ? { spritesheetBase64: p.spritesheetBase64 } : {}) };
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+  a.download = `JPad-${String(p.name).replace(/[^\wÄÖÜäöüß -]+/g, '').trim().replace(/\s+/g, '-') || 'Projekt'}.json`; document.body.appendChild(a); a.click(); a.remove();
+}
+/** Knöpfe in der Kopfleiste der beendeten Einheit */
+function endedButtons(A, url, p) {
+  const bar = A.appBar(); if (!bar) return; bar.querySelector('.u-watch')?.setAttribute('hidden', '');
+  let box = bar.querySelector('.u-jb'); if (!box) { box = document.createElement('span'); box.className = 'u-jb'; bar.insertBefore(box, bar.querySelector('[data-close]')); }
+  box.innerHTML = '<button class="alt" data-x="jpad">☕ In JPad weiterarbeiten</button><button class="alt" data-x="file">⇩ Als Datei</button>';
+  box.onclick = e => { const x = e.target.closest('[data-x]')?.dataset.x; if (x === 'jpad') toJPad(url, p); if (x === 'file') saveFile(p); };
+}
+/** Die Lehrkraft hat die Einheit gerade beendet: was jetzt? */
+function endedDialog(j, doc, I) {
+  const A = j.A, files = j.last?.files || [], p = projectOf(j.u.title, files, doc), ov = document.querySelector('.pfapp-ov');
+  A.setAppReadonly(true, 'Die Einheit ist beendet – nur ansehen.');
+  A.appStatus('beendet – nur ansehen');
+  endedButtons(A, I.apps?.jpad, p);
+  if (!ov) return;
+  const box = document.createElement('div'); box.className = 'u-endbox';
+  box.innerHTML = `<div class="u-endin"><h2>Deine Lehrkraft hat die Einheit beendet</h2><p>Dein Stand ist gespeichert – deine Lehrkraft sieht ihn so, wie er jetzt ist.</p>
+    <p>Du kannst dein Projekt hier weiter <b>ansehen</b> (ausführen geht, ändern nicht) oder als <b>eigenes Projekt in JPad</b> weiterbauen – das sieht deine Lehrkraft dann nicht mehr.</p>
+    <div class="u-endbtns"><button data-e="view">👁 Ansehen</button><button data-e="jpad">☕ In JPad weiterarbeiten</button><button data-e="file">⇩ Als Datei sichern</button><button data-e="home">‹ Zur Übersicht</button></div></div>`;
+  ov.appendChild(box);
+  box.onclick = e => {
+    const x = e.target.closest('[data-e]')?.dataset.e; if (!x) return;
+    if (x === 'jpad') toJPad(I.apps?.jpad, p); else if (x === 'file') saveFile(p);
+    else if (x === 'home') { A.closeApp(true); location.hash = ''; location.reload(); return; }
+    box.remove();
+  };
+}
+/** Beendete JPad-Einheit aus der Übersicht öffnen: eigener Stand aus dem Gerät, schreibgeschützt */
+async function openEnded(c, id) {
+  const k = KL.find(x => x.c === c), I = INFO.get(c), u = I?.ended?.find(x => x.id === id), D = DOCS.get(`${c}:${id}`); if (!k || !u || !D) return;
+  let doc; try { doc = await K.openExamDoc(k.k, D.enc); } catch (er) { alert('Das Projekt lässt sich mit deiner Kopplung nicht öffnen.'); return; }
+  const saved = await getU(`${c}:${id}`).catch(() => null);
+  if (!saved?.files?.length && !confirm('Auf diesem iPad ist kein eigener Stand gespeichert. Trotzdem den Startcode ansehen?')) return;
+  clearInterval(homeT);
+  const A = await import('../vendor/pathfinder/core/pfapp.js'), p = projectOf(u.title, saved?.files || [], doc);
+  A.openApp({ app: 'jpad', url: I.apps?.jpad, mode: 'unterricht', task: 'u' + id, title: (u.title || 'JPad') + ' (beendet)', files: saved?.files || [], readonly: true, closeLabel: '‹ Übersicht',
+    extra: { ...(doc.jcode ? { jcode: doc.jcode } : {}), ...(doc.project ? { project: doc.project, projectKey: 'u' + id } : {}) },
+    onClose: () => { location.hash = ''; location.reload(); } });
+  A.appStatus('beendet – nur ansehen');
+  endedButtons(A, I.apps?.jpad, p);
 }
 async function sendJ(ack) {
   if (!J || (!J.dirty && ack == null) || J.sending) return; J.sending = true; clearTimeout(J.t);

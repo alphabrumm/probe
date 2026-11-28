@@ -392,7 +392,7 @@ async function onClick(H, P, ev) {
   if (b.dataset.uwatch) { const [uid, sid] = b.dataset.uwatch.split('|'); return watchJPad(H, P, +uid, sid); }
   if (b.dataset.tshow) return showBoard(H, P);
   if (b.dataset.tend) return endTafel(H, P);
-  if (b.dataset.uend && confirm('Einheit beenden? Der Stand wird eingefroren, die Schüler können nicht mehr weiterarbeiten (wieder öffnen ist möglich).')) { await api('ut_unit', { unit: +b.dataset.uend, op: 'end' }); return reload(H, P); }
+  if (b.dataset.uend && confirm(P.units.find(x => x.id === +b.dataset.uend)?.form === 'jpad' ? 'Einheit beenden? Der Stand wird für dich eingefroren (wieder öffnen ist möglich). Die Schüler können ihr Projekt danach ansehen oder als eigenes Projekt in JPad weiterbauen – das siehst du dann nicht mehr.' : 'Einheit beenden? Der Stand wird eingefroren, die Schüler können nicht mehr weiterarbeiten (wieder öffnen ist möglich).')) { await api('ut_unit', { unit: +b.dataset.uend, op: 'end' }); return reload(H, P); }
   if (b.dataset.uqr) return qrDialog(H, P, [b.dataset.uqr]);
   if (b.dataset.urev && confirm('Alle Geräte dieser Person abmelden? Sie braucht danach einen neuen QR-Code.')) { await api('ut_revoke', { id: P.cid, sid: b.dataset.urev }); return reload(H, P); }
   if (b.dataset.uopen) {
