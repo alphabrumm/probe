@@ -369,3 +369,5 @@ td.u-st.ok { background: #e3f4ea; color: #1f7a45; font-weight: 700; } td.u-st.ha
 .tile.lp-t { cursor: default; } button.tile { font: inherit; text-align: left; color: inherit; cursor: pointer; }
 .u-old summary { cursor: pointer; margin: 12px 0 6px; font-weight: 600; color: var(--ink-2); }
 @media (prefers-color-scheme: dark) { td.u-st.ok { background: #1d3a2a; color: #8fe0b0; } td.u-st.half { background: #3a3218; color: #f0d27a; } }
+.lp-filter { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+.lp-filter select { width: auto; min-width: 190px; flex: 0 0 auto; }

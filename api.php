@@ -1214,13 +1214,17 @@ case 'exam_grading': {
     out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
 }
 /* ---------- Modul Unterricht (Lehrkraft) ---------- */
-case 'lp_list': { $u = teacher(); $st = db()->prepare('SELECT id, title, form, created, updated FROM lpaths WHERE owner_id = ? ORDER BY updated DESC'); $st->execute([$u['id']]); out(['items' => $st->fetchAll()]); }
+case 'lp_list': { $u = teacher(); $st = db()->prepare('SELECT id, title, form, meta, created, updated FROM lpaths WHERE owner_id = ? ORDER BY updated DESC'); $st->execute([$u['id']]);
+    out(['items' => array_map(fn($x) => ['meta' => json_decode((string)$x['meta'], true) ?: null] + $x, $st->fetchAll())]); }
 case 'lp_get': { $u = teacher(); $st = db()->prepare('SELECT * FROM lpaths WHERE id = ? AND owner_id = ?'); $st->execute([(int)($in['id'] ?? 0), $u['id']]); out(['item' => $st->fetch() ?: fail('Lernpfad nicht gefunden', 404)]); }
 case 'lp_save': { // Lernpfad der Lehrkraft (verschlüsselt); Titel und Art im Klartext für die Liste
     $u = teacher(); $pdo = db(); $id = (int)($in['id'] ?? 0); $doc = str($in, 'doc_enc', 20_000_000, true);
     $title = str($in, 'title', 200); $form = in_array($in['form'] ?? '', ['lernpfad', 'challenge'], true) ? $in['form'] : 'lernpfad';
-    if ($id) { $st = $pdo->prepare('UPDATE lpaths SET title = ?, form = ?, doc_enc = ?, updated = ? WHERE id = ? AND owner_id = ?'); $st->execute([$title, $form, $doc, time(), $id, $u['id']]); if (!$st->rowCount()) fail('Lernpfad nicht gefunden', 404); }
-    else { $pdo->prepare('INSERT INTO lpaths (owner_id, title, form, doc_enc, created, updated) VALUES (?,?,?,?,?,?)')->execute([$u['id'], $title, $form, $doc, time(), time()]); $id = (int)$pdo->lastInsertId(); }
+    $m = (array)($in['meta'] ?? []); $jg = (int)($m['jg'] ?? 0);
+    $meta = array_filter(['fach' => str($m, 'fach', 60), 'jg' => $jg >= 5 && $jg <= 13 ? $jg : null, 'lbt' => str($m, 'lbt', 200)]);
+    $meta = $meta ? json_encode($meta, JSON_UNESCAPED_UNICODE) : null;
+    if ($id) { $st = $pdo->prepare('UPDATE lpaths SET title = ?, form = ?, meta = ?, doc_enc = ?, updated = ? WHERE id = ? AND owner_id = ?'); $st->execute([$title, $form, $meta, $doc, time(), $id, $u['id']]); if (!$st->rowCount()) fail('Lernpfad nicht gefunden', 404); }
+    else { $pdo->prepare('INSERT INTO lpaths (owner_id, title, form, meta, doc_enc, created, updated) VALUES (?,?,?,?,?,?,?)')->execute([$u['id'], $title, $form, $meta, $doc, time(), time()]); $id = (int)$pdo->lastInsertId(); }
     out(['id' => $id]);
 }
 case 'lp_del': { $u = teacher(); db()->prepare('DELETE FROM lpaths WHERE id = ? AND owner_id = ?')->execute([(int)($in['id'] ?? 0), $u['id']]); out([]); }

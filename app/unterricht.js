@@ -13,6 +13,11 @@ const b64u = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(
 const sha256hex = async s => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(x => x.toString(16).padStart(2, '0')).join('');
 const plain = s => String(s || '').replace(/<[^>]*>/g, '').trim();
 const FORM = { lernpfad: 'Lernpfad', challenge: 'Challenge' };
+/** Einordnung als kurze Zeile: „Physik · 8. Jgst. · 2 Optik“ */
+const metaLine = m => [m?.fach, m?.jg ? `${m.jg}. Jgst.` : '', m?.lbt].filter(Boolean).join(' · ');
+/** Jahrgangsstufe aus dem Klassennamen („8b“ → 8, „Q11“ → 11) */
+const jgOf = name => { const n = +(String(name || '').match(/\d{1,2}/) || [])[0]; return n >= 5 && n <= 13 ? n : 0; };
+let LPF = { fach: '', jg: '' }; // Filter in „Meine Lernpfade“
 let POLL = null; // Abfrage des Dashboards (endet von selbst, wenn die Seite gewechselt wird)
 
 /* ---------- Übersicht: Klassen + Meine Lernpfade ---------- */
@@ -26,11 +31,14 @@ export async function viewUnterricht(H) {
       <span class="m">${+c.roster_n} Schüler:innen · ${+c.paired} gekoppelt</span><span class="s">${+c.running ? `<span class="chip good">▶ ${+c.running} läuft</span>` : ''}${+c.units ? `<span class="chip">${+c.units} Einheit${+c.units === 1 ? '' : 'en'}</span>` : ''}</span></a>`).join('')}</div>`
       : '<p class="help">Noch keine Klassen in diesem Schuljahr – Klassen legst du unter „Prüfungen“ an (＋ Neue Klasse); sie gelten auch hier.</p>'}
     <div class="bar" style="margin-top:28px"><h2 style="margin:0">Meine Lernpfade</h2><span class="sp"></span><button class="btn" id="lpImp" title="Aus PathFinder exportierter Lernpfad: HTML-Datei, SCORM-Paket (.zip) oder .json">⤒ Datei einlesen</button><button class="btn pri" id="lpNew">＋ Neuer Lernpfad</button></div>
-    ${L.items.length ? `<div class="tiles">${L.items.map(x => `<div class="tile lp-t"><span class="k">${esc(FORM[x.form] || 'Lernpfad')}</span><span class="t">${esc(x.title || 'ohne Titel')}</span>
+    ${L.items.some(x => x.meta) ? `<div class="bar lp-filter"><select id="lfF" aria-label="Fach"><option value="">alle Fächer</option>${[...new Set(L.items.map(x => x.meta?.fach).filter(Boolean))].sort().map(f => `<option${LPF.fach === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select>
+      <select id="lfJ" aria-label="Jahrgangsstufe"><option value="">alle Jahrgangsstufen</option>${[...new Set(L.items.map(x => x.meta?.jg).filter(Boolean))].sort((a, b) => a - b).map(j => `<option value="${j}"${+LPF.jg === j ? ' selected' : ''}>${j}. Jahrgangsstufe</option>`).join('')}</select></div>` : ''}
+    ${L.items.length ? `<div class="tiles">${L.items.filter(x => (!LPF.fach || x.meta?.fach === LPF.fach) && (!LPF.jg || +x.meta?.jg === +LPF.jg)).map(x => `<div class="tile lp-t"><span class="k">${esc(FORM[x.form] || 'Lernpfad')}${x.meta ? ' · ' + esc(metaLine(x.meta)) : ''}</span><span class="t">${esc(x.title || 'ohne Titel')}</span>
       <span class="m">geändert ${esc(fmtDate(new Date(x.updated * 1000).toISOString().slice(0, 10)))}</span><span class="s"><button class="btn sm" data-ed="${x.id}">✎ Bearbeiten</button><button class="btn sm ghost danger" data-del="${x.id}" title="Löschen">🗑</button></span></div>`).join('')}</div>`
       : '<p class="help">Noch keine Lernpfade. Erstelle einen mit „＋ Neuer Lernpfad“ (PathFinder-Editor) oder lies einen aus PathFinder exportierten Lernpfad ein (HTML-Datei, SCORM-Paket oder .json) – gespeichert wird nur der Lernpfad selbst, ohne den Player.</p>'}
     <p class="help">Lernpfade liegen verschlüsselt auf dem Server und sind auf all deinen Geräten gleich. Gestartet wird ein Lernpfad in einer Klasse (Klasse öffnen → „＋ Lernpfad starten“).</p>`;
   $('#lpNew').onclick = () => editLp(H, null, null);
+  main.onchange = ev => { if (ev.target.id === 'lfF') LPF.fach = ev.target.value; else if (ev.target.id === 'lfJ') LPF.jg = ev.target.value; else return; viewUnterricht(H); };
   $('#lpImp').onclick = () => H.pickFile('.json,.html,.htm,.zip,application/json,text/html,application/zip', async f => {
     try { const d = await readLp(f); await saveLp(H, null, d); H.toast(`✓ „${esc(plain(d.title) || 'Lernpfad')}“ eingelesen`); viewUnterricht(H); } catch (er) { H.toast('⚠ ' + esc(er.message), 6000); }
   });
@@ -62,7 +70,7 @@ async function readLp(f) {
   delete d.exam; return d;
 }
 async function saveLp(H, id, d) {
-  return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: d.form === 'challenge' ? 'challenge' : 'lernpfad', doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
+  return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: d.form === 'challenge' ? 'challenge' : 'lernpfad', meta: d.meta || {}, doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
 }
 /** PathFinder-Editor im Overlay (Formen Lernpfad und Challenge); speichert laufend verschlüsselt */
 function editLp(H, id, doc) {
@@ -195,7 +203,11 @@ async function startDialog(H, P) {
   const { api, esc, dialog, toast, S, K, withBusy } = H;
   let L; try { L = (await api('lp_list')).items; } catch (er) { toast('⚠ ' + esc(er.message)); return; }
   if (!L.length) { toast('Noch keine Lernpfade – lege unter „Unterricht“ → „Meine Lernpfade“ einen an.', 6000); return; }
-  const d = dialog('＋ Lernpfad starten', `<label class="f">Lernpfad<select id="lp">${L.map(x => `<option value="${x.id}">${esc(x.title || 'ohne Titel')} (${esc(FORM[x.form] || 'Lernpfad')})</option>`).join('')}</select></label>
+  // passende zuerst: gleiches Fach und gleiche Jahrgangsstufe wie die Klasse
+  const jg = jgOf(P.c.name), fit2 = x => (x.meta?.fach && P.c.fach && x.meta.fach.toLowerCase() === P.c.fach.toLowerCase() ? 2 : 0) + (jg && +x.meta?.jg === jg ? 1 : 0);
+  const best = L.filter(x => fit2(x) === 3), rest = L.filter(x => fit2(x) !== 3).sort((a, b) => fit2(b) - fit2(a));
+  const opt = x => `<option value="${x.id}">${esc(x.title || 'ohne Titel')} (${esc(FORM[x.form] || 'Lernpfad')}${x.meta ? ' · ' + esc(metaLine(x.meta)) : ''})</option>`;
+  const d = dialog('＋ Lernpfad starten', `<label class="f">Lernpfad<select id="lp">${best.length ? `<optgroup label="Passend für ${esc(P.c.name)}${P.c.fach ? ' ' + esc(P.c.fach) : ''}">${best.map(opt).join('')}</optgroup><optgroup label="Weitere">${rest.map(opt).join('')}</optgroup>` : L.map(opt).join('')}</select></label>
     <fieldset class="prefs"><legend>Für wen?</legend><label class="pref"><input type="radio" name="tg" value="all" checked><span><b>ganze Klasse</b></span></label>
       <label class="pref"><input type="radio" name="tg" value="sel"><span><b>nur ausgewählte Schüler</b><small>z. B. zum Nachholen oder als Zusatzaufgabe</small></span></label>
       <div id="tgl" hidden class="u-sel">${P.roster.map(r => `<label><input type="checkbox" value="${esc(r.sid)}"> ${esc(r.n)}, ${esc(r.v)}</label>`).join('')}</div></fieldset>
