@@ -117,11 +117,11 @@ export function ownAppDialog(H, { faecher = [], save, onDone }) {
   const d = dialog('＋ Eigene Probe-App', `<div class="pa-steps">
     <p class="help">Eine <b>Probe-App</b> ist eine kleine interaktive Lern-App (eine HTML-Seite), die im Unterricht <b>links neben einem Lernpfad oder einer Challenge</b> läuft – z. B. eine Zelle zum Beschriften in Biologie. Die App meldet, was die Schüler tun („Zellkern richtig beschriftet“), und <b>App-Aufgaben</b> im Lernpfad sind damit gelöst. Den Lernpfad dazu baust du danach wie gewohnt (auch mit KI).</p>
     <h3>1 · Beschreibe deine App</h3>
-    <div class="row"><label class="f">Name<input id="an" maxlength="60" placeholder="z. B. Zellaufbau"></label>
-      <label class="f">Fach <span class="help">(leer = alle Fächer)</span><select id="af"><option value="">– ohne Zuordnung –</option>${faecher.map(f => `<option>${esc(f)}</option>`).join('')}</select></label>
-      <label class="f">Jahrgangsstufe <span class="help">(z. B. 5-7, leer = alle)</span><input id="aj" maxlength="10" placeholder="5-7"></label></div>
+    <div class="row pa-row"><label class="f">Name<input type="text" id="an" maxlength="60" placeholder="z. B. Zellaufbau"><span class="h">so heißt die App im Unterricht</span></label>
+      <label class="f">Fach<select id="af"><option value="">alle Fächer</option>${faecher.map(f => `<option>${esc(f)}</option>`).join('')}</select><span class="h">für welches Fach die App gedacht ist</span></label>
+      <label class="f">Jahrgangsstufe<input type="text" id="aj" maxlength="10" placeholder="z. B. 5-7" inputmode="numeric"><span class="h">leer = alle</span></label></div>
     <label class="f">Was sollen die Schüler in der App tun?<textarea id="ab" rows="4" placeholder="z. B. Eine Tier- und eine Pflanzenzelle beschriften: Karten mit Zellkern, Zellmembran … an die richtige Stelle ziehen; ein Tipp auf einen Teil zeigt seine Aufgabe."></textarea></label>
-    <label class="f">Weitere Hinweise für die KI <span class="help">(optional)</span><textarea id="ai" rows="2" placeholder="z. B. Farben wie im Schulbuch, große Schrift, keine Punkte"></textarea></label>
+    <label class="f"><span>Weitere Hinweise für die KI <span class="h">(optional)</span></span><textarea id="ai" rows="2" placeholder="z. B. Farben wie im Schulbuch, große Schrift, keine Punkte"></textarea></label>
     <h3>2 · Prompt kopieren und in einer KI einfügen</h3>
     <p class="help">Zum Beispiel in ByLKI, Claude oder ChatGPT. Die KI antwortet mit einer kompletten HTML-Datei.</p>
     <div class="btns" style="justify-content:flex-start"><button class="btn" id="acopy">📋 Prompt kopieren</button></div>

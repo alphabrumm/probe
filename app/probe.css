@@ -407,7 +407,8 @@ td.u-st.ok { background: #e3f4ea; color: #1f7a45; font-weight: 700; } td.u-st.ha
 .papp-author .pa-lp iframe { border: 0; width: 100%; height: 100%; display: block; }
 @media (max-width: 800px) { .papp-author .pa-split { flex-direction: column; } .papp-author .pa-app { border-right: 0; border-bottom: 1px solid var(--line, #dfe3ec); } }
 .pa-steps h3 { margin: 16px 0 6px; font-size: 16px; }
-.pa-steps .row { display: flex; gap: 10px; flex-wrap: wrap; } .pa-steps .row .f { flex: 1; min-width: 160px; }
+.pa-steps .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; } .pa-steps .row .f { flex: 1; min-width: 170px; }
+.pa-steps label.f { margin-bottom: 12px; } .pa-steps label.f .h { font-weight: 400; }
 .pa-steps ul.bad { color: #b3261e; } .pa-steps ul.warn { color: #8a5a00; } .pa-steps p.good { color: #1f7a45; font-weight: 600; } .pa-steps p.bad { color: #b3261e; font-weight: 600; }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
 .pa-cms { max-height: 220px; overflow: auto; display: grid; gap: 6px; margin-bottom: 10px; } .pa-cms > div { background: #eef7f0; border-radius: 8px; padding: 6px 10px; }
