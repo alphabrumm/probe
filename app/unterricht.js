@@ -18,6 +18,7 @@ const metaLine = m => [m?.fach, m?.jg ? `${m.jg}. Jgst.` : '', m?.lbt].filter(Bo
 /** Jahrgangsstufe aus dem Klassennamen („8b“ → 8, „Q11“ → 11) */
 const jgOf = name => { const n = +(String(name || '').match(/\d{1,2}/) || [])[0]; return n >= 5 && n <= 13 ? n : 0; };
 let LPF = { fach: '', jg: '' }; // Filter in „Meine Lernpfade“
+let UAPPS = {}; // Adressen der Apps im Unterricht (JPad …), kommen mit lp_list
 /** Name in den Tabellen; über den Tafel-QR-Code selbst eingetragene sind markiert */
 const nameCell = (esc, r) => `<b>${esc(r.n)}</b>, ${esc(r.v)}${r.self ? ' <span class="chip warn" title="über den Tafel-QR-Code selbst eingetragen – noch keinem Namen der Klasse zugeordnet">selbst eingetragen</span>' : ''}`;
 const TAFEL = new Map(); // offener Tafel-Code je Klasse (Geheimnis und PIN nur hier im Browser): cid → { s, pin, until (ms) }
@@ -28,6 +29,7 @@ export async function viewUnterricht(H) {
   const { main, api, esc, S, fmtDate } = H;
   main.innerHTML = '<p class="help">lädt …</p>';
   let C, L; try { [C, L] = await Promise.all([api('ut_classes', { schuljahr: S.sj }), api('lp_list')]); } catch (er) { main.innerHTML = `<p class="err">${esc(er.message)}</p>`; return; }
+  UAPPS = L.apps || UAPPS;
   main.innerHTML = `<h1>Unterricht</h1><p class="sub">Lernpfade und Challenges in der Klasse starten und live sehen, wie weit die Schüler sind. Schuljahr ${esc(C.schuljahr)}</p>
     <h2>Klassen</h2>
     ${C.items.length ? `<div class="tiles">${C.items.map(c => `<a class="tile" href="#/uk/${c.id}"><span class="k">${esc(c.fach || 'alle Fächer')}</span><span class="t">${esc(c.name)}</span>
@@ -48,7 +50,7 @@ export async function viewUnterricht(H) {
   });
   main.onclick = async ev => {
     const ed = ev.target.closest('[data-ed]'), del = ev.target.closest('[data-del]');
-    if (ed) { try { const { item } = await api('lp_get', { id: +ed.dataset.ed }), d = await H.K.open(S.priv, item.doc_enc); if (d?.form === 'jpad') jpadDialog(H, item.id, d); else editLp(H, item.id, d); } catch (er) { H.toast('⚠ ' + esc(er.message)); } }
+    if (ed) { try { const { item } = await api('lp_get', { id: +ed.dataset.ed }), d = await H.K.open(S.priv, item.doc_enc); if (d?.form === 'jpad') { if (d.jcode || !d.project) jpadDialog(H, item.id, d); else authorJPad(H, item.id, d); } else editLp(H, item.id, d); } catch (er) { H.toast('⚠ ' + esc(er.message)); } }
     if (del && confirm('Diesen Lernpfad löschen? Schon gestartete Einheiten bleiben erhalten.')) { await api('lp_del', { id: +del.dataset.del }); viewUnterricht(H); }
   };
 }
@@ -87,6 +89,25 @@ function jpadFromProject(p, fname = '') {
   if (typeof p.spritesheetBase64 === 'string' && p.spritesheetBase64) keep.spritesheetBase64 = p.spritesheetBase64;
   return { form: 'jpad', title: String(p.name || fname.replace(/\.json$/i, '').replace(/^JPad-/, '') || 'JPad-Projekt').slice(0, 120), project: keep };
 }
+/** JPad-Lernumgebung bauen bzw. bearbeiten: JPad (Modus „autor“) mit Startcode und Lernpfad nebeneinander; der Lernpfad-Editor
+    (PathFinder mit Programmier-Aufgaben) läuft in JPad. Jeder Stand – Code, Lernpfad (HTML), Titel – wird verschlüsselt gespeichert. */
+async function authorJPad(H, id, m, lernpfadDoc = null) {
+  const { esc, toast } = H, A = await import('../vendor/pathfinder/core/pfapp.js');
+  let t = null, saving = Promise.resolve(), dirty = !id; // neu: sofort speichern
+  const save = () => { clearTimeout(t); if (!dirty) return saving; dirty = false; const snap = JSON.parse(JSON.stringify(m)); saving = saving.then(async () => { id = await saveLp(H, id, snap); }).catch(er => { dirty = true; toast('⚠ Speichern fehlgeschlagen: ' + esc(er.message), 5000); }); return saving; };
+  if (!id) save();
+  const files = (m.project?.modules || []).map(x => ({ name: String(x.name).replace(/\.java$/, ''), text: x.text || '' }));
+  A.openApp({ app: 'jpad', url: UAPPS.jpad, mode: 'autor', task: 'a' + (id || 'neu'), title: m.title || 'JPad-Lernumgebung', files, closeLabel: '✓ Fertig – zurück zu Probe', flushMs: 5000,
+    extra: { project: m.project, projectKey: 'a' + Date.now(), ...(lernpfadDoc ? { lernpfadDoc } : {}) },
+    onState: st => {
+      m.project = { ...(m.project || {}), modules: st.files.map(f => ({ name: f.name + '.java', text: f.text })) };
+      if (typeof st.lernpfadHtml === 'string') { if (st.lernpfadHtml) m.project.lernpfadHtml = st.lernpfadHtml; else delete m.project.lernpfadHtml; }
+      if (st.lernpfadTitle && plain(st.lernpfadTitle)) m.title = m.project.name = plain(st.lernpfadTitle).slice(0, 120);
+      dirty = true; clearTimeout(t); t = setTimeout(save, 2000);
+    },
+    onClose: async () => { await save(); toast(`✓ „${esc(m.title || 'JPad-Lernumgebung')}“ gespeichert`); if (location.hash === '#/unterricht') viewUnterricht(H); } });
+  A.appStatus('wird automatisch gespeichert');
+}
 /** Material „JPad“: Projekt über einen JCode (JPad lädt es selbst), aus einer Projektdatei oder leer */
 function jpadDialog(H, id, doc) {
   const { dialog, esc, toast, withBusy, pickFile } = H; let proj = doc?.project || null;
@@ -117,6 +138,7 @@ function jpadDialog(H, id, doc) {
 async function saveLp(H, id, d) {
   return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: ['challenge', 'jpad'].includes(d.form) ? d.form : 'lernpfad', meta: d.meta || {}, doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
 }
+const blankDoc = d => !plain(d?.title) && !(d?.stations || []).some(s => plain(s.title) || (s.blocks || []).some(b => b.type !== 'text' || plain(b.html)));
 /** PathFinder-Editor im Overlay (Formen Lernpfad und Challenge); speichert laufend verschlüsselt */
 function editLp(H, id, doc) {
   const { esc, toast } = H, w = document.createElement('div'); w.className = 'editor';
@@ -127,7 +149,10 @@ function editLp(H, id, doc) {
   const onMsg = ev => {
     if (ev.source !== fr.contentWindow || ev.data?.probeEditor !== 'ready') return; removeEventListener('message', onMsg);
     fr.contentWindow.probeEdit({ doc: doc || undefined, startDialog: !doc, forms: ['lernpfad', 'challenge'],
-      host: { saved: d => { pending = d; clearTimeout(timer); timer = setTimeout(flush, 1500); }, done: d => { pending = d; close(); }, doneLabel: 'Fertig – zurück zu Probe', doneTitle: 'Lernpfad speichern und zurück' } });
+      // „JPad-Lernumgebung“ (Informatik): weiter in JPad – Startcode und Lernpfad nebeneinander
+      jpad: { create: d => { pending = null; clearTimeout(timer); if (id) H.api('lp_del', { id }).catch(() => { }); w.remove(); document.body.style.overflow = ''; removeEventListener('message', onMsg);
+        authorJPad(H, null, { form: 'jpad', title: plain(d?.title) || 'JPad-Lernumgebung', meta: d?.meta || { fach: 'Informatik' }, project: { name: plain(d?.title) || 'JPad-Lernumgebung', modules: [{ name: 'Hauptprogramm.java', text: '' }] } }, d || { form: 'lernpfad', title: 'Neuer JPad-Lernpfad', stations: [] }); } },
+      host: { saved: d => { if (!id && blankDoc(d)) return; pending = d; clearTimeout(timer); timer = setTimeout(flush, 1500); }, /* leerer Entwurf (z. B. Startdialog abgebrochen): nicht speichern */ done: d => { pending = d; close(); }, doneLabel: 'Fertig – zurück zu Probe', doneTitle: 'Lernpfad speichern und zurück' } });
   };
   addEventListener('message', onMsg); addEventListener('pagehide', flush, { once: true });
 }

@@ -1222,7 +1222,7 @@ case 'exam_grading': {
 }
 /* ---------- Modul Unterricht (Lehrkraft) ---------- */
 case 'lp_list': { $u = teacher(); $st = db()->prepare('SELECT id, title, form, meta, created, updated FROM lpaths WHERE owner_id = ? ORDER BY updated DESC'); $st->execute([$u['id']]);
-    out(['items' => array_map(fn($x) => ['meta' => json_decode((string)$x['meta'], true) ?: null] + $x, $st->fetchAll())]); }
+    out(['items' => array_map(fn($x) => ['meta' => json_decode((string)$x['meta'], true) ?: null] + $x, $st->fetchAll()), 'apps' => uapps()]); }
 case 'lp_get': { $u = teacher(); $st = db()->prepare('SELECT * FROM lpaths WHERE id = ? AND owner_id = ?'); $st->execute([(int)($in['id'] ?? 0), $u['id']]); out(['item' => $st->fetch() ?: fail('Lernpfad nicht gefunden', 404)]); }
 case 'lp_save': { // Lernpfad der Lehrkraft (verschlüsselt); Titel und Art im Klartext für die Liste
     $u = teacher(); $pdo = db(); $id = (int)($in['id'] ?? 0); $doc = str($in, 'doc_enc', 20_000_000, true);
