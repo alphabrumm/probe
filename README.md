@@ -139,6 +139,12 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   `l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name>` (der Teil hinter „#“ geht nie an den Server; der Server speichert nur den
   Hash des Geheimnisses). Beim Scannen bekommt das Gerät einen Geräteschlüssel (IndexedDB); der Code ist danach verbraucht. Neuer
   QR-Code je Person (z. B. zweites Gerät), „Abmelden“ sperrt alle Geräte der Person. Der Server kennt nur die Kennung (sid), keine Namen.
+* **Tafel-QR-Code** (Knopf in der Klasse, mit „Was ist das?“): gemeinsamer Code `l.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel>`
+  plus 4-stellige PIN im Vollbild für Beamer/Tafel, 15 Minuten gültig (Server kennt Geheimnis und PIN nur als Hash; nach 25 falschen PINs
+  verfällt der Code). Schüler ohne persönlichen Code tragen PIN, Vor- und Nachnamen ein und sind sofort gekoppelt (sid `T…`); der Name geht
+  nur für die Lehrkraft verschlüsselt an den Server (`ucouplings.name_enc`). Genaue Namenstreffer ordnet Probe beim Öffnen der Klasse selbst
+  zu, sonst „⇄ Namen zuordnen“ (Vorschläge wie bei Prüfungen, `names.js`) oder „in die Namensliste aufnehmen“; Kopplungen, Bearbeitungsstände
+  und Empfängerlisten wandern mit (`ut_merge`). Datenbank v24.
 * **Unterrichtseinheit:** „＋ Lernpfad starten“ (ganze Klasse oder Auswahl) – der Lernpfad wird mit dem Klassenschlüssel verschlüsselt
   und erscheint auf den gekoppelten Geräten (Abfrage alle 10 s). Er läuft über mehrere Stunden, bis die Lehrkraft „Beenden“ tippt
   (wieder öffnen möglich). Schüler senden ihren Stand nur bei Änderungen (gebündelt, für die Lehrkraft verschlüsselt) plus

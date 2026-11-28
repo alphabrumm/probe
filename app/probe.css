@@ -371,3 +371,20 @@ td.u-st.ok { background: #e3f4ea; color: #1f7a45; font-weight: 700; } td.u-st.ha
 @media (prefers-color-scheme: dark) { td.u-st.ok { background: #1d3a2a; color: #8fe0b0; } td.u-st.half { background: #3a3218; color: #f0d27a; } }
 .lp-filter { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
 .lp-filter select { width: auto; min-width: 190px; flex: 0 0 auto; }
+/* Tafel-QR-Code (Modul Unterricht) */
+.u-tafelbtn { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.u-tafelbtn .linkbtn { margin: 0; font-size: 13px; }
+.u-tip { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: min(340px, 80vw); background: var(--card, #fff); color: inherit; border: 1px solid var(--line, #dfe3ec); border-radius: 12px; padding: 10px 12px; font-size: 13.5px; line-height: 1.45; box-shadow: 0 6px 24px #0002; }
+.u-tafel-on, .u-selfs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-radius: 12px; padding: 8px 12px; margin: 10px 0; font-size: 14px; }
+.u-tafel-on { background: #e7f1fb; } .u-selfs { background: #fff4d6; }
+.u-tafel-on .sp, .u-selfs .sp { flex: 1; }
+.u-board { position: fixed; inset: 0; z-index: 1000; background: #fff; color: #111; display: flex; flex-direction: column; padding: 16px 24px 24px; }
+.u-board .ub-top { display: flex; align-items: center; gap: 10px; font-size: 18px; } .u-board .ub-top .sp { flex: 1; }
+.u-board .ub-main { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5vw; min-height: 0; }
+.u-board .ub-qr { height: min(78vh, 56vw); aspect-ratio: 1; } .u-board .ub-qr svg { width: 100%; height: 100%; }
+.u-board .ub-l { font-size: 22px; color: #555; letter-spacing: .1em; }
+.u-board .ub-pin { font-size: min(16vh, 11vw); font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.u-board ol { font-size: 20px; line-height: 1.6; padding-left: 1.2em; margin: 18px 0; }
+.u-board .ub-left { font-size: 18px; color: #555; } .u-board .ub-n { font-size: 18px; color: #2f7d4f; font-weight: 700; margin-top: 6px; }
+.u-board .off { opacity: .15; }
+@media (max-width: 700px) { .u-board .ub-main { flex-direction: column; } .u-board .ub-qr { height: 50vh; } }

@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 23;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 24;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -400,6 +400,16 @@ function migrate_steps(PDO $pdo, int $v): void {
         $pdo->exec(<<<SQL
         ALTER TABLE lpaths ADD COLUMN meta TEXT;
         PRAGMA user_version = 23;
+        SQL);
+    }
+    if ($v < 24) { // Tafel-QR-Code (Modul Unterricht): gemeinsamer Code mit PIN, 15 Minuten gültig; selbst eingetragene Namen (für die Lehrkraft verschlüsselt)
+        $pdo->exec(<<<SQL
+        ALTER TABLE classes ADD COLUMN tafel_hash TEXT;
+        ALTER TABLE classes ADD COLUMN tafel_pin TEXT;
+        ALTER TABLE classes ADD COLUMN tafel_until INTEGER;
+        ALTER TABLE classes ADD COLUMN tafel_fails INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ucouplings ADD COLUMN name_enc TEXT;
+        PRAGMA user_version = 24;
         SQL);
     }
 }

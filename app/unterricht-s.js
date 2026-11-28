@@ -31,6 +31,34 @@ async function pairFromHash() {
   catch (er) { return { error: er.message }; }
 }
 
+/* ---------- Tafel-QR-Code: l.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel> – mit PIN und eigenem Namen eintragen ---------- */
+async function joinFromHash() {
+  const m = location.hash.match(/^#t=(\d+)\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{22})$/); if (!m) return false;
+  history.replaceState(null, '', location.pathname);
+  const [, c, s, k] = m, have = (await allK()).find(x => x.c === +c);
+  if (have) return `<div class="u-hint">Dieses iPad ist mit dieser Klasse schon gekoppelt${have.v ? ` (${esc(have.v)} ${esc(have.n)})` : ''}.</div>`;
+  let I; try { I = await api('ut_tafel_info', { class: +c, secret: s }); } catch (er) { return `<div class="u-hint u-err">${esc(er.message)}</div>`; }
+  home.innerHTML = `<h1><img src="app/icon.svg" alt="">Probe Unterricht</h1>
+    <form class="u-cl u-join" id="join" autocomplete="off"><h2>${esc(I.class.name)}${I.class.fach ? ' · ' + esc(I.class.fach) : ''}</h2><div class="help">Lehrkraft ${esc(I.teacher)}</div>
+      <label>PIN von der Tafel<input id="jPin" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autofocus></label>
+      <label>Vorname<input id="jV" maxlength="40" required autocapitalize="words"></label>
+      <label>Nachname<input id="jN" maxlength="40" required autocapitalize="words"></label>
+      <p class="u-err" id="jErr"></p><button class="btn" id="jGo">Eintragen</button>
+      <p class="help">Dein Name geht verschlüsselt an deine Lehrkraft – nur sie kann ihn lesen.</p></form>`;
+  return new Promise(res => {
+    $('#join').onsubmit = async ev => {
+      ev.preventDefault(); const pin = $('#jPin').value.trim(), v = $('#jV').value.trim(), n = $('#jN').value.trim();
+      if (!/^\d{4,6}$/.test(pin) || !v || !n) { $('#jErr').textContent = 'Bitte PIN, Vor- und Nachnamen eintragen.'; return; }
+      $('#jGo').disabled = true; $('#jErr').textContent = '';
+      try {
+        const r = await api('ut_join', { class: +c, secret: s, pin, name_enc: await K.seal(I.pub_key, { v, n }) });
+        await putK({ c: +c, token: r.token, k, v, n, at: Date.now() });
+        res(`<div class="u-hint">✓ Eingetragen – hallo ${esc(v)}!</div>`);
+      } catch (er) { $('#jErr').textContent = er.message; $('#jGo').disabled = false; if (er.status === 403 && /gilt nicht mehr/.test(er.message)) $('#jGo').hidden = true; }
+    };
+  });
+}
+
 /* ---------- Übersicht ---------- */
 let KL = [], INFO = new Map(), DOCS = new Map(), homeT = null;
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -38,7 +66,7 @@ async function drawHome(msg = '') {
   KL = await allK();
   home.innerHTML = `<h1><img src="app/icon.svg" alt="">Probe Unterricht</h1>
     ${msg}
-    ${!KL.length ? '<div class="u-cl"><h2>Noch nicht gekoppelt</h2><p>Scanne den QR-Code, den du von deiner Lehrkraft bekommen hast, mit der Kamera.</p></div>' : ''}
+    ${!KL.length ? '<div class="u-cl"><h2>Noch nicht gekoppelt</h2><p>Scanne den QR-Code, den du von deiner Lehrkraft bekommen hast (oder den Tafel-QR-Code), mit der Kamera.</p></div>' : ''}
     ${KL.length && !standalone ? '<div class="u-hint">📲 Tipp: In Safari auf <b>Teilen</b> → <b>„Zum Home-Bildschirm“</b>. Dann startest du Probe Unterricht wie eine App – und bleibst gekoppelt.</div>' : ''}
     ${KL.map(k => { const I = INFO.get(k.c); return `<div class="u-cl"><h2>${I ? `${esc(I.class.name)}${I.class.fach ? ' · ' + esc(I.class.fach) : ''}` : 'Klasse …'}</h2>
       <div class="help">${esc(k.v)} ${esc(k.n)}${I ? ` · Lehrkraft ${esc(I.teacher)}` : ''}</div>
@@ -97,8 +125,11 @@ addEventListener('popstate', () => { if (cur || !$('#app').hidden) location.relo
 /* ---------- Start ---------- */
 (async () => {
   let msg = '';
-  if (location.hash.startsWith('#u=')) { const p = await pairFromHash(); msg = p?.ok ? `<div class="u-hint">✓ Gekoppelt${p.v ? ` – hallo ${esc(p.v)}!` : ''}</div>` : `<div class="u-hint u-err">${esc(p?.error || 'QR-Code ungültig')}</div>`; }
+  if (location.hash.startsWith('#t=')) msg = (await joinFromHash()) || '';
+  else if (location.hash.startsWith('#u=')) { const p = await pairFromHash(); msg = p?.ok ? `<div class="u-hint">✓ Gekoppelt${p.v ? ` – hallo ${esc(p.v)}!` : ''}</div>` : `<div class="u-hint u-err">${esc(p?.error || 'QR-Code ungültig')}</div>`; }
   else if (location.hash) history.replaceState(null, '', location.pathname);
-  await drawHome(msg); await pollAll(); await drawHome(msg);
-  homeT = setInterval(async () => { if (document.visibilityState === 'visible' && home.hidden === false) { await pollAll(); drawHome(); } }, 10000);
+  await drawHome(msg); await pollAll(); await drawHome(msg); startPoll();
 })();
+function startPoll() {
+  homeT = setInterval(async () => { if (document.visibilityState === 'visible' && home.hidden === false) { await pollAll(); drawHome(); } }, 10000);
+}

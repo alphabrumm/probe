@@ -1237,9 +1237,10 @@ case 'ut_classes': { // Klassen des Schuljahres mit Anzahl gekoppelter Schüler 
 }
 case 'ut_class': {
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db();
-    $k = $pdo->prepare('SELECT id, sid, created, paired, last_seen, revoked, (qr_hash IS NOT NULL AND token_hash IS NULL) AS open FROM ucouplings WHERE class_id = ? ORDER BY id'); $k->execute([$c['id']]);
+    $k = $pdo->prepare('SELECT id, sid, created, paired, last_seen, revoked, (qr_hash IS NOT NULL AND token_hash IS NULL) AS open, name_enc FROM ucouplings WHERE class_id = ? ORDER BY id'); $k->execute([$c['id']]);
     $n = $pdo->prepare('SELECT id, title, form, targets, status, started, ended FROM units WHERE class_id = ? ORDER BY started DESC'); $n->execute([$c['id']]);
-    out(['class' => ['id' => (int)$c['id'], 'name' => $c['name'], 'fach' => $c['fach'], 'schuljahr' => $c['schuljahr']], 'ukey_enc' => $c['ukey_enc'], 'couplings' => $k->fetchAll(), 'units' => $n->fetchAll(), 'now' => time()]);
+    $tu = (int)($c['tafel_until'] ?? 0) > time() && $c['tafel_hash'] ? (int)$c['tafel_until'] : null;
+    out(['class' => ['id' => (int)$c['id'], 'name' => $c['name'], 'fach' => $c['fach'], 'schuljahr' => $c['schuljahr'], 'tafel_until' => $tu], 'ukey_enc' => $c['ukey_enc'], 'couplings' => $k->fetchAll(), 'units' => $n->fetchAll(), 'now' => time()]);
 }
 case 'ut_key': { // Klassenschlüssel einmalig hinterlegen (ein vorhandener bleibt – gedruckte QR-Codes enthalten ihn)
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $k = blob($in, 'ukey_enc', 4000) ?: fail('Schlüssel fehlt');
@@ -1253,6 +1254,36 @@ case 'ut_qr': { // neue QR-Codes: je Schüler ein Einmal-Geheimnis (nur der Hash
         $pdo->prepare('DELETE FROM ucouplings WHERE class_id = ? AND sid = ? AND token_hash IS NULL')->execute([$c['id'], $sid]);
         $pdo->prepare('INSERT INTO ucouplings (class_id, sid, qr_hash, created) VALUES (?,?,?,?)')->execute([$c['id'], $sid, $h, time()]);
     }
+    $pdo->commit(); out([]);
+}
+case 'ut_tafel': { // Tafel-QR-Code öffnen (15 Minuten, neues Geheimnis und neue PIN – beide kennt der Server nur als Hash) oder beenden
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db();
+    if (($in['op'] ?? '') === 'end') { $pdo->prepare('UPDATE classes SET tafel_hash = NULL, tafel_pin = NULL, tafel_until = NULL, tafel_fails = 0 WHERE id = ?')->execute([$c['id']]); out([]); }
+    $h = (string)($in['hash'] ?? ''); $p = (string)($in['pin_hash'] ?? '');
+    if (!preg_match('~^[0-9a-f]{64}$~', $h) || !preg_match('~^[0-9a-f]{64}$~', $p)) fail('Tafel-Code ungültig');
+    $until = time() + 15 * 60;
+    $pdo->prepare('UPDATE classes SET tafel_hash = ?, tafel_pin = ?, tafel_until = ?, tafel_fails = 0 WHERE id = ?')->execute([$h, $p, $until, $c['id']]);
+    out(['until' => $until, 'now' => time()]);
+}
+case 'ut_merge': { // selbst eingetragene Person (Tafel-QR-Code) einem Namen der Klasse zuordnen: Kopplungen, Bearbeitungsstände und Empfängerlisten umschreiben
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db();
+    $from = str($in, 'from', 40, true); $to = str($in, 'to', 40, true);
+    if ($from[0] !== 'T') fail('Nur selbst eingetragene Namen lassen sich zuordnen.');
+    $pdo->beginTransaction();
+    if ($from === $to) { $pdo->prepare('UPDATE ucouplings SET name_enc = NULL WHERE class_id = ? AND sid = ?')->execute([$c['id'], $from]); $pdo->commit(); out([]); } // in die Namensliste aufgenommen
+    $pdo->prepare('UPDATE ucouplings SET sid = ?, name_enc = NULL WHERE class_id = ? AND sid = ?')->execute([$to, $c['id'], $from]);
+    $st = $pdo->prepare('SELECT p.unit_id, p.updated, p.submitted, q.updated AS t2, q.submitted AS s2 FROM uprogress p JOIN units n ON n.id = p.unit_id LEFT JOIN uprogress q ON q.unit_id = p.unit_id AND q.sid = ? WHERE n.class_id = ? AND p.sid = ?');
+    $st->execute([$to, $c['id'], $from]);
+    foreach ($st->fetchAll() as $x) {
+        if ($x['t2'] !== null) { // beide haben an derselben Einheit gearbeitet: der neuere Stand bleibt, eine Abgabe geht nicht verloren
+            $keepFrom = (int)$x['updated'] >= (int)$x['t2']; $sub = $x['submitted'] ?: $x['s2'];
+            if ($keepFrom) { $pdo->prepare('DELETE FROM uprogress WHERE unit_id = ? AND sid = ?')->execute([$x['unit_id'], $to]); $pdo->prepare('UPDATE uprogress SET sid = ?, submitted = ? WHERE unit_id = ? AND sid = ?')->execute([$to, $sub, $x['unit_id'], $from]); }
+            else { $pdo->prepare('DELETE FROM uprogress WHERE unit_id = ? AND sid = ?')->execute([$x['unit_id'], $from]); $pdo->prepare('UPDATE uprogress SET submitted = ? WHERE unit_id = ? AND sid = ?')->execute([$sub, $x['unit_id'], $to]); }
+        } else $pdo->prepare('UPDATE uprogress SET sid = ? WHERE unit_id = ? AND sid = ?')->execute([$to, $x['unit_id'], $from]);
+    }
+    $n = $pdo->prepare('SELECT id, targets FROM units WHERE class_id = ? AND targets IS NOT NULL'); $n->execute([$c['id']]);
+    foreach ($n->fetchAll() as $x) { $t = json_decode($x['targets'], true) ?: []; if (!in_array($from, $t, true)) continue;
+        $t = array_values(array_unique(array_map(fn($s) => $s === $from ? $to : $s, $t))); $pdo->prepare('UPDATE units SET targets = ? WHERE id = ?')->execute([json_encode($t), $x['id']]); }
     $pdo->commit(); out([]);
 }
 case 'ut_revoke': { // alle Geräte eines Schülers sperren (und offene QR-Codes ungültig machen)
@@ -1290,6 +1321,22 @@ case 'ut_pair': { // Einmal-QR-Code einlösen → Geräteschlüssel
     if (!$k) { throttle_fail('u'); fail('Dieser QR-Code ist schon benutzt oder nicht mehr gültig. Bitte deine Lehrkraft um einen neuen.', 403); }
     $tok = bin2hex(random_bytes(24));
     $pdo->prepare('UPDATE ucouplings SET token_hash = ?, qr_hash = NULL, paired = ?, last_seen = ? WHERE id = ?')->execute([hash('sha256', $tok), time(), time(), $k['id']]);
+    out(['token' => $tok]);
+}
+case 'ut_tafel_info': // Tafel-QR-Code: Klasse und öffentlicher Schlüssel der Lehrkraft (zum Verschlüsseln des Namens)
+case 'ut_join': { // Tafel-QR-Code mit PIN einlösen → Geräteschlüssel; der Name kommt nur verschlüsselt (für die Lehrkraft)
+    throttle('t', 120); $pdo = db(); $sec = str($in, 'secret', 80, true);
+    $st = $pdo->prepare('SELECT c.*, u.pub_key, u.kuerzel FROM classes c JOIN users u ON u.id = c.owner_id WHERE c.id = ? AND c.tafel_hash = ?'); $st->execute([(int)($in['class'] ?? 0), hash('sha256', $sec)]); $c = $st->fetch();
+    if (!$c || (int)$c['tafel_until'] < time()) { throttle_fail('t'); fail('Dieser Tafel-Code gilt nicht mehr. Bitte deine Lehrkraft, ihn neu zu zeigen.', 403); }
+    if ($a === 'ut_tafel_info') out(['class' => ['name' => $c['name'], 'fach' => $c['fach']], 'teacher' => $c['kuerzel'], 'pub_key' => $c['pub_key']]);
+    if (!hash_equals((string)$c['tafel_pin'], hash('sha256', $sec . '|' . str($in, 'pin', 12, true)))) {
+        throttle_fail('t');
+        $f = (int)$c['tafel_fails'] + 1; // zu viele falsche PINs: Code verfällt (die Lehrkraft zeigt einen neuen)
+        if ($f >= 25) { $pdo->prepare('UPDATE classes SET tafel_hash = NULL, tafel_pin = NULL, tafel_until = NULL, tafel_fails = 0 WHERE id = ?')->execute([$c['id']]); fail('Zu viele falsche PINs – der Tafel-Code gilt nicht mehr. Bitte deine Lehrkraft um einen neuen.', 403); }
+        $pdo->prepare('UPDATE classes SET tafel_fails = ? WHERE id = ?')->execute([$f, $c['id']]); fail('Die PIN stimmt nicht.', 403);
+    }
+    $ne = str($in, 'name_enc', 4000, true); $sid = 'T' . bin2hex(random_bytes(8)); $tok = bin2hex(random_bytes(24));
+    $pdo->prepare('INSERT INTO ucouplings (class_id, sid, token_hash, created, paired, last_seen, name_enc) VALUES (?,?,?,?,?,?,?)')->execute([$c['id'], $sid, hash('sha256', $tok), time(), time(), time(), $ne]);
     out(['token' => $tok]);
 }
 case 'ut_poll': { // Gerät fragt nach: laufende Einheiten (Lernpfad nur, wenn noch nicht vorhanden), öffentlicher Schlüssel der Lehrkraft

@@ -4,7 +4,7 @@
 // Verschlüsselung: Lernpfade für die Lehrkraft; gestartete Einheiten mit dem Klassenschlüssel, den die Schüler-Geräte nur aus dem
 // QR-Code kennen; Bearbeitungsstände der Schüler für die Lehrkraft. Der Server kennt keine Namen, nur feste Kennungen (sid).
 import { loadClass } from './klassen.js';
-import { qrMatrix } from './qr.js';
+import { qrMatrix, qrSvg } from './qr.js';
 import { Pdf, PAGE_W, PAGE_H, fit, wrap } from './pdf.js';
 import { unzip } from './zip.js';
 
@@ -18,6 +18,9 @@ const metaLine = m => [m?.fach, m?.jg ? `${m.jg}. Jgst.` : '', m?.lbt].filter(Bo
 /** Jahrgangsstufe aus dem Klassennamen („8b“ → 8, „Q11“ → 11) */
 const jgOf = name => { const n = +(String(name || '').match(/\d{1,2}/) || [])[0]; return n >= 5 && n <= 13 ? n : 0; };
 let LPF = { fach: '', jg: '' }; // Filter in „Meine Lernpfade“
+/** Name in den Tabellen; über den Tafel-QR-Code selbst eingetragene sind markiert */
+const nameCell = (esc, r) => `<b>${esc(r.n)}</b>, ${esc(r.v)}${r.self ? ' <span class="chip warn" title="über den Tafel-QR-Code selbst eingetragen – noch keinem Namen der Klasse zugeordnet">selbst eingetragen</span>' : ''}`;
+const TAFEL = new Map(); // offener Tafel-Code je Klasse (Geheimnis und PIN nur hier im Browser): cid → { s, pin, until (ms) }
 let POLL = null; // Abfrage des Dashboards (endet von selbst, wenn die Seite gewechselt wird)
 
 /* ---------- Übersicht: Klassen + Meine Lernpfade ---------- */
@@ -93,14 +96,41 @@ export async function viewUClass(H, cid) {
   clearInterval(POLL); main.innerHTML = '<p class="help">entschlüsselt …</p>';
   let D, R;
   try { [D, R] = await Promise.all([loadClass(H, cid), api('ut_class', { id: cid })]); } catch (er) { main.innerHTML = `<a class="back" href="#/unterricht">‹ Unterricht</a><p class="err">${esc(er.message)}</p>`; return; }
-  const P = { cid, c: R.class, roster: D.roster, couplings: R.couplings, units: R.units, prog: new Map(), dev: new Map(), since: 0, ukey: R.ukey_enc, now: R.now, k: null, showOld: false };
+  const P = { cid, c: R.class, D, base: D.roster, roster: D.roster, selfs: [], couplings: R.couplings, units: R.units, prog: new Map(), dev: new Map(), since: 0, ukey: R.ukey_enc, now: R.now, k: null, showOld: false };
+  try { const t = JSON.parse(sessionStorage.getItem('probe-tafel-' + cid) || 'null'); if (t && t.until > Date.now() && R.class.tafel_until) TAFEL.set(cid, t); } catch (er) { }
+  await loadSelfs(H, P, R);
   await pull(H, P);
   draw(H, P);
   POLL = setInterval(async () => {
-    if (location.hash !== `#/uk/${cid}`) { clearInterval(POLL); return; }
+    if (location.hash !== `#/uk/${cid}`) { clearInterval(POLL); $('.u-board')?.remove(); return; }
     if (document.visibilityState !== 'visible' || $('.dlg')) return;
-    try { if (await pull(H, P)) drawLive(H, P); else drawSeen(H, P); } catch (er) { }
-  }, 7000);
+    try {
+      const ch = await pull(H, P);
+      if ([...P.dev].some(([s, d]) => s[0] === 'T' && d.paired && !P.roster.some(r => r.sid === s))) { await reload(H, P); boardCount(P); } // neu über den Tafel-Code
+      else if (ch) drawLive(H, P); else drawSeen(H, P);
+    } catch (er) { }
+  }, 5000);
+}
+/** über den Tafel-QR-Code selbst eingetragene: Namen entschlüsseln; genaue Treffer in der Namensliste ordnet Probe von selbst zu */
+async function loadSelfs(H, P, R, auto = true) {
+  const S = [], seen = new Set();
+  for (const k of R.couplings) {
+    if (!k.name_enc || k.sid[0] !== 'T' || seen.has(k.sid) || P.base.some(r => r.sid === k.sid)) continue; seen.add(k.sid);
+    if (R.couplings.filter(x => x.sid === k.sid).every(x => +x.revoked)) continue; // abgemeldet
+    try { const x = await H.K.open(H.S.priv, k.name_enc); S.push({ sid: k.sid, v: String(x?.v || '').trim().slice(0, 40), n: String(x?.n || '').trim().slice(0, 40), self: true, at: +k.paired || 0 }); } catch (er) { }
+  }
+  if (auto && S.length && P.base.length) {
+    const { matchRoster } = await import('./names.js'), M = matchRoster(P.base, S.map((x, i) => ({ id: i, v: x.v, n: x.n })));
+    const ex = [...M.byPerson].filter(([, m]) => m.exact);
+    if (ex.length) {
+      for (const [i, m] of ex) await H.api('ut_merge', { id: P.cid, from: S[i].sid, to: P.base[m.idx].sid });
+      H.toast(ex.length === 1 ? `⇄ ${H.esc(S[ex[0][0]].v)} ${H.esc(S[ex[0][0]].n)} der Namensliste zugeordnet` : `⇄ ${ex.length} selbst eingetragene Namen der Namensliste zugeordnet`, 4000);
+      const R2 = await H.api('ut_class', { id: P.cid }); Object.assign(P, { couplings: R2.couplings, units: R2.units, now: R2.now, c: R2.class });
+      return loadSelfs(H, P, R2, false);
+    }
+  }
+  S.sort((a, b) => `${a.n} ${a.v}`.localeCompare(`${b.n} ${b.v}`, 'de'));
+  P.selfs = S; P.roster = [...P.base, ...S];
 }
 /** neue Bearbeitungsstände holen und entschlüsseln; true, wenn sich etwas geändert hat */
 async function pull(H, P) {
@@ -117,10 +147,14 @@ const ago = (now, t) => !t ? '–' : now - t < 75 ? 'gerade aktiv' : now - t < 3
 const forSid = (u, sid) => !u.targets || (JSON.parse(u.targets) || []).includes(sid);
 function draw(H, P) {
   const { main, esc } = H, run = P.units.filter(u => u.status === 'laeuft'), done = P.units.filter(u => u.status !== 'laeuft');
-  const paired = P.roster.filter(r => P.dev.get(r.sid)?.paired).length;
+  const paired = P.roster.filter(r => P.dev.get(r.sid)?.paired).length, open = P.base.filter(r => !P.dev.get(r.sid)?.paired).length, T = tafelOn(P);
   main.innerHTML = `<a class="back" href="#/unterricht">‹ Unterricht</a>
-    <h1>${esc(P.c.name)}${P.c.fach ? ' ' + esc(P.c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(P.c.schuljahr)} · ${P.roster.length} Schüler:innen · ${paired} gekoppelt <span class="c-lock">🔒 Namen und Stände nur für dich lesbar</span></p>
-    <div class="bar"><button class="btn pri" id="uStart">＋ Lernpfad starten</button><span class="sp"></span><button class="btn" id="uQr">▦ QR-Codes zum Koppeln${P.roster.length - paired ? ` (${P.roster.length - paired} offen)` : ''}</button></div>
+    <h1>${esc(P.c.name)}${P.c.fach ? ' ' + esc(P.c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(P.c.schuljahr)} · ${P.base.length} Schüler:innen${P.selfs.length ? ` · ${P.selfs.length} selbst eingetragen` : ''} · ${paired} gekoppelt <span class="c-lock">🔒 Namen und Stände nur für dich lesbar</span></p>
+    <div class="bar"><button class="btn pri" id="uStart">＋ Lernpfad starten</button><span class="sp"></span><span class="u-tafelbtn"><button class="btn" id="uTafel">▣ Tafel-QR-Code</button><button class="linkbtn" id="uWhat" aria-expanded="false">Was ist das?</button>
+      <span class="u-tip" id="uTip" role="tooltip" hidden>Mit dem <b>Tafel-QR-Code</b> und der <b>PIN</b> kommen Schüler in die Klasse, die keinen persönlichen QR-Code bekommen haben – z. B. in der ersten Stunde, wenn noch keine Codes gedruckt sind. Sie scannen den Code an der Tafel, geben die PIN und ihren Namen ein und sind gekoppelt. Code und PIN gelten 15 Minuten. Die Namen ordnest du danach der Namensliste zu (gleiche Namen von selbst).</span></span>
+      <button class="btn" id="uQr">▦ QR-Codes zum Koppeln${open ? ` (${open} offen)` : ''}</button></div>
+    ${T ? `<div class="u-tafel-on">▣ Tafel-Code aktiv – noch <b data-tleft>${Math.max(1, Math.ceil((T.until - Date.now()) / 60000))} min</b>${T.pin ? ` · PIN <b>${esc(T.pin)}</b>` : ''}<span class="sp"></span>${T.pin ? '<button class="btn sm" data-tshow="1">Anzeigen</button>' : ''}<button class="btn sm ghost danger" data-tend="1">Beenden</button></div>` : ''}
+    ${P.selfs.length ? `<div class="u-selfs">✎ <b>${P.selfs.length}</b> ${P.selfs.length === 1 ? 'Person hat sich' : 'Personen haben sich'} über den Tafel-QR-Code selbst eingetragen${P.base.length ? ' und ' + (P.selfs.length === 1 ? 'ist' : 'sind') + ' noch keinem Namen der Klasse zugeordnet' : ''}.<span class="sp"></span><button class="btn sm pri" id="uMerge">⇄ Namen zuordnen</button></div>` : ''}
     <div id="uRun">${runHtml(H, P, run)}</div>
     ${done.length ? `<section class="card"><h2>Beendete Einheiten</h2><div class="tiles">${done.slice(0, 3).map(u => unitTile(H, P, u)).join('')}</div>
       ${done.length > 3 ? `<details class="u-old"${P.showOld ? ' open' : ''}><summary>Ältere Unterrichtseinheiten (${done.length - 3})</summary><div class="tiles">${done.slice(3).map(u => unitTile(H, P, u)).join('')}</div></details>` : ''}</section>` : ''}
@@ -128,7 +162,10 @@ function draw(H, P) {
     <section class="card"><h2>Kopplung</h2><p class="help">Jede Schülerin, jeder Schüler scannt einmal den eigenen QR-Code – danach ist das iPad mit dieser Klasse gekoppelt (App „Probe Unterricht“ auf dem Home-Bildschirm). Ein QR-Code gilt nur einmal; für ein neues oder zweites Gerät hier einen neuen erzeugen.</p>
       <div id="uCpl">${couplingHtml(H, P)}</div></section>`;
   $('#uStart').onclick = () => startDialog(H, P);
-  $('#uQr').onclick = () => qrDialog(H, P, P.roster.filter(r => !P.dev.get(r.sid)?.paired).map(r => r.sid));
+  $('#uQr').onclick = () => qrDialog(H, P, P.base.filter(r => !P.dev.get(r.sid)?.paired).map(r => r.sid));
+  $('#uTafel').onclick = () => tafelOn(P)?.pin ? showBoard(H, P) : openTafel(H, P);
+  $('#uWhat').onclick = () => { const t = $('#uTip'), o = t.hidden; t.hidden = !o; $('#uWhat').setAttribute('aria-expanded', String(o)); };
+  $('#uMerge') && ($('#uMerge').onclick = () => mergeDialog(H, P));
   main.onclick = ev => onClick(H, P, ev);
   const old = $('.u-old', main); if (old) old.ontoggle = () => { P.showOld = old.open; };
 }
@@ -145,7 +182,7 @@ function liveTable(H, P, u, frozen = false) {
   return `<p class="help" style="margin:6px 0">${frozen ? '' : `${act} gerade aktiv · `}${M.size} von ${R.length} haben begonnen · ${sub} abgegeben</p>
     <div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${frozen ? '' : '<th>zuletzt</th>'}<th>Fortschritt</th>${st.map((s, i) => `<th class="u-st" title="${esc(s.t)}">${i + 1}</th>`).join('')}<th title="geöffnete Tipps">Tipps</th><th title="aktive Bearbeitungszeit">Zeit</th><th>Abgabe</th></tr>
     ${R.map(r => { const x = M.get(r.sid), s = x?.sum, seen = P.dev.get(r.sid)?.seen;
-      return `<tr><td><b>${esc(r.n)}</b>, ${esc(r.v)}</td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : '<span title="noch nicht gekoppelt">nicht gekoppelt</span>'}</td>`}
+      return `<tr><td>${nameCell(esc, r)}</td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : '<span title="noch nicht gekoppelt">nicht gekoppelt</span>'}</td>`}
         <td>${s ? `<span class="u-bar"><i style="width:${s.pct}%"></i></span> ${s.pct} %${s.total ? ` <span class="help">(${s.solved}/${s.total})</span>` : ''}` : '<span class="help">nicht begonnen</span>'}</td>
         ${st.map(t => { const y = s?.st?.find(z => z.id === t.id); return `<td class="u-st ${!y ? '' : y.of ? (y.n === y.of ? 'ok' : y.n ? 'half' : y.v ? 'seen' : '') : y.v ? 'ok' : ''}" title="${esc(t.t)}${y ? `: ${y.of ? `${y.n}/${y.of} gelöst` : y.v ? 'angesehen' : ''}${y.tips ? `, ${y.tips} Tipp${y.tips === 1 ? '' : 's'}` : ''}${y.sols ? `, ${y.sols} Lösung${y.sols === 1 ? '' : 'en'}` : ''}` : ''}">${y ? (y.of ? (y.n === y.of ? '✓' : y.n ? `${y.n}/${y.of}` : y.v ? '·' : '') : y.v ? '✓' : '') : ''}</td>`; }).join('')}
         <td>${s ? s.st.reduce((a, z) => a + (z.tips || 0), 0) || '' : ''}</td><td class="help">${s ? `${s.mins} min` : ''}</td><td>${x?.submitted ? `<span class="chip good" title="${esc(new Date(x.submitted * 1000).toLocaleString('de-DE'))}">✓</span>` : ''}</td></tr>`; }).join('')}</table></div>`;
@@ -161,7 +198,7 @@ function statHtml(H, P) {
   const { esc } = H, U = P.units.slice().reverse();
   return `<div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${U.map(u => `<th class="k-ex" title="${esc(u.title)}">${esc((u.title || '–').slice(0, 14))}${(u.title || '').length > 14 ? '…' : ''}<br><span class="help">${new Date(u.started * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })}</span></th>`).join('')}<th>Ø</th></tr>
     ${P.roster.map(r => { const v = U.filter(u => forSid(u, r.sid)).map(u => P.prog.get(u.id)?.get(r.sid)?.sum?.pct ?? 0);
-      return `<tr><td><b>${esc(r.n)}</b>, ${esc(r.v)}</td>${U.map(u => { if (!forSid(u, r.sid)) return '<td class="help">–</td>'; const x = P.prog.get(u.id)?.get(r.sid); return `<td>${x ? `${x.sum?.pct ?? 0} %${x.submitted ? ' ✓' : ''}` : '<span class="help">0 %</span>'}</td>`; }).join('')}<td><b>${v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + ' %' : ''}</b></td></tr>`; }).join('')}</table></div>
+      return `<tr><td>${nameCell(esc, r)}</td>${U.map(u => { if (!forSid(u, r.sid)) return '<td class="help">–</td>'; const x = P.prog.get(u.id)?.get(r.sid); return `<td>${x ? `${x.sum?.pct ?? 0} %${x.submitted ? ' ✓' : ''}` : '<span class="help">0 %</span>'}</td>`; }).join('')}<td><b>${v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + ' %' : ''}</b></td></tr>`; }).join('')}</table></div>
     <p class="help">Prozent = gelöste Aufgaben des Lernpfads (ohne Aufgaben: angesehene Stationen) · ✓ abgegeben · – nicht für diese Person gestartet. Das ist keine Note.</p>`;
 }
 function couplingHtml(H, P) {
@@ -171,11 +208,14 @@ function couplingHtml(H, P) {
     if (d?.paired) return `<span class="chip good">gekoppelt</span> <span class="help">${esc(ago(P.now, d.seen))}</span>`;
     if (C.some(k => +k.open)) return '<span class="chip">QR-Code erstellt, noch nicht gescannt</span>';
     return '<span class="help">nicht gekoppelt</span>'; };
-  return `<div class="scroll-x"><table class="t"><tr><th>Name</th><th>Status</th><th></th></tr>${P.roster.map(r => `<tr><td><b>${esc(r.n)}</b>, ${esc(r.v)}</td><td>${st(r)}</td>
+  return `<div class="scroll-x"><table class="t"><tr><th>Name</th><th>Status</th><th></th></tr>${P.roster.map(r => `<tr><td>${nameCell(esc, r)}</td><td>${st(r)}</td>
     <td style="white-space:nowrap"><button class="btn sm" data-uqr="${esc(r.sid)}" title="Neuen QR-Code erzeugen (z. B. für ein neues oder zweites Gerät)">▦ Neuer QR-Code</button>${P.dev.get(r.sid)?.paired ? ` <button class="btn sm ghost danger" data-urev="${esc(r.sid)}" title="Alle Geräte dieser Person abmelden">Abmelden</button>` : ''}</td></tr>`).join('')}</table></div>`;
 }
 async function onClick(H, P, ev) {
-  const { api, esc, toast, dialog } = H, b = ev.target.closest('[data-uend],[data-uqr],[data-urev],[data-uopen]'); if (!b) return;
+  if (!ev.target.closest('#uWhat,#uTip') && $('#uTip') && !$('#uTip').hidden) { $('#uTip').hidden = true; $('#uWhat').setAttribute('aria-expanded', 'false'); }
+  const { api, esc, toast, dialog } = H, b = ev.target.closest('[data-uend],[data-uqr],[data-urev],[data-uopen],[data-tshow],[data-tend]'); if (!b) return;
+  if (b.dataset.tshow) return showBoard(H, P);
+  if (b.dataset.tend) return endTafel(H, P);
   if (b.dataset.uend && confirm('Einheit beenden? Der Stand wird eingefroren, die Schüler können nicht mehr weiterarbeiten (wieder öffnen ist möglich).')) { await api('ut_unit', { unit: +b.dataset.uend, op: 'end' }); return reload(H, P); }
   if (b.dataset.uqr) return qrDialog(H, P, [b.dataset.uqr]);
   if (b.dataset.urev && confirm('Alle Geräte dieser Person abmelden? Sie braucht danach einen neuen QR-Code.')) { await api('ut_revoke', { id: P.cid, sid: b.dataset.urev }); return reload(H, P); }
@@ -188,7 +228,84 @@ async function onClick(H, P, ev) {
       try { await api('ut_unit', { unit: u.id, op: o }); d.close(); reload(H, P); } catch (er) { toast('⚠ ' + esc(er.message)); } };
   }
 }
-async function reload(H, P) { const R = await H.api('ut_class', { id: P.cid }); Object.assign(P, { couplings: R.couplings, units: R.units, now: R.now }); await pull(H, P); draw(H, P); }
+async function reload(H, P) { const R = await H.api('ut_class', { id: P.cid }); Object.assign(P, { couplings: R.couplings, units: R.units, now: R.now, c: R.class }); if (!R.class.tafel_until) TAFEL.delete(P.cid); await loadSelfs(H, P, R); await pull(H, P); draw(H, P); }
+
+/* ---------- Tafel-QR-Code: gemeinsamer Code mit PIN (15 Minuten) für Schüler ohne persönlichen QR-Code ---------- */
+function tafelOn(P) {
+  const t = TAFEL.get(P.cid); if (t && t.until > Date.now()) return t;
+  if (t) { TAFEL.delete(P.cid); sessionStorage.removeItem('probe-tafel-' + P.cid); }
+  return P.c.tafel_until && P.c.tafel_until > P.now ? { until: Date.now() + (P.c.tafel_until - P.now) * 1000 } : null; // auf einem anderen Gerät geöffnet: PIN unbekannt
+}
+async function openTafel(H, P) {
+  try {
+    const s = b64u(crypto.getRandomValues(new Uint8Array(16))), pin = String(crypto.getRandomValues(new Uint32Array(1))[0] % 10000).padStart(4, '0');
+    const r = await H.api('ut_tafel', { id: P.cid, hash: await sha256hex(s), pin_hash: await sha256hex(s + '|' + pin) });
+    const t = { s, pin, until: Date.now() + (r.until - r.now) * 1000, from: r.now }; TAFEL.set(P.cid, t);
+    try { sessionStorage.setItem('probe-tafel-' + P.cid, JSON.stringify(t)); } catch (er) { }
+    P.c.tafel_until = r.until; P.now = r.now; await classKey(H, P); draw(H, P); showBoard(H, P);
+  } catch (er) { H.toast('⚠ ' + H.esc(er.message)); }
+}
+async function endTafel(H, P) {
+  try { await H.api('ut_tafel', { id: P.cid, op: 'end' }); } catch (er) { H.toast('⚠ ' + H.esc(er.message)); return; }
+  TAFEL.delete(P.cid); sessionStorage.removeItem('probe-tafel-' + P.cid); P.c.tafel_until = null; $('.u-board')?.remove(); draw(H, P); H.toast('Tafel-Code beendet');
+}
+function boardCount(P) {
+  const el = $('.u-board [data-tn]'), t = TAFEL.get(P.cid); if (!el || !t) return;
+  const n = P.couplings.filter(k => k.sid[0] === 'T' && +k.paired >= (t.from || 0)).length;
+  el.textContent = n ? `${n} ${n === 1 ? 'hat' : 'haben'} sich eingetragen` : '';
+}
+/** Vollbild für Beamer oder Tafel: großer QR-Code, PIN, Restzeit */
+async function showBoard(H, P) {
+  const { esc } = H, t = tafelOn(P); if (!t?.pin) return;
+  const link = `${new URL('l.html', location.href).href.replace(/[?#].*$/, '')}#t=${P.cid}.${t.s}.${await classKey(H, P)}`;
+  $('.u-board')?.remove();
+  const el = document.createElement('div'); el.className = 'u-board'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Tafel-QR-Code');
+  el.innerHTML = `<div class="ub-top"><b>${esc(P.c.name)}${P.c.fach ? ' · ' + esc(P.c.fach) : ''}</b> · Probe Unterricht<span class="sp"></span><button class="btn" data-bclose>Schließen</button><button class="btn ghost danger" data-bend>Tafel-Code beenden</button></div>
+    <div class="ub-main"><div class="ub-qr">${qrSvg(link, { title: 'Tafel-QR-Code' })}</div>
+      <div class="ub-side"><div class="ub-l">PIN</div><div class="ub-pin">${esc(t.pin)}</div>
+        <ol><li>QR-Code mit der Kamera scannen</li><li>PIN eingeben</li><li>Vor- und Nachnamen eintragen</li></ol>
+        <div class="ub-left" data-bleft></div><div class="ub-n" data-tn></div></div></div>`;
+  document.body.appendChild(el); boardCount(P);
+  const tick = () => { const ms = t.until - Date.now(), x = $('[data-bleft]', el); if (!x) { clearInterval(iv); return; }
+    if (ms <= 0) { clearInterval(iv); x.innerHTML = 'abgelaufen – <button class="btn pri" data-bnew>Neuer Tafel-Code</button>'; $('.ub-qr', el).classList.add('off'); $('.ub-pin', el).classList.add('off'); return; }
+    x.textContent = `gilt noch ${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')} min`; const m = $('[data-tleft]'); if (m) m.textContent = `${Math.max(1, Math.ceil(ms / 60000))} min`; };
+  const iv = setInterval(tick, 1000); tick();
+  const close = () => { clearInterval(iv); el.remove(); removeEventListener('keydown', key); draw(H, P); };
+  const key = e => { if (e.key === 'Escape') close(); }; addEventListener('keydown', key);
+  el.onclick = async e => {
+    if (e.target.closest('[data-bclose]')) close();
+    if (e.target.closest('[data-bend]')) { clearInterval(iv); removeEventListener('keydown', key); await endTafel(H, P); }
+    if (e.target.closest('[data-bnew]')) { clearInterval(iv); removeEventListener('keydown', key); el.remove(); openTafel(H, P); }
+  };
+}
+/** selbst eingetragene Namen der Namensliste zuordnen (Vorschläge wie bei den Prüfungen) oder in die Namensliste aufnehmen */
+async function mergeDialog(H, P) {
+  const { dialog, esc, api, K, S, toast, withBusy } = H, { matchRoster } = await import('./names.js');
+  const L = P.selfs, M = matchRoster(P.base, L.map((x, i) => ({ id: i, v: x.v, n: x.n })));
+  const pre = i => { const m = M.byPerson.get(i); return m ? P.base[m.idx].sid : P.base.length ? '' : '+'; };
+  const d = dialog('⇄ Namen zuordnen', `<p class="help">Links, was die Schüler selbst eingetippt haben; rechts der Name in der Klasse. Fortschritt und Abgaben wandern mit. Gelb = ähnlicher Name, bitte prüfen.</p>
+    <div class="m-list">${L.map((x, i) => { const m = M.byPerson.get(i), v = pre(i); return `<label class="m-row${m ? ' fuzzy' : ''}"><span><b>${esc(x.n)}</b>, ${esc(x.v)}${x.at ? ` <small class="help">${new Date(x.at * 1000).toLocaleDateString('de-DE')}</small>` : ''}${m ? '<br><span class="chip warn">ähnlicher Name – bitte prüfen</span>' : ''}</span>
+      <select data-i="${i}"><option value=""${v === '' ? ' selected' : ''}>– später zuordnen –</option><option value="+"${v === '+' ? ' selected' : ''}>＋ in die Namensliste aufnehmen</option>
+      ${P.base.length ? `<optgroup label="Namensliste">${P.base.map(r => `<option value="${esc(r.sid)}"${r.sid === v ? ' selected' : ''}>${esc(r.n)}, ${esc(r.v)}</option>`).join('')}</optgroup>` : ''}</select></label>`; }).join('')}</div>
+    <div class="err" id="err"></div><button class="btn pri" id="go">Zuordnung speichern</button>`, { wide: true });
+  $('#go', d.el).onclick = async () => {
+    const sel = $$('select[data-i]', d.el).map(s => [L[+s.dataset.i], s.value]).filter(([, v]) => v);
+    if (!sel.length) { d.close(); return; }
+    $('#go', d.el).disabled = true;
+    try {
+      await withBusy('wird zugeordnet …', async () => {
+        const add = sel.filter(([, v]) => v === '+').map(([x]) => ({ sid: x.sid, v: x.v, n: x.n }));
+        if (add.length) { // erst die Namensliste (für dich verschlüsselt), dann die Kopplungen
+          const c = P.D.c, roster = [...P.base, ...add].sort((a, b) => `${a.n} ${a.v}`.localeCompare(`${b.n} ${b.v}`, 'de'));
+          await api('cl_save', { id: c.id, name: c.name, fach_id: c.fach_id || 0, gewicht: c.gewicht, roster_enc: await K.seal(S.keys.pub_key, roster), roster_n: roster.length });
+          P.base = P.D.roster = roster;
+        }
+        for (const [x, v] of sel) await api('ut_merge', { id: P.cid, from: x.sid, to: v === '+' ? x.sid : v });
+      });
+      d.close(); toast(`✓ ${sel.length} ${sel.length === 1 ? 'Name' : 'Namen'} zugeordnet`); reload(H, P);
+    } catch (er) { $('#err', d.el).textContent = er.message; $('#go', d.el).disabled = false; }
+  };
+}
 
 /** Klassenschlüssel (einmal je Klasse; steckt in den QR-Codes) */
 async function classKey(H, P) {
