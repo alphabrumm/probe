@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Probe · Live-Ansicht</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="vendor/pathfinder/core/pathfinder.css">
+<style> html, body { height: 100%; margin: 0; } </style>
+</head>
+<body class="pf-player">
+<!-- Live-Ansicht der Lehrkraft (Modul Unterricht): Lernpfad schreibgeschützt mit dem Stand einer Schülerin, eines Schülers.
+     Die Probe-Seite startet sie (window.lvStart) und schiebt neue Stände nach (window.lvSet). -->
+<div class="app" id="app"><section class="lpwrap"><div class="lp-scroll" id="scroll"><div class="lp" id="lp"></div></div></section></div>
+<script type="module">
+import { startPathFinder } from './vendor/pathfinder/core/pathfinder.js';
+import { pappPlugin } from './vendor/pathfinder/core/pfpapp.js';
+let ctx = null;
+window.lvStart = o => {
+  ctx = startPathFinder({ player: true, readonly: true, doc: o.doc, progress: o.progress || {}, storage: 'probe-lv', appName: 'Probe', logo: 'app/icon.svg',
+    plugins: [pappPlugin], host: { appEvents: o.events || [], name: o.name || 'App' } });
+  if (o.follow && o.progress?.here) ctx.goStation(o.progress.here);
+};
+window.lvSet = (p, follow) => ctx?.setProgress(p, follow);
+parent.postMessage({ probeLv: 'ready' }, location.origin);
+</script>
+</body></html>

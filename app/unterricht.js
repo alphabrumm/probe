@@ -458,12 +458,22 @@ async function watchJPad(H, P, uid, sid) {
     const x = cur(); if (x && x.updated !== S.last) { S.last = x.updated; if (x.files) A.updateApp(x.files); } line();
   }, 3000);
 }
-/** Lernpfad + App: App schreibgeschützt mit dem Stand der Person, aktualisiert sich */
+/** Live-Ansicht (Lernpfad, Challenge, Lernpfad + App): der Stand der Person, schreibgeschützt; läuft die Einheit, alle 2 s neu.
+ *  Das Gerät zeigt solange „Deine Lehrkraft schaut zu“ und sendet schneller (ut_watch). */
+const DOCC = new Map(); // entschlüsselte Einheiten (nur im Speicher)
 async function watchApp(H, P, uid, sid) {
   const { api, esc, toast, K } = H, u = P.units.find(x => x.id === uid), r = P.roster.find(x => x.sid === sid); if (!u || !r) return;
-  let doc; try { doc = await K.openExamDoc(await classKey(H, P), (await api('ut_unit', { unit: uid, op: 'doc' })).doc_enc); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
-  const iv = u.status === 'laeuft' ? setInterval(() => pull(H, P).catch(() => { }), 3000) : null;
-  PA.watchPapp(H, { title: `👁 ${r.v} ${r.n} · ${doc.app?.m?.icon || '🧩'} ${u.title || ''}`, html: doc.app?.html || '', get: () => P.prog.get(uid)?.get(sid), onClose: () => clearInterval(iv) });
+  let doc = DOCC.get(uid); if (!doc) try { doc = await K.openExamDoc(await classKey(H, P), (await api('ut_unit', { unit: uid, op: 'doc' })).doc_enc); DOCC.set(uid, doc); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
+  const live = u.status === 'laeuft', ping = () => api('ut_watch', { id: P.cid, sid }).catch(() => { });
+  if (live) ping();
+  const iv = live ? setInterval(() => pull(H, P).catch(() => { }), 2000) : null, iw = live ? setInterval(ping, 15000) : null;
+  const papp = u.form === 'papp', lp = papp ? doc.lernpfad : doc;
+  // Kommentare wie bei JPad (uedit.comments_enc, Klassenschlüssel); „gelesen“ meldet das Gerät nicht – es zeigt den Punkt nur, bis die Person sie geöffnet hat
+  const ck = await classKey(H, P), loadCm = async () => { try { const E = await api('ut_edit', { unit: uid, sid, op: 'state' }); return E.comments_enc ? (await K.openExamDoc(ck, E.comments_enc)).list || [] : []; } catch (er) { return []; } };
+  PA.watchLive(H, { title: `👁 ${r.v} ${r.n} · ${papp ? (doc.app?.m?.icon || '🧩') + ' ' : ''}${u.title || ''}`, live, app: papp ? doc.app : null, lernpfad: lp,
+    get: () => P.prog.get(uid)?.get(sid), comments: loadCm,
+    onComment: live ? async c => { const L = await loadCm(); L.push({ id: Math.random().toString(36).slice(2, 10), ...c, at: Date.now() }); await api('ut_edit', { unit: uid, sid, op: 'comments', comments_enc: await K.sealExamDoc(ck, { list: L.slice(-50) }) }); } : null,
+    onClose: () => { clearInterval(iv); clearInterval(iw); if (live) api('ut_watch', { id: P.cid, sid, off: 1 }).catch(() => { }); } });
 }
 function liveTable(H, P, u, frozen = false) {
   if (u.form === 'jpad') return jpadTable(H, P, u, frozen);
@@ -473,9 +483,9 @@ function liveTable(H, P, u, frozen = false) {
   return `<p class="help" style="margin:6px 0">${frozen ? '' : `${act} gerade aktiv · `}${M.size} von ${R.length} haben begonnen · ${sub} abgegeben</p>
     <div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${frozen ? '' : '<th>zuletzt</th>'}<th>Fortschritt</th>${u.form === 'papp' ? '<th>App</th>' : ''}${st.map((s, i) => `<th class="u-st" title="${esc(s.t)}">${i + 1}</th>`).join('')}<th title="geöffnete Tipps">Tipps</th><th title="aktive Bearbeitungszeit">Zeit</th><th>Abgabe</th></tr>
     ${R.map(r => { const x = M.get(r.sid), s = x?.sum, seen = P.dev.get(r.sid)?.seen;
-      return `<tr><td>${nameCell(esc, r)}</td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : '<span title="noch nicht gekoppelt">nicht gekoppelt</span>'}</td>`}
+      return `<tr><td>${nameCell(esc, r)} <button class="btn sm ghost u-eye" data-pwatch="${u.id}|${esc(r.sid)}" title="${frozen ? 'Stand ansehen' : 'Live ansehen: Lernpfad' + (u.form === 'papp' ? ' und App' : '') + ' so, wie die Person ihn gerade sieht'}"${x ? '' : ' disabled'}>👁</button></td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : '<span title="noch nicht gekoppelt">nicht gekoppelt</span>'}</td>`}
         <td>${s ? `<span class="u-bar"><i style="width:${s.pct}%"></i></span> ${s.pct} %${s.total ? ` <span class="help">(${s.solved}/${s.total})</span>` : ''}` : '<span class="help">nicht begonnen</span>'}</td>
-        ${u.form === 'papp' ? `<td>${x?.app?.summary ? `<span class="u-bar"><i style="width:${x.app.summary.pct}%"></i></span> <span class="help">${esc(x.app.summary.text || x.app.summary.pct + ' %')}</span>` : ''} <button class="btn sm" data-pwatch="${u.id}|${esc(r.sid)}" title="App mit dem Stand dieser Person ansehen"${x ? '' : ' disabled'}>👁</button></td>` : ''}
+        ${u.form === 'papp' ? `<td>${x?.app?.summary ? `<span class="u-bar"><i style="width:${x.app.summary.pct}%"></i></span> <span class="help">${esc(x.app.summary.text || x.app.summary.pct + ' %')}</span>` : ''}</td>` : ''}
         ${st.map(t => { const y = s?.st?.find(z => z.id === t.id); return `<td class="u-st ${!y ? '' : y.of ? (y.n === y.of ? 'ok' : y.n ? 'half' : y.v ? 'seen' : '') : y.v ? 'ok' : ''}" title="${esc(t.t)}${y ? `: ${y.of ? `${y.n}/${y.of} gelöst` : y.v ? 'angesehen' : ''}${y.tips ? `, ${y.tips} Tipp${y.tips === 1 ? '' : 's'}` : ''}${y.sols ? `, ${y.sols} Lösung${y.sols === 1 ? '' : 'en'}` : ''}` : ''}">${y ? (y.of ? (y.n === y.of ? '✓' : y.n ? `${y.n}/${y.of}` : y.v ? '·' : '') : y.v ? '✓' : '') : ''}</td>`; }).join('')}
         <td>${s ? s.st.reduce((a, z) => a + (z.tips || 0), 0) || '' : ''}</td><td class="help">${s ? `${s.mins} min` : ''}</td><td>${x?.submitted ? `<span class="chip good" title="${esc(new Date(x.submitted * 1000).toLocaleString('de-DE'))}">✓</span>` : ''}</td></tr>`; }).join('')}</table></div>`;
 }

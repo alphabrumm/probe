@@ -148,3 +148,39 @@ export function ownAppDialog(H, { faecher = [], save, onDone }) {
   };
 }
 export { appFitsFach, appFitsJg };
+
+/* ---------- Live-Ansicht für Lernpfad, Challenge und Lernpfad + App ---------- */
+/** links die App (falls vorhanden), rechts der Lernpfad (lv.html, schreibgeschützt) mit dem Stand der Person; 📍 = mitgehen zur Station,
+ *  in der die Person gerade ist; 💬 = Kommentar (onComment). get() liefert den neuesten Stand { app, sum, prog, updated }. */
+export function watchLive(H, { title, live, app, lernpfad, get, comments, onComment, onClose }) {
+  const { esc, dialog, toast } = H, w = document.createElement('div'); w.className = 'papp-author';
+  w.innerHTML = `<div class="pa-bar"><b>${esc(title)}</b><span class="help" id="paSum"></span><span class="sp"></span>
+      ${live && lernpfad ? '<label class="help" title="Immer zur Station springen, in der die Person gerade ist"><input type="checkbox" id="paFol" checked> 📍 mitgehen</label>' : ''}
+      ${onComment ? '<button class="btn sm" data-cm>💬 Kommentar</button>' : ''}<button class="btn sm" data-x>Schließen</button></div>
+    <div class="pa-split">${app ? '<div class="pa-app" id="paApp"></div>' : ''}${lernpfad ? `<div class="pa-lp"${app ? '' : ' style="flex:1"'}><iframe src="lv.html" title="Lernpfad (Live-Ansicht)"></iframe></div>` : ''}</div>`;
+  document.body.appendChild(w); document.body.style.overflow = 'hidden';
+  const x0 = get(), fr = $('iframe', w), fol = () => !!$('#paFol', w)?.checked; let last = x0?.updated || 0, ready = false;
+  const A = app ? mountApp($('#paApp', w), { html: app.html || '', state: x0?.app?.state ?? null, readonly: true }) : null;
+  const onMsg = ev => { if (!fr || ev.source !== fr.contentWindow || ev.data?.probeLv !== 'ready') return; removeEventListener('message', onMsg); ready = true;
+    const x = get(); fr.contentWindow.lvStart({ doc: lernpfad, progress: x?.prog || {}, events: app?.m?.events || [], name: app?.m?.name, follow: fol() }); };
+  addEventListener('message', onMsg);
+  const stName = id => plain(lernpfad?.stations?.find(s => s.id === id)?.title) || '';
+  const line = () => { const x = get(); $('#paSum', w).textContent = x ? [x.app?.summary?.text, x.sum ? `Lernpfad ${x.sum.pct} %` : '', x.prog?.here && stName(x.prog.here) ? `📍 ${stName(x.prog.here)}` : '', `zuletzt ${new Date(x.updated * 1000).toLocaleTimeString('de-DE')}`].filter(Boolean).join(' · ') : 'noch nichts gemacht'; };
+  line();
+  const iv = setInterval(() => { const x = get(); if (x && x.updated !== last) { last = x.updated; A?.load(x.app?.state ?? null, true); if (ready) try { fr.contentWindow.lvSet(x.prog || {}, fol()); } catch (e) { } } line(); }, 1500);
+  w.onclick = async ev => {
+    if (ev.target.closest('[data-x]')) { clearInterval(iv); removeEventListener('message', onMsg); A?.destroy(); w.remove(); document.body.style.overflow = ''; onClose?.(); return; }
+    if (!ev.target.closest('[data-cm]')) return;
+    const here = get()?.prog?.here, L = (await comments?.()) || [];
+    const d = dialog('💬 Kommentar', `${L.length ? `<div class="pa-cms">${L.map(c => `<div>💬 ${esc(c.t)}${c.stt ? ` <span class="help">· ${esc(c.stt)}</span>` : ''} <span class="help">${new Date(c.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}${c.seen ? ' · gelesen' : ''}</span></div>`).join('')}</div>` : ''}
+      <label class="f">Neuer Kommentar<textarea id="cmT" rows="3" maxlength="600" placeholder="z. B. Schau dir bei Aufgabe 2 noch einmal den Tipp an."></textarea></label>
+      ${here && stName(here) ? `<label class="pref"><input type="checkbox" id="cmSt" checked><span>zur Station „${esc(stName(here))}“ (die Person kann hinspringen)</span></label>` : ''}
+      <p class="help">Auf dem iPad blinkt oben ein grüner Punkt; der Kommentar geht verschlüsselt (Klassenschlüssel) an die Person.</p>
+      <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">Senden</button></div>`);
+    $('#go', d.el).onclick = async () => {
+      const t = $('#cmT', d.el).value.trim(); if (!t) return; $('#go', d.el).disabled = true;
+      const st = $('#cmSt', d.el)?.checked ? here : null;
+      try { await onComment({ t, st, stt: st ? stName(st) : '' }); d.close(); toast('💬 gesendet'); } catch (er) { $('#err', d.el).textContent = er.message; $('#go', d.el).disabled = false; }
+    };
+  };
+}

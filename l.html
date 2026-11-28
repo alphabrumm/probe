@@ -61,6 +61,12 @@
   body.pf-player > .app.u-split { display: flex; } .app.u-split > .u-papp { flex: 55 1 0; min-width: 0; background: #fff; border-right: 1px solid #d6dbe8; }
   .app.u-split > .lpwrap { flex: 45 1 0; min-width: 0; } .app.u-split.u-only > .lpwrap { display: none; } .app.u-split.u-only > .u-papp { border: 0; }
   @media (max-width: 760px) { body.pf-player > .app.u-split { flex-direction: column; } .app.u-split > .u-papp { border-right: 0; border-bottom: 1px solid #d6dbe8; } }
+  .sb-w { font-size: 11.5px; font-weight: 600; color: #8a5a00; background: #fff3cd; border-radius: 6px; padding: 1px 6px; white-space: nowrap; animation: uw 2s ease-in-out infinite; }
+  .sbar .sb-c { position: relative; } .sbar .sb-c.blink::after { content: ''; position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 0 #22c55e; animation: cmb 1.2s ease-in-out infinite; }
+  @keyframes cmb { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, .7); } 50% { opacity: .35; box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); } }
+  .u-cmpop { position: fixed; z-index: 50; } .u-cmi { border-left: 4px solid #cfd5e3; padding: 6px 10px; margin: 8px 0; } .u-cmi.neu { border-color: #22c55e; background: #eef9f1; }
+  .u-cmi .linkbtn { border: 0; background: none; color: #2b46b5; font: inherit; padding: 0; cursor: pointer; }
+  @media (prefers-color-scheme: dark) { .u-cmi.neu { background: #1f3326; } .u-cmi .linkbtn { color: #9db0ff; } }
   .sb-st { font-size: 11.5px; white-space: nowrap; } .sb-x { display: inline-flex; gap: 6px; }
   .u-end { background: #fde8e7; color: #7a1b14; padding: 3px 12px; font-size: 12.5px; text-align: center; }
   @media (prefers-color-scheme: dark) { .u-tile { background: #1d2233; } .u-app, .u-pb button { background: #242a3d; border-color: #343c55; color: #eef; } .u-cm { background: #1f3326; } .u-back { color: #9db0ff; }
@@ -72,7 +78,8 @@
   <button id="sbBack" title="Zur Übersicht">‹<span class="t"> Übersicht</span></button>
   <span class="sb-st" id="sbSt"></span><span class="sb-t" id="sbT"></span>
   <span class="sb-sp"></span>
-  <span class="sb-save" id="sbSave"></span><span class="sb-x" id="sbX"></span>
+  <span class="sb-w" id="sbW" hidden>👁 Deine Lehrkraft schaut zu</span>
+  <span class="sb-save" id="sbSave"></span><button id="sbC" class="sb-c" hidden title="Kommentare deiner Lehrkraft">💬</button><span class="sb-x" id="sbX"></span>
   <button id="sbSub" title="Bearbeitung an die Lehrkraft abgeben">✓<span class="t"> Abgeben</span></button>
 </div>
 <div id="uEnd" class="u-end" hidden></div>

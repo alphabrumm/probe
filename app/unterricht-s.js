@@ -33,7 +33,7 @@ const allP = () => store('readonly', s => s.getAll(), 'p'), putP = x => store('r
 try { navigator.storage?.persist?.(); } catch (e) { }
 const rid = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
 /** Prüfsumme über den Inhalt – ohne Werte, die sich von selbst ändern (Bearbeitungszeit) */
-const stable = d => { const x = clone(d) || {}; if (x.prog) { delete x.prog.active; delete x.prog.start; } if (x.sum) delete x.sum.mins; delete x.at; return x; };
+const stable = d => { const x = clone(d) || {}; if (x.prog) { delete x.prog.active; delete x.prog.start; delete x.prog.here; } if (x.sum) delete x.sum.mins; delete x.at; return x; };
 async function hashOf(x) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(stable(x)))); return Array.from(new Uint8Array(b).slice(0, 12), v => v.toString(16).padStart(2, '0')).join(''); }
 /** Projekt sichern (mit Prüfsumme: so sieht das Gerät, ob sich seit dem Schicken etwas geändert hat) */
 async function saveP(p) { p.updated = Date.now(); p.hash = await hashOf(p.data); await putP(p); }
@@ -200,7 +200,7 @@ const X = {}; // Aktionen der Kopfleiste (je nach Ansicht belegt)
 /** Daten der Ansicht: live → an die Lehrkraft (gebündelt) und ins Gerät; Kopie → nur ins Gerät */
 function sink(o) {
   return data => {
-    if (o.mode === 'live') { last = data; dirty = true; putU({ ...clone(data), id: o.key }).catch(() => { }); clearTimeout(sendT); sendT = setTimeout(() => send(false), 3000); label('…'); }
+    if (o.mode === 'live') { last = data; dirty = true; putU({ ...clone(data), id: o.key }).catch(() => { }); clearTimeout(sendT); sendT = setTimeout(() => send(false), WATCH ? 800 : 3000); label('…'); }
     else if (o.mode === 'copy') { o.p.data = clone(data); saveP(o.p).catch(() => { }); label('✓ auf dem iPad'); }
   };
 }
@@ -210,18 +210,47 @@ function actions(o) {
   return o.mode === 'ro' ? '<button data-x="copy" title="Eigene Kopie zum Weiterarbeiten – deine Lehrkraft sieht sie nicht, du kannst sie ihr aber schicken">✎<span class="t"> Private Kopie</span></button>'
     : o.mode === 'copy' ? `<button data-x="send" title="${o.p.kind === 'copy' ? 'Deine Lehrkraft bitten, diese Kopie zu übernehmen' : 'Mit Lehrkraft teilen'}">📤<span class="t"> ${o.p.kind === 'copy' ? 'An Lehrkraft schicken' : 'Mit Lehrkraft teilen'}</span></button>` : '';
 }
-function liveCheck(o) { // Lebenszeichen; merkt, wenn die Lehrkraft die Einheit beendet
+/* Lebenszeichen alle 8 s: merkt, wenn die Lehrkraft die Einheit beendet, zuschaut (Hinweis, schneller senden) oder kommentiert */
+let WATCH = false, PF = null, CM = { cupd: null, list: [], key: '' };
+function liveCheck(o) {
   if (o.mode !== 'live') return;
-  cur = { k: o.k, u: o.u, pub: o.I.pub_key };
+  cur = { k: o.k, u: o.u, pub: o.I.pub_key }; CM.key = 'pfp.kommentar.gelesen.' + o.k.c + ':' + o.u.id;
+  setWatch(!!o.I.watch); if (o.u.edit) applyCm(o.k, o.u.edit);
   setInterval(async () => {
     if (document.visibilityState !== 'visible' || !cur) return;
-    try { const r = await api('ut_poll', { token: o.k.token, have: [o.u.id] }); if (!r.units.some(x => x.id === o.u.id)) ended(); } catch (er) { if (er.status === 401) ended(er.message); }
-  }, 45000);
+    try {
+      const r = await api('ut_poll', { token: o.k.token, have: [o.u.id] }), uu = r.units.find(x => x.id === o.u.id);
+      if (!uu) { setWatch(false); ended(); return; }
+      setWatch(!!r.watch); if (uu.edit) applyCm(o.k, uu.edit);
+    } catch (er) { if (er.status === 401) ended(er.message); }
+  }, 8000);
 }
+function setWatch(on) { WATCH = on; $('#sbW').hidden = !on; if (on && dirty) { clearTimeout(sendT); sendT = setTimeout(() => send(false), 300); } }
+/** Kommentare der Lehrkraft (mit dem Klassenschlüssel verschlüsselt): grüner Punkt blinkt, bis sie geöffnet wurden */
+const seenCm = () => { try { return new Set(JSON.parse(localStorage.getItem(CM.key) || '[]')); } catch (e) { return new Set(); } };
+async function applyCm(k, e) {
+  if (e.cupd === CM.cupd) return; CM.cupd = e.cupd;
+  try { CM.list = e.comments_enc ? (await K.openExamDoc(k.k, e.comments_enc)).list || [] : []; } catch (er) { CM.list = []; }
+  drawCm();
+  if (CM.list.some(c => !seenCm().has(c.id)) && navigator.vibrate) try { navigator.vibrate(60); } catch (er) { }
+}
+function drawCm() {
+  const b = $('#sbC'), S = seenCm(), n = CM.list.filter(c => !S.has(c.id)).length;
+  b.hidden = !CM.list.length; b.classList.toggle('blink', n > 0); b.title = n ? `${n} neue${n === 1 ? 'r' : ''} Kommentar${n === 1 ? '' : 'e'} deiner Lehrkraft` : 'Kommentare deiner Lehrkraft';
+}
+$('#sbC').onclick = () => {
+  const box = document.createElement('div'); box.className = 'u-endbox u-cmpop'; const S = seenCm();
+  box.innerHTML = `<div class="u-endin"><h2>💬 Kommentare deiner Lehrkraft</h2>${[...CM.list].reverse().map(c => `<div class="u-cmi${S.has(c.id) ? '' : ' neu'}"><div>${esc(c.t)}</div>
+      <div class="help">${new Date(c.at).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}${c.st ? ` · <button class="linkbtn" data-go="${esc(c.st)}">→ ${esc(c.stt || 'zur Station')}</button>` : ''}</div></div>`).join('')}
+    <div class="u-endbtns"><button data-e="ok">OK</button></div></div>`;
+  document.body.appendChild(box);
+  try { localStorage.setItem(CM.key, JSON.stringify(CM.list.map(c => c.id))); } catch (e) { } drawCm();
+  box.onclick = ev => { const g = ev.target.closest('[data-go]'); if (g) { PF?.goStation(g.dataset.go); box.remove(); return; } if (ev.target === box || ev.target.closest('[data-e]')) box.remove(); };
+};
 function openLp(o) {
   const { u, doc, mode } = o, data = mode === 'copy' ? o.p.data || {} : o.data, d = mode === 'copy' ? { ...doc, id: doc.id + '~' + o.p.id } : doc;
   bar(mode === 'copy' ? o.p.title : u.title || 'Lernpfad', mode, actions(o)); $('#sbSub').hidden = mode !== 'live' || !!u.submitted;
-  startPathFinder({ player: true, doc: d, storage: 'probe-u', appName: 'Probe', logo: 'app/icon.svg', readonly: mode === 'ro', ...(data.prog ? { progress: data.prog } : {}),
+  PF = startPathFinder({ player: true, doc: d, storage: 'probe-u', appName: 'Probe', logo: 'app/icon.svg', readonly: mode === 'ro', ...(data.prog ? { progress: data.prog } : {}),
     host: { onProgress: (sum, prog) => sink(o)({ sum, prog }) } });
   liveCheck(o);
 }
@@ -236,7 +265,7 @@ async function openPapp(o) {
     onState: (state, summary) => { data.app = { state, summary }; push(clone(data)); }, onEvent: n => ah.event(n), onError: msg => console.warn('App:', msg) });
   if (doc.lernpfad) {
     const lp = { ...doc.lernpfad, id: (doc.id || 'u') + '.lp' + (mode === 'copy' ? '~' + o.p.id : '') };
-    startPathFinder({ player: true, doc: lp, plugins: [PP.pappPlugin], storage: 'probe-u', appName: 'Probe', logo: 'app/icon.svg', readonly: mode === 'ro', ...(data.prog ? { progress: data.prog } : {}),
+    PF = startPathFinder({ player: true, doc: lp, plugins: [PP.pappPlugin], storage: 'probe-u', appName: 'Probe', logo: 'app/icon.svg', readonly: mode === 'ro', ...(data.prog ? { progress: data.prog } : {}),
       host: Object.assign(ah, { onProgress: (sum, prog) => { data.sum = sum; data.prog = prog; push(clone(data)); } }) });
   } else A.classList.add('u-only');
   liveCheck(o);

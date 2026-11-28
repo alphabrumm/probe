@@ -7,7 +7,7 @@ Der Datenordner data/ und config.local.php kommen nie ins Paket."""
 import os, re, shutil, subprocess, sys, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FILES = ['index.html', 'editor.html', 's.html', 'e.html', 'c.html', 'u.html', 'l.html', 'api.php', 'drop.php', 'manifest.webmanifest', '.htaccess']
+FILES = ['index.html', 'editor.html', 'lv.html', 's.html', 'e.html', 'c.html', 'u.html', 'l.html', 'api.php', 'drop.php', 'manifest.webmanifest', '.htaccess']
 DIRS = ['app', 'intern', 'apps']
 VENDOR = ['core', 'fonts']
 # from './x.js'  ·  import('./x.js')  ·  src="app/x.js"  ·  href="app/x.css"  (nur relative Pfade, ohne vorhandenes ?)

@@ -176,6 +176,11 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   **Übernehmen** (wird der Stand in der Einheit, auch nachgereicht nach dem Ende), **Ablehnen**, 💬 Kommentar (Klassenschlüssel).
   Übernommen und seitdem unverändert → die Kopie wird auf dem iPad zum eigenen Stand (wieder 🟢/🔴); geändert → bleibt 🟡.
   Ist nur eine Klasse gekoppelt, öffnet der Player gleich diese Klasse. Datenbank v27 (`ushare`).
+* **Live-Ansicht für Lernpfad, Challenge und Lernpfad + App:** 👁 neben dem Namen öffnet den Stand der Person (`lv.html`: PathFinder
+  schreibgeschützt mit `setProgress`, bei Lernpfad + App links die App mit ihrem Stand), alle 2 s neu; „📍 mitgehen“ springt zur Station,
+  in der die Person gerade ist (`prog.here`). Das iPad zeigt „👁 Deine Lehrkraft schaut zu“ und sendet schneller (`ut_watch`, Abfrage alle 8 s).
+  **💬 Kommentar** (optional zur aktuellen Station): auf dem iPad blinkt oben ein grüner Punkt, der Kommentar öffnet sich als Fenster mit
+  „→ Station“; gelesen = Punkt aus, Kommentare bleiben abrufbar (`uedit.comments_enc`, Klassenschlüssel, wie bei JPad).
 * **Probe-Apps** (`app/papps.js`, Protokoll in PathFinder `core/pfpapp.js`, `docs/PROBE-APPS.md`): kleine HTML-Lern-Apps, die links neben
   einem Lernpfad laufen; App-Aufgaben im Lernpfad sind gelöst, wenn die App ein Ereignis meldet. Eingebaut: **Zellaufbau**
   (`apps/zellaufbau.html`, Natur und Technik/Biologie 5–8, mit Beispiel-Lernpfad). Unterricht → „Probe-Apps“: „＋ Lernpfad + App“
