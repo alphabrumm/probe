@@ -1345,7 +1345,8 @@ case 'ut_shares': { // Anfragen („bitte übernehmen“) und Geteiltes der Sch�
 case 'ut_share_decide': { // übernehmen (Stand wird der Stand des Schülers in der Einheit), ablehnen, gesehen; reply_enc = Kommentare (Klassenschlüssel)
     $u = teacher(); $pdo = db(); $st = $pdo->prepare('SELECT s.* FROM ushare s JOIN classes c ON c.id = s.class_id WHERE s.id = ? AND c.owner_id = ?'); $st->execute([(int)($in['share'] ?? 0), $u['id']]);
     $s = $st->fetch() ?: fail('Nicht gefunden', 404); $op = (string)($in['op'] ?? '');
-    $to = ['uebernehmen' => 'uebernommen', 'ablehnen' => 'abgelehnt', 'gesehen' => 'gesehen'][$op] ?? fail('Unbekannt');
+    $to = ['uebernehmen' => 'uebernommen', 'ablehnen' => 'abgelehnt', 'gesehen' => 'gesehen', 'kommentar' => $s['status']][$op] ?? fail('Unbekannt');
+    if ($s['status'] === 'ersetzt') fail('Inzwischen gibt es eine neuere Fassung.', 409);
     if ($op === 'uebernehmen') {
         if (!$s['unit_id']) fail('Diese Anfrage gehört zu keiner Einheit.');
         $pdo->prepare('INSERT INTO uprogress (unit_id, sid, data_enc, updated, submitted) VALUES (?,?,?,?,NULL) ON CONFLICT(unit_id, sid) DO UPDATE SET data_enc = excluded.data_enc, updated = excluded.updated')

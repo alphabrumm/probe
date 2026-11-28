@@ -126,7 +126,7 @@ function jpadDialog(H, id, doc) {
       <label class="pref"><input type="radio" name="js" value="datei"${src0 === 'datei' ? ' checked' : ''}><span><b>Projektdatei</b><small>in JPad über ⋯ → Datei sichern bzw. Export gespeichert (.json)</small></span></label>
       <div><button class="btn sm" id="jf">⤒ Datei wählen</button> <span class="help" id="jfn">${proj ? esc(`${proj.modules.length} Datei${proj.modules.length === 1 ? '' : 'en'}${proj.lernpfadHtml ? ' + Lernpfad' : ''}`) : ''}</span></div>
       <label class="pref"><input type="radio" name="js" value="leer"${src0 === 'leer' ? ' checked' : ''}><span><b>Leeres Projekt</b><small>die Schüler beginnen mit dem Hauptprogramm</small></span></label></fieldset>
-    <p class="help">Gestartet wird das Projekt in einer Klasse („＋ Lernpfad starten“). Die Schüler arbeiten in JPad innerhalb von Probe Unterricht; du siehst live ihren Code.</p>
+    <p class="help">Gestartet wird das Projekt in einer Klasse („＋ Lernpfad starten“). Die Schüler arbeiten in JPad im PathFinder Player; du siehst live ihren Code.</p>
     <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">Speichern</button></div>`);
   $('#jf', d.el).onclick = () => pickFile('.json,application/json', async f => {
     try { let j = JSON.parse(await f.text()); if (Array.isArray(j)) j = j[0]; if (!j || !Array.isArray(j.modules)) throw new Error('Das ist keine JPad-Projektdatei.');
@@ -207,16 +207,16 @@ export async function viewUClass(H, cid) {
   clearInterval(POLL); main.innerHTML = '<p class="help">entschlüsselt …</p>';
   let D, R;
   try { [D, R] = await Promise.all([loadClass(H, cid), api('ut_class', { id: cid })]); } catch (er) { main.innerHTML = `<a class="back" href="#/unterricht">‹ Unterricht</a><p class="err">${esc(er.message)}</p>`; return; }
-  const P = { cid, c: R.class, apps: R.apps || {}, D, base: D.roster, roster: D.roster, selfs: [], couplings: R.couplings, units: R.units, prog: new Map(), dev: new Map(), since: 0, ukey: R.ukey_enc, now: R.now, k: null, showOld: false };
+  const P = { cid, c: R.class, apps: R.apps || {}, D, base: D.roster, roster: D.roster, selfs: [], couplings: R.couplings, units: R.units, prog: new Map(), dev: new Map(), since: 0, ukey: R.ukey_enc, now: R.now, k: null, showOld: false, tick: 0, shares: [] };
   try { const t = JSON.parse(sessionStorage.getItem('probe-tafel-' + cid) || 'null'); if (t && t.until > Date.now() && R.class.tafel_until) TAFEL.set(cid, t); } catch (er) { }
   await loadSelfs(H, P, R);
-  await pull(H, P);
+  await Promise.all([pull(H, P), loadShares(H, P)]);
   draw(H, P);
   POLL = setInterval(async () => {
     if (location.hash !== `#/uk/${cid}`) { clearInterval(POLL); $('.u-board')?.remove(); return; }
     if (document.visibilityState !== 'visible' || $('.dlg')) return;
     try {
-      const ch = await pull(H, P);
+      const ch = await pull(H, P); if (!(++P.tick % 3)) loadShares(H, P);
       if ([...P.dev].some(([s, d]) => s[0] === 'T' && d.paired && !P.roster.some(r => r.sid === s))) { await reload(H, P); boardCount(P); } // neu über den Tafel-Code
       else if (ch) drawLive(H, P); else drawSeen(H, P);
     } catch (er) { }
@@ -261,7 +261,7 @@ function draw(H, P) {
   const paired = P.roster.filter(r => P.dev.get(r.sid)?.paired).length, open = P.base.filter(r => !P.dev.get(r.sid)?.paired).length, T = tafelOn(P);
   main.innerHTML = `<a class="back" href="#/unterricht">‹ Unterricht</a>
     <h1>${esc(P.c.name)}${P.c.fach ? ' ' + esc(P.c.fach) : ''}</h1><p class="sub">Schuljahr ${esc(P.c.schuljahr)} · ${P.base.length} Schüler:innen${P.selfs.length ? ` · ${P.selfs.length} selbst eingetragen` : ''} · ${paired} gekoppelt <span class="c-lock">🔒 Namen und Stände nur für dich lesbar</span></p>
-    <div class="bar"><button class="btn pri" id="uStart">＋ Lernpfad starten</button><span class="sp"></span><span class="u-tafelbtn"><button class="btn" id="uTafel">▣ Tafel-QR-Code</button><button class="linkbtn" id="uWhat" aria-expanded="false">Was ist das?</button>
+    <div class="bar"><button class="btn pri" id="uStart">＋ Lernpfad starten</button><button class="btn" id="uApps" title="Apps, die die Schüler dieser Klasse im PathFinder Player frei nutzen dürfen">🧩 Apps${(P.c.apps || []).length ? ` (${P.c.apps.length})` : ''}</button><button class="btn" id="uReq" title="Kopien zum Übernehmen und mit dir geteilte Projekte">📥 Anfragen${shareBadge(P)}</button><span class="sp"></span><span class="u-tafelbtn"><button class="btn" id="uTafel">▣ Tafel-QR-Code</button><button class="linkbtn" id="uWhat" aria-expanded="false">Was ist das?</button>
       <span class="u-tip" id="uTip" role="tooltip" hidden>Mit dem <b>Tafel-QR-Code</b> und der <b>PIN</b> kommen Schüler in die Klasse, die keinen persönlichen QR-Code bekommen haben – z. B. in der ersten Stunde, wenn noch keine Codes gedruckt sind. Sie scannen den Code an der Tafel, geben die PIN und ihren Namen ein und sind gekoppelt. Code und PIN gelten 15 Minuten. Die Namen ordnest du danach der Namensliste zu (gleiche Namen von selbst).</span></span>
       <button class="btn" id="uQr">▦ QR-Codes zum Koppeln${open ? ` (${open} offen)` : ''}</button></div>
     ${T ? `<div class="u-tafel-on">▣ Tafel-Code aktiv – noch <b data-tleft>${Math.max(1, Math.ceil((T.until - Date.now()) / 60000))} min</b>${T.pin ? ` · PIN <b>${esc(T.pin)}</b>` : ''}<span class="sp"></span>${T.pin ? '<button class="btn sm" data-tshow="1">Anzeigen</button>' : ''}<button class="btn sm ghost danger" data-tend="1">Beenden</button></div>` : ''}
@@ -270,9 +270,11 @@ function draw(H, P) {
     ${done.length ? `<section class="card"><h2>Beendete Einheiten</h2><div class="tiles">${done.slice(0, 3).map(u => unitTile(H, P, u)).join('')}</div>
       ${done.length > 3 ? `<details class="u-old"${P.showOld ? ' open' : ''}><summary>Ältere Unterrichtseinheiten (${done.length - 3})</summary><div class="tiles">${done.slice(3).map(u => unitTile(H, P, u)).join('')}</div></details>` : ''}</section>` : ''}
     ${P.units.length ? `<section class="card"><h2>Bearbeitungsstatistik</h2>${statHtml(H, P)}</section>` : ''}
-    <section class="card"><h2>Kopplung</h2><p class="help">Jede Schülerin, jeder Schüler scannt einmal den eigenen QR-Code – danach ist das iPad mit dieser Klasse gekoppelt (App „Probe Unterricht“ auf dem Home-Bildschirm). Ein QR-Code gilt nur einmal; für ein neues oder zweites Gerät hier einen neuen erzeugen.</p>
+    <section class="card"><h2>Kopplung</h2><p class="help">Jede Schülerin, jeder Schüler scannt einmal den eigenen QR-Code – danach ist das iPad mit dieser Klasse gekoppelt (App „PathFinder Player“ auf dem Home-Bildschirm). Ein QR-Code gilt nur einmal; für ein neues oder zweites Gerät hier einen neuen erzeugen.</p>
       <div id="uCpl">${couplingHtml(H, P)}</div></section>`;
   $('#uStart').onclick = () => startDialog(H, P);
+  $('#uApps').onclick = () => classApps(H, P);
+  $('#uReq').onclick = () => sharesDialog(H, P);
   $('#uQr').onclick = () => qrDialog(H, P, P.base.filter(r => !P.dev.get(r.sid)?.paired).map(r => r.sid));
   $('#uTafel').onclick = () => tafelOn(P)?.pin ? showBoard(H, P) : openTafel(H, P);
   $('#uWhat').onclick = () => { const t = $('#uTip'), o = t.hidden; t.hidden = !o; $('#uWhat').setAttribute('aria-expanded', String(o)); };
@@ -302,6 +304,73 @@ function jpadTable(H, P, u, frozen) {
 /** Live-Ansicht des JPad-Codes einer Person: JPad schreibgeschützt, neuer Stand alle 3 Sekunden.
     ✎ Bearbeiten: das Gerät sperrt seinen Editor und bestätigt (ack) – erst dann ist der Code frei für die Lehrkraft; ↩ Zurückgeben
     schickt ihren Stand an das Gerät, ✕ Verwerfen gibt ohne Änderung frei. 💬 Kommentar: grüner Kreis an der Zeile beim Schüler. */
+/* ---------- Apps der Klasse und Anfragen der Schüler (Kopien übernehmen, geteilte Projekte) ---------- */
+const shareBadge = P => { const n = (P.shares || []).filter(s => s.status === 'offen').length; return n ? ` <span class="chip warn">${n}</span>` : ''; };
+async function loadShares(H, P) {
+  try { P.shares = (await H.api('ut_shares', { id: P.cid })).items; } catch (er) { P.shares = P.shares || []; }
+  const b = $('#uReq'); if (b) b.innerHTML = '📥 Anfragen' + shareBadge(P);
+}
+async function classApps(H, P) {
+  const { dialog, esc, toast, K } = H; let C; try { C = await PA.loadApps(H, true); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
+  const A = C.apps.filter(a => a.ready !== false && a.kind !== 'pfapp' && PA.allowed(C, a, P.c.fach)), on = new Set(P.c.apps || []);
+  const d = dialog('🧩 Apps für ' + P.c.name, `<p class="help">Diese Apps sehen die Schüler der Klasse im PathFinder Player unter „Apps“ und können damit <b>eigene Projekte</b> anlegen. Die Projekte liegen nur auf ihren iPads; mit „📤 Mit Lehrkraft teilen“ schicken sie dir eines (unter „📥 Anfragen“). Während einer Prüfung in dieser Klasse sind die Apps gesperrt.</p>
+    ${A.length ? `<div class="u-sel" style="max-height:none">${A.map(a => `<label><input type="checkbox" value="${esc(a.id)}"${on.has(a.id) ? ' checked' : ''}> ${esc(a.icon || '🧩')} <b>${esc(a.name)}</b> <span class="help">${esc(a.beschreibung || '')}</span></label>`).join('')}</div>` : '<p class="help">Für dieses Fach ist noch keine App freigegeben.</p>'}
+    <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">Speichern</button></div>`);
+  $('#go', d.el).onclick = async () => {
+    const ids = $$('input:checked', d.el).map(x => x.value); $('#go', d.el).disabled = true;
+    try {
+      const ck = await classKey(H, P), docs = {};
+      for (const id of ids) { const a = A.find(x => x.id === id); if (!a || (on.has(id) && a.kind === 'jpad')) continue;
+        docs[id] = await K.sealExamDoc(ck, a.kind === 'jpad' ? { kind: 'jpad', name: 'JPad', icon: '☕' } : { kind: 'html', name: a.name, icon: a.icon, m: { ...a.m, lernpfad: undefined, lernpfadText: undefined }, html: a.html }); }
+      P.c.apps = (await H.api('ut_class_apps', { id: P.cid, apps: ids, docs })).apps; d.close(); toast('✓ Apps gespeichert'); draw(H, P);
+    } catch (er) { $('#err', d.el).textContent = er.message; $('#go', d.el).disabled = false; }
+  };
+}
+async function sharesDialog(H, P) {
+  const { dialog, esc, toast, K, S, api } = H; await loadShares(H, P);
+  const L = P.shares || [], ck = await classKey(H, P), name = sid => { const r = P.roster.find(x => x.sid === sid); return r ? `${esc(r.n)}, ${esc(r.v)}` : '<span class="help">unbekannt</span>'; };
+  const unitT = id => esc(P.units.find(u => u.id === +id)?.title || 'Einheit');
+  const ST = { offen: '<span class="chip warn">offen</span>', uebernommen: '<span class="chip good">übernommen</span>', abgelehnt: '<span class="chip">abgelehnt</span>', gesehen: '<span class="chip">gesehen</span>', ersetzt: '<span class="chip">ersetzt</span>' };
+  const rows = L.filter(s => s.status !== 'ersetzt');
+  const d = dialog('📥 Anfragen und geteilte Projekte', `<p class="help"><b>Kopie</b>: Ein Schüler hat nach dem Ende einer Einheit (oder privat) weitergearbeitet und bittet dich, seine Kopie zu übernehmen – dann wird sie sein Stand in der Einheit (z. B. nachgereicht). <b>Geteilt</b>: ein eigenes App-Projekt zum Ansehen und Kommentieren.</p>
+    ${rows.length ? `<div class="scroll-x"><table class="t"><tr><th>Name</th><th>Was</th><th>Wann</th><th>Status</th><th></th></tr>${rows.map(s => `<tr><td>${name(s.sid)}</td>
+      <td>${s.kind === 'copy' ? `🟡 Kopie · ${unitT(s.unit_id)}` : `📤 ${esc(s.title || 'Projekt')}`} <span class="help">${esc(s.app || '')}</span><div class="help" data-sum="${s.id}"></div></td>
+      <td class="help">${new Date(s.created * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td><td>${ST[s.status] || esc(s.status)}</td>
+      <td class="nowrap"><button class="btn sm" data-sv="${s.id}">👁</button>${s.kind === 'copy' && s.status === 'offen' ? `<button class="btn sm pri" data-sok="${s.id}">Übernehmen</button><button class="btn sm" data-sno="${s.id}">Ablehnen</button>` : ''}<button class="btn sm" data-scm="${s.id}" title="Kommentar schreiben">💬</button></td></tr>`).join('')}</table></div>`
+      : '<p class="help">Gerade keine Anfragen.</p>'}`, { wide: true });
+  const data = new Map(), get = async s => { if (!data.has(s.id)) data.set(s.id, await K.open(S.priv, s.data_enc)); return data.get(s.id); };
+  for (const s of rows) get(s).then(x => { const e = $(`[data-sum="${s.id}"]`, d.el); if (e) e.textContent = x.sum?.pct != null ? `Lernpfad ${x.sum.pct} %` : x.files ? `${x.files.length} Datei(en)` : x.summary?.text || x.app?.summary?.text || ''; }).catch(() => { });
+  const comment = async (s, t) => { let list = []; try { if (s.reply_enc) list = (await K.openExamDoc(ck, s.reply_enc)).list || []; } catch (er) { } list.push({ t, at: Date.now() }); return K.sealExamDoc(ck, { list }); };
+  const decide = async (s, op, t) => { await api('ut_share_decide', { share: s.id, op, ...(t ? { reply_enc: await comment(s, t) } : {}) }); };
+  d.el.onclick = async ev => {
+    const b = ev.target.closest('[data-sv],[data-sok],[data-sno],[data-scm]'); if (!b) return;
+    const s = rows.find(x => x.id === +(b.dataset.sv || b.dataset.sok || b.dataset.sno || b.dataset.scm)); if (!s) return;
+    try {
+      if (b.dataset.sv) { d.close(); return viewShare(H, P, s, await get(s)); }
+      if (b.dataset.sok) { if (!confirm('Diese Kopie als Stand in der Einheit übernehmen? Der bisherige Stand wird ersetzt.')) return; await decide(s, 'uebernehmen'); toast('✓ übernommen'); P.since = 0; await pull(H, P); }
+      if (b.dataset.sno) { const t = prompt('Ablehnen – Kommentar für den Schüler (optional):', ''); if (t == null) return; await decide(s, 'ablehnen', t.trim()); toast('abgelehnt'); }
+      if (b.dataset.scm) { const t = prompt('Kommentar für den Schüler:', ''); if (!t?.trim()) return; await decide(s, s.kind === 'share' ? 'gesehen' : 'kommentar', t.trim()); toast('💬 gesendet'); }
+      d.close(); sharesDialog(H, P); draw(H, P);
+    } catch (er) { toast('⚠ ' + esc(er.message), 5000); }
+  };
+}
+/** Anfrage ansehen: JPad schreibgeschützt bzw. App mit dem Stand des Schülers */
+async function viewShare(H, P, s, x) {
+  const { api, esc, toast, K } = H, ck = await classKey(H, P), r = P.roster.find(y => y.sid === s.sid), who = r ? `${r.v} ${r.n}` : '';
+  if (s.kind === 'share' && s.status === 'offen') api('ut_share_decide', { share: s.id, op: 'gesehen' }).then(() => loadShares(H, P)).catch(() => { });
+  let doc = null; if (s.unit_id) try { doc = await K.openExamDoc(ck, (await api('ut_unit', { unit: +s.unit_id, op: 'doc' })).doc_enc); } catch (er) { }
+  if (x.files) {
+    const A = await import('../vendor/pathfinder/core/pfapp.js');
+    A.openApp({ app: 'jpad', url: UAPPS.jpad, mode: 'unterricht', task: 's' + s.id, title: `👁 ${who} · ${s.title || ''}`, files: x.files, readonly: true, closeLabel: 'Schließen',
+      extra: { ...(doc?.jcode ? { jcode: doc.jcode } : {}), ...(doc?.project ? { project: doc.project, projectKey: 's' + s.id } : {}) } });
+    A.appStatus(s.kind === 'copy' ? 'Kopie des Schülers – nur ansehen' : 'geteiltes Projekt – nur ansehen'); return;
+  }
+  let html = doc?.app?.html || '';
+  if (!html) { const C = await PA.loadApps(H), a = C.apps.find(y => y.id === s.app); html = a?.html || ''; }
+  if (!html) { toast(x.sum ? `Lernpfad: ${x.sum.pct} % (${x.sum.solved}/${x.sum.total})` : 'Zu diesem Stand gibt es keine Ansicht.', 5000); return; }
+  const st = x.app ? x.app : { state: x.state, summary: x.summary };
+  PA.watchPapp(H, { title: `👁 ${who} · ${s.title || ''}`, html, get: () => ({ app: st, sum: x.sum, updated: Math.round((x.at || Date.now()) / 1000) }) });
+}
 async function watchJPad(H, P, uid, sid) {
   const { api, esc, toast, K } = H, u = P.units.find(x => x.id === uid), r = P.roster.find(x => x.sid === sid); if (!u || !r) return;
   let doc, E, ck; try { ck = await classKey(H, P); [doc, E] = await Promise.all([api('ut_unit', { unit: uid, op: 'doc' }).then(x => K.openExamDoc(ck, x.doc_enc)), api('ut_edit', { unit: uid, sid, op: 'state' })]); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
@@ -489,7 +558,7 @@ async function showBoard(H, P) {
   const link = `${new URL('l.html', location.href).href.replace(/[?#].*$/, '')}#t=${P.cid}.${t.s}.${await classKey(H, P)}`;
   $('.u-board')?.remove();
   const el = document.createElement('div'); el.className = 'u-board'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Tafel-QR-Code');
-  el.innerHTML = `<div class="ub-top"><b>${esc(P.c.name)}${P.c.fach ? ' · ' + esc(P.c.fach) : ''}</b> · Probe Unterricht<span class="sp"></span><button class="btn" data-bclose>Schließen</button><button class="btn ghost danger" data-bend>Tafel-Code beenden</button></div>
+  el.innerHTML = `<div class="ub-top"><b>${esc(P.c.name)}${P.c.fach ? ' · ' + esc(P.c.fach) : ''}</b> · PathFinder Player<span class="sp"></span><button class="btn" data-bclose>Schließen</button><button class="btn ghost danger" data-bend>Tafel-Code beenden</button></div>
     <div class="ub-main"><div class="ub-qr">${qrSvg(link, { title: 'Tafel-QR-Code' })}</div>
       <div class="ub-side"><div class="ub-l">PIN</div><div class="ub-pin">${esc(t.pin)}</div>
         <ol><li>QR-Code mit der Kamera scannen</li><li>PIN eingeben</li><li>Vor- und Nachnamen eintragen</li></ol>
@@ -611,12 +680,12 @@ function qrPdf(P, cards) {
     pdf.line(x0 + 4, y0 + 4, x0 + W - 4, y0 + 4, '#dddddd', 0.4); // Schnittlinien angedeutet
     let y = y0 + 30;
     pdf.text(fit(`${r.v} ${r.n}`, 17, true, W - 24), x0 + 12, y, 17, { bold: true }); y += 17;
-    pdf.text(fit(`${P.c.name}${P.c.fach ? ' · ' + P.c.fach : ''} · Probe Unterricht`, 10.5, false, W - 24), x0 + 12, y, 10.5, { col: '#555555' }); y += 12;
+    pdf.text(fit(`${P.c.name}${P.c.fach ? ' · ' + P.c.fach : ''} · PathFinder Player`, 10.5, false, W - 24), x0 + 12, y, 10.5, { col: '#555555' }); y += 12;
     const QM = qrMatrix(link), c = Q / QM.length, qx = x0 + (W - Q) / 2, qy = y + 4;
     pdf.color('#000000');
     QM.forEach((row, yy) => { let s0 = -1; for (let xx = 0; xx <= row.length; xx++) { const on = xx < row.length && row[xx]; if (on && s0 < 0) s0 = xx; if (!on && s0 >= 0) { pdf.ops.push(`${(qx + s0 * c).toFixed(2)} ${(PAGE_H - qy - (yy + 1) * c).toFixed(2)} ${((xx - s0) * c).toFixed(2)} ${c.toFixed(2)} re f`); s0 = -1; } } });
     y = qy + Q + 16;
-    for (const l of wrap('1. Mit der Kamera scannen und den Link öffnen. 2. In Safari: Teilen → „Zum Home-Bildschirm“. 3. Ab jetzt über das Symbol „Probe Unterricht“ starten. Der Code gilt nur einmal.', 8.5, false, W - 24)) { pdf.text(l, x0 + 12, y, 8.5, { col: '#555555' }); y += 11; }
+    for (const l of wrap('1. Mit der Kamera scannen und den Link öffnen. 2. In Safari: Teilen → „Zum Home-Bildschirm“. 3. Ab jetzt über das Symbol „PathFinder“ starten. Der Code gilt nur einmal.', 8.5, false, W - 24)) { pdf.text(l, x0 + 12, y, 8.5, { col: '#555555' }); y += 11; }
   });
   return pdf.bytes();
 }

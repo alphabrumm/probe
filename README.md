@@ -169,6 +169,23 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   und erscheint auf den gekoppelten Geräten (Abfrage alle 10 s). Er läuft über mehrere Stunden, bis die Lehrkraft „Beenden“ tippt
   (wieder öffnen möglich). Schüler senden ihren Stand nur bei Änderungen (gebündelt, für die Lehrkraft verschlüsselt) plus
   Lebenszeichen alle 45 s; „Abgeben“ markiert die Abgabe. PathFinder meldet den Stand über `host.onProgress` (Kurzfassung je Station).
+* **PathFinder Player** (`l.html`, Symbol „PathFinder“): je gekoppelter Klasse eine Kachel; in der Klasse 🟢 laufende Einheiten
+  (Stand geht an die Lehrkraft), 🔴 beendete (nur ansehen, `opts.readonly` in PathFinder), 🟡 **private Kopien** und eigene Projekte
+  (IndexedDB-Store `p`, nur auf dem iPad). „✎ Private Kopie“ einer beendeten Einheit; „📤 An Lehrkraft schicken“ (`ut_share`, für die
+  Lehrkraft verschlüsselt, mit Prüfsumme). Die Lehrkraft sieht unter **📥 Anfragen** Kopien und geteilte Projekte: 👁 ansehen,
+  **Übernehmen** (wird der Stand in der Einheit, auch nachgereicht nach dem Ende), **Ablehnen**, 💬 Kommentar (Klassenschlüssel).
+  Übernommen und seitdem unverändert → die Kopie wird auf dem iPad zum eigenen Stand (wieder 🟢/🔴); geändert → bleibt 🟡.
+  Ist nur eine Klasse gekoppelt, öffnet der Player gleich diese Klasse. Datenbank v27 (`ushare`).
+* **Probe-Apps** (`app/papps.js`, Protokoll in PathFinder `core/pfpapp.js`, `docs/PROBE-APPS.md`): kleine HTML-Lern-Apps, die links neben
+  einem Lernpfad laufen; App-Aufgaben im Lernpfad sind gelöst, wenn die App ein Ereignis meldet. Eingebaut: **Zellaufbau**
+  (`apps/zellaufbau.html`, Natur und Technik/Biologie 5–8, mit Beispiel-Lernpfad). Unterricht → „Probe-Apps“: „＋ Lernpfad + App“
+  (links die App zum Ausprobieren, rechts der Lernpfad-Editor), **＋ Eigene Probe-App** (beschreiben → Prompt für eine andere KI →
+  HTML einfügen → Probe-Check: Sandbox ohne Netz, keine externen Quellen, Testlauf). Im KI-Dialog (Schritt 2) erscheinen passende
+  Apps je Fach und Jahrgangsstufe als „Als …-Projekt realisieren“. Dashboard: Spalte „App“ (Zusammenfassung der App) und 👁 Live-Ansicht.
+* **Apps der Klasse:** „🧩 Apps“ in der Klasse – die gewählten Apps sehen die Schüler im Player unter „Apps“ und legen damit eigene
+  Projekte an („📤 Mit Lehrkraft teilen“). Inhalt mit dem Klassenschlüssel verschlüsselt (`capps`); gesperrt, solange in der Klasse eine
+  Prüfung offen ist. **Admin → Apps:** Freigabe je App für alle, für Fächer oder einzelne Lehrkräfte (`papp_rules`); ohne Eintrag gilt
+  das Fach aus dem Steckbrief der App; eigene Apps nur für die Lehrkraft, die sie angelegt hat.
 * **Dashboard:** laufende Einheiten live (alle 7 s; zuletzt aktiv, Fortschritt, Stationen, Tipps, Zeit, Abgabe), beendete Einheiten
   (die letzten 3 als Kacheln, ältere eingeklappt), **Bearbeitungsstatistik** (Schüler × Einheiten, keine Note), Kopplung.
 

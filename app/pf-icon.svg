@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7a5ae0"/>
+      <stop offset=".55" stop-color="#d64ad6"/>
+      <stop offset="1" stop-color="#f6bf3a"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- Pfad in Form eines P: Start unten, den Schaft hinauf, um den Bogen herum bis zum Ziel -->
+  <path d="M170 428 V 120 H 300 A 92 92 0 0 1 300 304 H 214" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 50" opacity=".95"/>
+  <circle cx="170" cy="428" r="32" fill="#fff"/>
+  <circle cx="170" cy="428" r="13" fill="#7a5ae0"/>
+  <circle cx="170" cy="230" r="25" fill="#fff"/>
+  <circle cx="170" cy="230" r="10" fill="#a654dc"/>
+  <circle cx="392" cy="212" r="25" fill="#fff"/>
+  <circle cx="392" cy="212" r="10" fill="#e8578f"/>
+  <!-- Ziel mit Fahne -->
+  <circle cx="214" cy="304" r="16" fill="#fff"/>
+  <path d="M214 304 V 214" stroke="#2b2300" stroke-width="13" stroke-linecap="round"/>
+  <path d="M220 216 L 282 236 L 220 258 Z" fill="#2b2300"/>
+</svg>

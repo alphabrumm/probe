@@ -623,7 +623,7 @@ let adminTab = 'lk';
 async function viewAdmin() {
   let D; try { D = await api('admin_list'); } catch (e) { main.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const FS = Object.fromEntries(D.fachschaften.map(f => [f.id, f]));
-  const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['sk', 'Schulschlüssel'], ['bk', 'Sicherungen'], ['si', 'Sicherheit']];
+  const tabs = [['lk', 'Lehrkräfte'], ['fs', 'Fachschaften'], ['fa', 'Fächer'], ['je', 'Schuljahresende'], ['ap', 'Apps'], ['sk', 'Schulschlüssel'], ['bk', 'Sicherungen'], ['si', 'Sicherheit']];
   let h = `<a class="back" href="#/">‹ Meine Prüfungen</a><h1>Admin</h1><p class="sub">Lehrkräfte, Fachschaften und Fächer. Prüfungsinhalte und Schülernamen sieht der Admin nicht.</p>
     <div class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" aria-pressed="${adminTab === k}">${n}</button>`).join('')}</div><section class="card">`;
   if (adminTab === 'lk') h += `<div class="bar"><h2 style="margin:0">Lehrkräfte</h2><span class="sp"></span><button class="btn" data-umany id="umany" disabled>🔑 Passwörter zurücksetzen</button><button class="btn pri" data-uadd>＋ Lehrkraft</button></div><div class="scroll-x"><table class="t"><tr><th style="width:2.2em"><input type="checkbox" id="uall" aria-label="alle auswählen" title="alle auswählen"></th><th>Nutzername</th><th>Name</th><th>Fächer</th><th>Rollen</th><th>Status</th><th></th></tr>
@@ -645,6 +645,7 @@ async function viewAdmin() {
     <label class="ck"><input type="checkbox" id="pcr"> auch die anonymisierten Auswertungen der Schulberatung</label>
     <div class="btns" style="margin-top:12px"><button class="btn danger" data-cpurge>Coaching-Daten aller Lehrkräfte löschen</button></div>`;
   if (adminTab === 'si') h += `<h2>Sicherheit</h2><div id="sec">wird geprüft …</div>`;
+  if (adminTab === 'ap') h += `<h2>Apps im Unterricht</h2><p class="help">Welche Lehrkräfte die Probe-Apps (z. B. JPad, Zellaufbau) im Modul Unterricht nutzen dürfen. Ohne eigene Freigabe gilt das Fach aus dem Steckbrief der App. Eigene Apps einer Lehrkraft darf nur sie selbst nutzen.</p><div id="apbox">lädt …</div>`;
   if (adminTab === 'sk') h += `<h2>Schul-Wiederherstellungsschlüssel</h2><div id="skbox">lädt …</div>`;
   if (adminTab === 'bk') h += `<div class="bar"><h2 style="margin:0">Datenbank-Sicherungen</h2><span class="sp"></span><button class="btn pri" data-bknew>Jetzt sichern</button></div>
     <p class="help">Vollständige Kopie der Datenbank auf dem Webspace (im gesperrten Datenordner unter <code>sicherungen/</code>). Probe sichert außerdem automatisch, bevor ein Update die Datenbank umbaut. Die letzten Sicherungen bleiben, ältere werden gelöscht.
@@ -694,8 +695,32 @@ async function viewAdmin() {
     }
     if (t.dataset.faakt) { const f = D.faecher.find(x => x.id === +t.dataset.faakt); await api('fach_save', { id: f.id, name: f.name, aktiv: t.checked ? 1 : 0 }); f.aktiv = t.checked ? 1 : 0; S.catalog = null; } };
   if (adminTab === 'si') securityCheck();
+  if (adminTab === 'ap') adminApps(D);
   if (adminTab === 'bk') backups();
   if (adminTab === 'sk') import('./schulschluessel.js').then(m => m.schoolKeyTab($('#skbox'), { ...helpers(), showPdf }));
+}
+/** Admin: Freigabe der Apps je Fach, für alle oder für einzelne Lehrkräfte */
+async function adminApps(D) {
+  const box = $('#apbox'), PA = await import('./papps.js'); let R, T;
+  try { [R, T] = await Promise.all([api('papp_rules'), api('adm_teachers')]); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const apps = [];
+  for (const b of PA.BUILTIN) { let a = { ...b }; if (b.file) try { const { readManifest } = await import('../vendor/pathfinder/core/pfpapp.js'), { m } = readManifest(await (await fetch(b.file, { cache: 'no-cache' })).text()); if (!m) continue; a = { ...a, name: m.name, icon: m.icon, fach: m.fach, beschreibung: m.beschreibung }; } catch (e) { continue; } apps.push(a); }
+  const ruleTxt = (a, r) => !r ? `Standard: ${a.fach ? esc(a.fach) : 'alle Fächer'}` : r.alle ? 'alle Lehrkräfte' : [...(r.faecher || []).map(esc), ...(r.lehrkraefte || []).map(id => esc(T.items.find(t => +t.id === id)?.kuerzel || '#' + id))].join(', ') || 'niemand';
+  box.innerHTML = `<table class="t"><tr><th>App</th><th>freigegeben für</th><th></th></tr>${apps.map(a => `<tr><td>${esc(a.icon || '🧩')} <b>${esc(a.name)}</b>${a.ready === false ? ' <span class="chip">in Vorbereitung</span>' : ''}<div class="help">${esc(a.beschreibung || '')}</div></td>
+    <td>${ruleTxt(a, R.rules[a.id])}</td><td class="act"><button class="btn sm" data-apedit="${esc(a.id)}">Ändern</button>${R.rules[a.id] ? ` <button class="btn sm ghost" data-apreset="${esc(a.id)}">Standard</button>` : ''}</td></tr>`).join('')}</table>`;
+  box.onclick = async ev => {
+    const e = ev.target.closest('[data-apedit]'), r0 = ev.target.closest('[data-apreset]');
+    if (r0) { await api('adm_papp_rule', { app: r0.dataset.apreset, reset: 1 }); return adminApps(D); }
+    if (!e) return; const a = apps.find(x => x.id === e.dataset.apedit), r = R.rules[a.id] || { alle: false, faecher: String(a.fach || '').split(',').map(s => s.trim()).filter(Boolean), lehrkraefte: [] };
+    const d = dialog(`${a.icon || '🧩'} ${a.name} – Freigabe`, `<label class="pref"><input type="checkbox" id="apAll"${r.alle ? ' checked' : ''}><span><b>alle Lehrkräfte</b></span></label>
+      <h3>Fächer</h3><div class="u-sel" style="max-height:200px">${R.faecher.map(f => `<label><input type="checkbox" data-apf value="${esc(f)}"${(r.faecher || []).includes(f) ? ' checked' : ''}> ${esc(f)}</label>`).join('')}</div>
+      <h3>einzelne Lehrkräfte</h3><div class="u-sel" style="max-height:220px">${T.items.map(t => `<label><input type="checkbox" data-apl value="${t.id}"${(r.lehrkraefte || []).includes(+t.id) ? ' checked' : ''}> <b>${esc(t.kuerzel)}</b> ${esc(t.name || '')}</label>`).join('')}</div>
+      <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">Speichern</button></div>`, { wide: true });
+    $('#go', d.el).onclick = async () => {
+      try { await api('adm_papp_rule', { app: a.id, rule: { alle: $('#apAll', d.el).checked, faecher: $$('[data-apf]:checked', d.el).map(x => x.value), lehrkraefte: $$('[data-apl]:checked', d.el).map(x => +x.value) } }); d.close(); adminApps(D); }
+      catch (er) { $('#err', d.el).textContent = er.message; }
+    };
+  };
 }
 async function backups() {
   const box = $('#bk'); if (!box) return; let r;
