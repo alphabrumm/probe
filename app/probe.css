@@ -412,3 +412,14 @@ td.u-st.ok { background: #e3f4ea; color: #1f7a45; font-weight: 700; } td.u-st.ha
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
 .pa-cms { max-height: 220px; overflow: auto; display: grid; gap: 6px; margin-bottom: 10px; } .pa-cms > div { background: #eef7f0; border-radius: 8px; padding: 6px 10px; }
 .u-eye { padding: 0 6px; min-height: 0; }
+/* Unterricht: Fortschrittsleiste (eigener Stand, Ø und Beste:r) und Markierung der Zeilen */
+.u-pbar { position: relative; display: inline-block; vertical-align: middle; width: 96px; height: 9px; border-radius: 5px; background: var(--line, #e3e7f0); }
+.u-pbar > i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: #3b82f6; }
+.u-pbar > b { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px; border-radius: 2px; }
+.u-pbar > b.avg { background: #475569; } .u-pbar > b.best { background: #f59e0b; }
+.u-tick { display: inline-block; width: 3px; height: 12px; border-radius: 2px; vertical-align: middle; } .u-tick.avg { background: #475569; } .u-tick.best { background: #f59e0b; }
+.u-key { display: inline-block; width: 14px; height: 10px; border-radius: 3px; vertical-align: middle; } .u-key.slow { background: #fde2e2; } .u-key.fast { background: #dcfce7; }
+.u-tab tr.u-slow > td, .u-tab td.u-slow { background: #fde2e2; } .u-tab tr.u-fast > td, .u-tab td.u-fast { background: #dcfce7; }
+.u-dt { font-size: 12px; color: var(--ink-2, #667); white-space: nowrap; }
+.u-leg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+@media (prefers-color-scheme: dark) { .u-tab tr.u-slow > td, .u-tab td.u-slow { background: #4a2a2e; } .u-tab tr.u-fast > td, .u-tab td.u-fast { background: #1f3a2a; } }

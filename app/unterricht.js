@@ -210,13 +210,13 @@ export async function viewUClass(H, cid) {
   const P = { cid, c: R.class, apps: R.apps || {}, D, base: D.roster, roster: D.roster, selfs: [], couplings: R.couplings, units: R.units, prog: new Map(), dev: new Map(), since: 0, ukey: R.ukey_enc, now: R.now, k: null, showOld: false, tick: 0, shares: [] };
   try { const t = JSON.parse(sessionStorage.getItem('probe-tafel-' + cid) || 'null'); if (t && t.until > Date.now() && R.class.tafel_until) TAFEL.set(cid, t); } catch (er) { }
   await loadSelfs(H, P, R);
-  await Promise.all([pull(H, P), loadShares(H, P)]);
+  await Promise.all([pull(H, P), loadShares(H, P)]); pubStats(H, P);
   draw(H, P);
   POLL = setInterval(async () => {
     if (location.hash !== `#/uk/${cid}`) { clearInterval(POLL); $('.u-board')?.remove(); return; }
     if (document.visibilityState !== 'visible' || $('.dlg')) return;
     try {
-      const ch = await pull(H, P); if (!(++P.tick % 3)) loadShares(H, P);
+      const ch = await pull(H, P); if (!(++P.tick % 3)) loadShares(H, P); if (ch) pubStats(H, P);
       if ([...P.dev].some(([s, d]) => s[0] === 'T' && d.paired && !P.roster.some(r => r.sid === s))) { await reload(H, P); boardCount(P); } // neu über den Tafel-Code
       else if (ch) drawLive(H, P); else drawSeen(H, P);
     } catch (er) { }
@@ -269,7 +269,7 @@ function draw(H, P) {
     <div id="uRun">${runHtml(H, P, run)}</div>
     ${done.length ? `<section class="card"><h2>Beendete Einheiten</h2><div class="tiles">${done.slice(0, 3).map(u => unitTile(H, P, u)).join('')}</div>
       ${done.length > 3 ? `<details class="u-old"${P.showOld ? ' open' : ''}><summary>Ältere Unterrichtseinheiten (${done.length - 3})</summary><div class="tiles">${done.slice(3).map(u => unitTile(H, P, u)).join('')}</div></details>` : ''}</section>` : ''}
-    ${P.units.length ? `<section class="card"><h2>Bearbeitungsstatistik</h2>${statHtml(H, P)}</section>` : ''}
+    ${P.units.length ? `<section class="card"><h2>Bearbeitungsstatistik</h2><div id="uStat">${statHtml(H, P)}</div></section>` : ''}
     <section class="card"><h2>Kopplung</h2><p class="help">Jede Schülerin, jeder Schüler scannt einmal den eigenen QR-Code – danach ist das iPad mit dieser Klasse gekoppelt (App „PathFinder Player“ auf dem Home-Bildschirm). Ein QR-Code gilt nur einmal; für ein neues oder zweites Gerät hier einen neuen erzeugen.</p>
       <div id="uCpl">${couplingHtml(H, P)}</div></section>`;
   $('#uStart').onclick = () => startDialog(H, P);
@@ -475,21 +475,42 @@ async function watchApp(H, P, uid, sid) {
     onComment: live ? async c => { const L = await loadCm(); L.push({ id: Math.random().toString(36).slice(2, 10), ...c, at: Date.now() }); await api('ut_edit', { unit: uid, sid, op: 'comments', comments_enc: await K.sealExamDoc(ck, { list: L.slice(-50) }) }); } : null,
     onClose: () => { clearInterval(iv); clearInterval(iw); if (live) api('ut_watch', { id: P.cid, sid, off: 1 }).catch(() => { }); } });
 }
+/** Kennzahlen einer Einheit über alle, die begonnen haben: Ø und bester Fortschritt, Ø Bearbeitungszeit */
+function agg(P, u) {
+  const L = [...(P.prog.get(u.id) || new Map()).values()].filter(x => x.sum && typeof x.sum.pct === 'number'); if (!L.length) return null;
+  const pc = L.map(x => x.sum.pct), mi = L.map(x => x.sum.mins || 0);
+  return { avg: Math.round(pc.reduce((a, b) => a + b, 0) / L.length), max: Math.max(...pc), n: L.length, mins: Math.round(mi.reduce((a, b) => a + b, 0) / L.length) };
+}
+/** Fortschrittsleiste wie in der Statusleiste der Schüler: eigener Stand, Strich für Ø, Strich für den/die Beste */
+const pbar = (pct, A) => `<span class="u-pbar" title="${pct} %${A ? ` · Ø ${A.avg} % · Beste:r ${A.max} %` : ''}"><i style="width:${pct}%"></i>${A && A.n >= 2 ? `<b class="avg" style="left:${A.avg}%"></b><b class="best" style="left:${A.max}%"></b>` : ''}</span>`;
+/** Zeile pastellrot bzw. pastellgrün: mehr als 20 % hinter bzw. vor dem Ø (relativ, erst ab Ø 10 % und 3 Personen) */
+const rowCls = (A, pct) => !A || A.n < 3 || A.avg < 10 ? '' : pct < A.avg * .8 ? ' class="u-slow"' : pct > A.avg * 1.2 ? ' class="u-fast"' : '';
+/** Bearbeitungszeit relativ zum Ø: +12 % = länger als der Durchschnitt */
+const tdev = (mins, A) => { if (!A || A.n < 2 || A.mins < 1) return ''; const d = Math.round((mins / A.mins - 1) * 100); return ` <span class="u-dt" title="Bearbeitungszeit im Vergleich zum Ø der Klasse">${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d)} %</span>`; };
+/** Kennzahlen für die Leiste der Schüler veröffentlichen (nur Zahlen, ohne Personenbezug), wenn sie sich geändert haben */
+async function pubStats(H, P) {
+  P.pub = P.pub || {};
+  for (const u of P.units.filter(u => u.status === 'laeuft' && u.form !== 'jpad')) {
+    const A = agg(P, u); if (!A) continue; const k = `${A.avg}/${A.max}/${A.n}`; if (P.pub[u.id] === k) continue;
+    try { await H.api('ut_stats', { unit: u.id, avg: A.avg, max: A.max, n: A.n }); P.pub[u.id] = k; } catch (er) { }
+  }
+}
 function liveTable(H, P, u, frozen = false) {
   if (u.form === 'jpad') return jpadTable(H, P, u, frozen);
   const { esc } = H, M = P.prog.get(u.id) || new Map(), R = P.roster.filter(r => forSid(u, r.sid) || M.has(r.sid));
   const st = [...M.values()].find(x => x.sum?.st)?.sum.st || [];
-  const sub = [...M.values()].filter(x => x.submitted).length, act = R.filter(r => P.now - (P.dev.get(r.sid)?.seen || 0) < 120).length;
-  return `<p class="help" style="margin:6px 0">${frozen ? '' : `${act} gerade aktiv · `}${M.size} von ${R.length} haben begonnen · ${sub} abgegeben</p>
+  const sub = [...M.values()].filter(x => x.submitted).length, act = R.filter(r => P.now - (P.dev.get(r.sid)?.seen || 0) < 120).length, A = agg(P, u);
+  return `<p class="help" style="margin:6px 0">${frozen ? '' : `${act} gerade aktiv · `}${M.size} von ${R.length} haben begonnen · ${sub} abgegeben${A ? ` · Ø Fortschritt <b>${A.avg} %</b> · Beste:r ${A.max} % · Ø Zeit ${A.mins} min` : ''}</p>
+    ${A ? `<p class="help u-leg"><span class="u-pbar"><i style="width:60%"></i><b class="avg" style="left:45%"></b><b class="best" style="left:85%"></b></span> eigener Stand · <span class="u-tick avg"></span> Ø der Klasse · <span class="u-tick best"></span> Beste:r (so sehen es die Schüler, anonym) · <span class="u-key slow"></span> mehr als 20 % hinter dem Ø · <span class="u-key fast"></span> mehr als 20 % vor dem Ø</p>` : ''}
     <div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${frozen ? '' : '<th>zuletzt</th>'}<th>Fortschritt</th>${u.form === 'papp' ? '<th>App</th>' : ''}${st.map((s, i) => `<th class="u-st" title="${esc(s.t)}">${i + 1}</th>`).join('')}<th title="geöffnete Tipps">Tipps</th><th title="aktive Bearbeitungszeit">Zeit</th><th>Abgabe</th></tr>
     ${R.map(r => { const x = M.get(r.sid), s = x?.sum, seen = P.dev.get(r.sid)?.seen;
-      return `<tr><td>${nameCell(esc, r)} <button class="btn sm ghost u-eye" data-pwatch="${u.id}|${esc(r.sid)}" title="${frozen ? 'Stand ansehen' : 'Live ansehen: Lernpfad' + (u.form === 'papp' ? ' und App' : '') + ' so, wie die Person ihn gerade sieht'}"${x ? '' : ' disabled'}>👁</button></td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : '<span title="noch nicht gekoppelt">nicht gekoppelt</span>'}</td>`}
-        <td>${s ? `<span class="u-bar"><i style="width:${s.pct}%"></i></span> ${s.pct} %${s.total ? ` <span class="help">(${s.solved}/${s.total})</span>` : ''}` : '<span class="help">nicht begonnen</span>'}</td>
+      return `<tr${s ? rowCls(A, s.pct) : ''}><td>${nameCell(esc, r)} <button class="btn sm ghost u-eye" data-pwatch="${u.id}|${esc(r.sid)}" title="${frozen ? 'Stand ansehen' : 'Live ansehen: Lernpfad' + (u.form === 'papp' ? ' und App' : '') + ' so, wie die Person ihn gerade sieht'}"${x ? '' : ' disabled'}>👁</button></td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : '<span title="noch nicht gekoppelt">nicht gekoppelt</span>'}</td>`}
+        <td class="nowrap">${s ? `${pbar(s.pct, A)} ${s.pct} %${s.total ? ` <span class="help">(${s.solved}/${s.total})</span>` : ''}` : '<span class="help">nicht begonnen</span>'}</td>
         ${u.form === 'papp' ? `<td>${x?.app?.summary ? `<span class="u-bar"><i style="width:${x.app.summary.pct}%"></i></span> <span class="help">${esc(x.app.summary.text || x.app.summary.pct + ' %')}</span>` : ''}</td>` : ''}
         ${st.map(t => { const y = s?.st?.find(z => z.id === t.id); return `<td class="u-st ${!y ? '' : y.of ? (y.n === y.of ? 'ok' : y.n ? 'half' : y.v ? 'seen' : '') : y.v ? 'ok' : ''}" title="${esc(t.t)}${y ? `: ${y.of ? `${y.n}/${y.of} gelöst` : y.v ? 'angesehen' : ''}${y.tips ? `, ${y.tips} Tipp${y.tips === 1 ? '' : 's'}` : ''}${y.sols ? `, ${y.sols} Lösung${y.sols === 1 ? '' : 'en'}` : ''}` : ''}">${y ? (y.of ? (y.n === y.of ? '✓' : y.n ? `${y.n}/${y.of}` : y.v ? '·' : '') : y.v ? '✓' : '') : ''}</td>`; }).join('')}
-        <td>${s ? s.st.reduce((a, z) => a + (z.tips || 0), 0) || '' : ''}</td><td class="help">${s ? `${s.mins} min` : ''}</td><td>${x?.submitted ? `<span class="chip good" title="${esc(new Date(x.submitted * 1000).toLocaleString('de-DE'))}">✓</span>` : ''}</td></tr>`; }).join('')}</table></div>`;
+        <td>${s ? s.st.reduce((a, z) => a + (z.tips || 0), 0) || '' : ''}</td><td class="help nowrap">${s ? `${s.mins} min${tdev(s.mins, A)}` : ''}</td><td>${x?.submitted ? `<span class="chip good" title="${esc(new Date(x.submitted * 1000).toLocaleString('de-DE'))}">✓</span>` : ''}</td></tr>`; }).join('')}</table></div>`;
 }
-function drawLive(H, P) { const el = $('#uRun'); if (el) el.innerHTML = runHtml(H, P, P.units.filter(u => u.status === 'laeuft')); const c = $('#uCpl'); if (c) c.innerHTML = couplingHtml(H, P); }
+function drawLive(H, P) { const el = $('#uRun'); if (el) el.innerHTML = runHtml(H, P, P.units.filter(u => u.status === 'laeuft')); const s = $('#uStat'); if (s) s.innerHTML = statHtml(H, P); const c = $('#uCpl'); if (c) c.innerHTML = couplingHtml(H, P); }
 function drawSeen(H, P) { drawLive(H, P); }
 function unitTile(H, P, u) {
   if (u.form === 'jpad') { const M = P.prog.get(u.id) || new Map(), esc = H.esc;
@@ -499,13 +520,20 @@ function unitTile(H, P, u) {
   return `<button type="button" class="tile" data-uopen="${u.id}"><span class="k">${esc(FORM[u.form] || 'Lernpfad')}</span><span class="t">${esc(u.title || 'ohne Titel')}</span>
     <span class="m">${new Date(u.started * 1000).toLocaleDateString('de-DE')} – ${u.ended ? new Date(u.ended * 1000).toLocaleDateString('de-DE') : ''}</span><span class="s"><span class="chip">Ø ${pct} %</span><span class="chip">${[...M.values()].filter(x => x.submitted).length} Abgaben</span></span></button>`;
 }
+/** Ø der Abweichungen der Bearbeitungszeit vom Klassen-Ø über alle Einheiten einer Person */
+function zeitDev(P, U, r) {
+  const d = U.filter(u => u.form !== 'jpad' && forSid(u, r.sid)).map(u => { const x = P.prog.get(u.id)?.get(r.sid), A = agg(P, u); return x?.sum && A && A.n >= 2 && A.mins >= 1 ? (x.sum.mins || 0) / A.mins - 1 : null; }).filter(x => x != null);
+  if (!d.length) return ''; const m = Math.round(100 * d.reduce((a, b) => a + b, 0) / d.length);
+  return ` <span class="u-dt" title="Bearbeitungszeit im Schnitt im Vergleich zum Ø der Klasse">⏱ ${m > 0 ? '+' : m < 0 ? '−' : '±'}${Math.abs(m)} %</span>`;
+}
 function statHtml(H, P) {
   const { esc } = H, U = P.units.slice().reverse();
   return `<div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${U.map(u => `<th class="k-ex" title="${esc(u.title)}">${esc((u.title || '–').slice(0, 14))}${(u.title || '').length > 14 ? '…' : ''}<br><span class="help">${new Date(u.started * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })}</span></th>`).join('')}<th>Ø</th></tr>
     ${P.roster.map(r => { const v = U.filter(u => u.form !== 'jpad' && forSid(u, r.sid)).map(u => P.prog.get(u.id)?.get(r.sid)?.sum?.pct ?? 0);
       return `<tr><td>${nameCell(esc, r)}</td>${U.map(u => { if (!forSid(u, r.sid)) return '<td class="help">–</td>'; const x = P.prog.get(u.id)?.get(r.sid);
-        if (u.form === 'jpad') return `<td>${x ? (x.run ? (x.run.error ? '<span title="letzter Lauf mit Fehler">⚠</span>' : '<span title="Programm ausgeführt">▶</span>') : '<span title="Code geschrieben">✎</span>') : '<span class="help">–</span>'}</td>`; return `<td>${x ? `${x.sum?.pct ?? 0} %${x.submitted ? ' ✓' : ''}` : '<span class="help">0 %</span>'}</td>`; }).join('')}<td><b>${v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + ' %' : ''}</b></td></tr>`; }).join('')}</table></div>
-    <p class="help">Prozent = gelöste Aufgaben des Lernpfads (ohne Aufgaben: angesehene Stationen) · ✓ abgegeben · – nicht für diese Person gestartet${P.units.some(u => u.form === 'jpad') ? ' · JPad: ✎ Code geschrieben, ▶ ausgeführt, ⚠ letzter Lauf mit Fehler' : ''}. Das ist keine Note.</p>`;
+        if (u.form !== 'jpad' && x?.sum) { const A = agg(P, u); return `<td class="nowrap${rowCls(A, x.sum.pct) ? ' ' + rowCls(A, x.sum.pct).slice(8, -1) : ''}">${x.sum.pct} %${x.submitted ? ' ✓' : ''}${tdev(x.sum.mins || 0, A)}</td>`; }
+        if (u.form === 'jpad') return `<td>${x ? (x.run ? (x.run.error ? '<span title="letzter Lauf mit Fehler">⚠</span>' : '<span title="Programm ausgeführt">▶</span>') : '<span title="Code geschrieben">✎</span>') : '<span class="help">–</span>'}</td>`; return `<td>${x ? `${x.sum?.pct ?? 0} %${x.submitted ? ' ✓' : ''}` : '<span class="help">0 %</span>'}</td>`; }).join('')}<td class="nowrap"><b>${v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + ' %' : ''}</b>${zeitDev(P, U, r)}</td></tr>`; }).join('')}</table></div>
+    <p class="help">Prozent = gelöste Aufgaben des Lernpfads (ohne Aufgaben: angesehene Stationen) · +/− % = Bearbeitungszeit im Vergleich zum Ø der Klasse (+ = länger) · rot/grün = mehr als 20 % hinter bzw. vor dem Ø-Fortschritt · ✓ abgegeben · – nicht für diese Person gestartet${P.units.some(u => u.form === 'jpad') ? ' · JPad: ✎ Code geschrieben, ▶ ausgeführt, ⚠ letzter Lauf mit Fehler' : ''}. Das ist keine Note.</p>`;
 }
 function couplingHtml(H, P) {
   const { esc } = H;

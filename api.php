@@ -1366,6 +1366,11 @@ case 'ut_share': { // Schüler: private Kopie „an die Lehrkraft schicken“ (k
         ->execute([$k['class_id'], $k['sid'], $unit, $kind, str($in, 'title', 120), str($in, 'app', 60), $lid, str($in, 'hash', 80), str($in, 'data_enc', 600_000, true), time()]);
     out(['id' => (int)$pdo->lastInsertId()]);
 }
+case 'ut_stats': { // Lehrkraft (Dashboard): Kennzahlen der Klasse für die Fortschrittsleiste der Schüler – Ø, Bester, Anzahl
+    $u = teacher(); $st = db()->prepare("SELECT n.id FROM units n JOIN classes c ON c.id = n.class_id WHERE n.id = ? AND c.owner_id = ? AND n.status = 'laeuft'"); $st->execute([(int)($in['unit'] ?? 0), $u['id']]);
+    $id = $st->fetchColumn() ?: fail('Einheit nicht gefunden', 404); $c = fn($k) => max(0, min(100, (int)round((float)($in[$k] ?? 0))));
+    db()->prepare('UPDATE units SET stats = ? WHERE id = ?')->execute([json_encode(['avg' => $c('avg'), 'max' => $c('max'), 'n' => max(0, (int)($in['n'] ?? 0)), 't' => time()]), $id]); out([]);
+}
 case 'ut_watch': { // Lehrkraft schaut live zu (JPad): das Gerät sendet Änderungen schneller und zeigt „Lehrkraft schaut zu“
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $sid = str($in, 'sid', 40, true);
     db()->prepare('UPDATE ucouplings SET watch_until = ? WHERE class_id = ? AND sid = ?')->execute([empty($in['off']) ? time() + 25 : null, $c['id'], $sid]); out([]);
@@ -1428,12 +1433,13 @@ case 'ut_poll': { // Gerät fragt nach: laufende Einheiten (Lernpfad nur, wenn n
     $pdo = db(); $k = ucoupling($in);
     $pdo->prepare('UPDATE ucouplings SET last_seen = ? WHERE id = ?')->execute([time(), $k['id']]);
     $have = array_map('intval', (array)($in['have'] ?? []));
-    $n = $pdo->prepare("SELECT n.id, n.title, n.form, n.targets, n.started, n.doc_enc, p.submitted, e.lock AS e_lock, e.v AS e_v, e.files_enc AS e_files, e.comments_enc AS e_cm, e.cupd AS e_cupd
+    $n = $pdo->prepare("SELECT n.id, n.title, n.form, n.targets, n.started, n.doc_enc, n.stats, p.submitted, e.lock AS e_lock, e.v AS e_v, e.files_enc AS e_files, e.comments_enc AS e_cm, e.cupd AS e_cupd
         FROM units n LEFT JOIN uprogress p ON p.unit_id = n.id AND p.sid = ? LEFT JOIN uedit e ON e.unit_id = n.id AND e.sid = ? WHERE n.class_id = ? AND n.status = 'laeuft' ORDER BY n.started DESC");
     $n->execute([$k['sid'], $k['sid'], $k['class_id']]); $L = [];
     foreach ($n->fetchAll() as $x) {
         if ($x['targets'] !== null && !in_array($k['sid'], json_decode($x['targets'], true) ?: [], true)) continue;
-        $L[] = ['id' => (int)$x['id'], 'title' => $x['title'], 'form' => $x['form'], 'started' => (int)$x['started'], 'submitted' => $x['submitted'] ? (int)$x['submitted'] : null] + (in_array((int)$x['id'], $have, true) ? [] : ['doc_enc' => $x['doc_enc']])
+        $sx = $x['stats'] ? json_decode($x['stats'], true) : null; // Ø und Bester erst ab 3 Personen (sonst ließe sich zurückrechnen)
+        $L[] = ['id' => (int)$x['id'], 'title' => $x['title'], 'form' => $x['form'], 'started' => (int)$x['started'], 'submitted' => $x['submitted'] ? (int)$x['submitted'] : null, 'stats' => $sx && ($sx['n'] ?? 0) >= 3 ? $sx : null] + (in_array((int)$x['id'], $have, true) ? [] : ['doc_enc' => $x['doc_enc']])
             + ($x['e_v'] !== null ? ['edit' => ['lock' => (int)$x['e_lock'], 'v' => (int)$x['e_v'], 'files_enc' => $x['e_files'], 'comments_enc' => $x['e_cm'], 'cupd' => (int)$x['e_cupd']]] : []);
     }
     $o = $pdo->prepare('SELECT u.pub_key, u.kuerzel FROM users u WHERE u.id = ?'); $o->execute([$k['owner_id']]); $ow = $o->fetch();

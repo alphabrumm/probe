@@ -181,6 +181,11 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   in der die Person gerade ist (`prog.here`). Das iPad zeigt „👁 Deine Lehrkraft schaut zu“ und sendet schneller (`ut_watch`, Abfrage alle 8 s).
   **💬 Kommentar** (optional zur aktuellen Station): auf dem iPad blinkt oben ein grüner Punkt, der Kommentar öffnet sich als Fenster mit
   „→ Station“; gelesen = Punkt aus, Kommentare bleiben abrufbar (`uedit.comments_enc`, Klassenschlüssel, wie bei JPad).
+* **Fortschrittsleiste:** In der Kopfleiste des Players sieht jede Person ihren Fortschritt, einen Strich für den Ø der Klasse und einen
+  goldenen für den/die Beste (anonym, erst ab 3 Personen). Die Kennzahlen berechnet das Dashboard der Lehrkraft aus den entschlüsselten
+  Ständen und legt nur die Zahlen (Ø, Bester, Anzahl) an der Einheit ab (`ut_stats`, `units.stats`, Datenbank v28) – sie aktualisieren sich,
+  solange das Dashboard offen ist. Im Dashboard dieselbe Leiste je Zeile; Zeilen mehr als 20 % (relativ) hinter dem Ø pastellrot, mehr als
+  20 % davor pastellgrün (ab Ø 10 %); Bearbeitungszeit als +/− % zum Ø, in der Bearbeitungsstatistik je Einheit und im Schnitt.
 * **Probe-Apps** (`app/papps.js`, Protokoll in PathFinder `core/pfpapp.js`, `docs/PROBE-APPS.md`): kleine HTML-Lern-Apps, die links neben
   einem Lernpfad laufen; App-Aufgaben im Lernpfad sind gelöst, wenn die App ein Ereignis meldet. Eingebaut: **Zellaufbau**
   (`apps/zellaufbau.html`, Natur und Technik/Biologie 5–8, mit Beispiel-Lernpfad). Unterricht → „Probe-Apps“: „＋ Lernpfad + App“

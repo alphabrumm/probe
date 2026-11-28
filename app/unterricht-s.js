@@ -200,7 +200,7 @@ const X = {}; // Aktionen der Kopfleiste (je nach Ansicht belegt)
 /** Daten der Ansicht: live → an die Lehrkraft (gebündelt) und ins Gerät; Kopie → nur ins Gerät */
 function sink(o) {
   return data => {
-    if (o.mode === 'live') { last = data; dirty = true; putU({ ...clone(data), id: o.key }).catch(() => { }); clearTimeout(sendT); sendT = setTimeout(() => send(false), WATCH ? 800 : 3000); label('…'); }
+    if (o.mode === 'live') { if (data?.sum && typeof data.sum.pct === 'number') { MYP = data.sum.pct; drawP(); } last = data; dirty = true; putU({ ...clone(data), id: o.key }).catch(() => { }); clearTimeout(sendT); sendT = setTimeout(() => send(false), WATCH ? 800 : 3000); label('…'); }
     else if (o.mode === 'copy') { o.p.data = clone(data); saveP(o.p).catch(() => { }); label('✓ auf dem iPad'); }
   };
 }
@@ -211,17 +211,27 @@ function actions(o) {
     : o.mode === 'copy' ? `<button data-x="send" title="${o.p.kind === 'copy' ? 'Deine Lehrkraft bitten, diese Kopie zu übernehmen' : 'Mit Lehrkraft teilen'}">📤<span class="t"> ${o.p.kind === 'copy' ? 'An Lehrkraft schicken' : 'Mit Lehrkraft teilen'}</span></button>` : '';
 }
 /* Lebenszeichen alle 8 s: merkt, wenn die Lehrkraft die Einheit beendet, zuschaut (Hinweis, schneller senden) oder kommentiert */
-let WATCH = false, PF = null, CM = { cupd: null, list: [], key: '' };
+let WATCH = false, PF = null, CM = { cupd: null, list: [], key: '' }, MYP = null, STATS = null;
+/** Leiste in der Kopfleiste: eigener Fortschritt, Strich für den Ø der Klasse, goldener Strich für den/die Beste (anonym, ab 3 Personen) */
+function drawP() {
+  const el = $('#sbP'); if (MYP == null) { el.hidden = true; return; } el.hidden = false;
+  el.querySelector('i').style.width = MYP + '%';
+  const [a, b] = el.querySelectorAll('b'); a.hidden = b.hidden = !STATS;
+  if (STATS) { a.style.left = STATS.avg + '%'; b.style.left = STATS.max + '%'; }
+  el.querySelector('.sb-pt').innerHTML = `${MYP} %${STATS ? `<span class="x"> · <i>Ø ${STATS.avg} %</i> · <b>🏆 ${STATS.max} %</b></span>` : ''}`;
+  el.title = `Dein Fortschritt: ${MYP} %${STATS ? ` · Durchschnitt der Klasse: ${STATS.avg} % · am weitesten: ${STATS.max} % (anonym)` : ''}`;
+}
 function liveCheck(o) {
   if (o.mode !== 'live') return;
   cur = { k: o.k, u: o.u, pub: o.I.pub_key }; CM.key = 'pfp.kommentar.gelesen.' + o.k.c + ':' + o.u.id;
   setWatch(!!o.I.watch); if (o.u.edit) applyCm(o.k, o.u.edit);
+  STATS = o.u.stats || null; if (MYP == null) MYP = typeof o.data?.sum?.pct === 'number' ? o.data.sum.pct : 0; drawP();
   setInterval(async () => {
     if (document.visibilityState !== 'visible' || !cur) return;
     try {
       const r = await api('ut_poll', { token: o.k.token, have: [o.u.id] }), uu = r.units.find(x => x.id === o.u.id);
       if (!uu) { setWatch(false); ended(); return; }
-      setWatch(!!r.watch); if (uu.edit) applyCm(o.k, uu.edit);
+      setWatch(!!r.watch); if (uu.edit) applyCm(o.k, uu.edit); STATS = uu.stats || null; drawP();
     } catch (er) { if (er.status === 401) ended(er.message); }
   }, 8000);
 }
