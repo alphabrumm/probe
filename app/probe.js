@@ -10,6 +10,7 @@ import { viewCoachingList, viewCoaching, viewBerater, coachingHint, tabsHtml, pu
 import { viewSurveyList, viewSurvey } from './umfragen.js';
 import { viewTalks, talksHint } from './gespraeche.js';
 import { viewClass, classForm, loadClass } from './klassen.js';
+import { viewUnterricht, viewUClass } from './unterricht.js';
 import { dotHtml, glassesHtml, legendHtml, archivable, archiveExams, importExams, yearArchive } from './archiv.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -82,11 +83,11 @@ function drawNav() {
   const n = $('#topnav'); if (!n) return;
   if (!S.user || !S.priv) { n.innerHTML = ''; return; }
   const h = location.hash.replace(/^#/, '') || '/';
-  const on = /^\/k\//.test(h) ? 'p' : /^\/resp/.test(h) ? 'r' : /^\/(notizen|gespraeche)/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
+  const on = /^\/(unterricht|uk\/)/.test(h) ? 't' : /^\/k\//.test(h) ? 'p' : /^\/resp/.test(h) ? 'r' : /^\/(notizen|gespraeche)/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
   const a = (k, href, t, extra = '') => `<a href="${href}"${on === k ? ' class="on" aria-current="page"' : ''}>${t}${extra}</a>`, sep = '<span class="nsep" aria-hidden="true"></span>';
   const P = S.user.prefs || {}; // Module: nur, wenn im Konto-Menü eingeschaltet (Respizienz und Schulberatung gehören zur Rolle, nicht abwählbar)
   n.innerHTML = [P.pathfinder && '<a href="https://pathfinder.pandapy.de" target="_blank" rel="noopener" title="PathFinder in neuem Tab öffnen">PathFinder</a>',
-    [(P.pruefungen !== false || on === 'p') && a('p', '#/', 'Prüfungen'), S.user.fachleitung?.length && a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '')].filter(Boolean).join('') || null,
+    [(P.pruefungen !== false || on === 'p') && a('p', '#/', 'Prüfungen'), (P.unterricht || on === 't') && a('t', '#/unterricht', 'Unterricht'), S.user.fachleitung?.length && a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '')].filter(Boolean).join('') || null,
     (P.notizen || on === 'g') && a('g', '#/notizen', 'Notizen'), (P.umfragen || on === 'u') && a('u', '#/umfragen', 'Umfragen')].filter(Boolean).join(sep) + `
     <span class="nsp"></span>${S.user.is_berater || S.user.is_demo ? a('b', '#/berater', 'Schulberatung') + sep : ''}${P.coaching !== false || on === 'c' ? a('c', '#/coaching', 'Coaching', '<img class="lumi" src="app/lumi.gif" alt="">') : ''}`;
   const cur = $('a.on', n); if (cur && n.scrollWidth > n.clientWidth) n.scrollLeft = cur.offsetLeft - (n.clientWidth - cur.offsetWidth) / 2; // iPhone: aktiven Bereich zeigen
@@ -102,7 +103,7 @@ function drawWho() {
       <fieldset class="prefs"><legend>Farbe</legend><div class="themes">${THEMES.map(([k, t]) => `<button type="button" data-theme="${k}" aria-pressed="${(S.user.prefs?.theme || 'blau') === k}" title="${t}" aria-label="Farbschema ${t}"><img src="${themeIcon(k)}" alt=""></button>`).join('')}</div></fieldset>
       <fieldset class="prefs mods"><legend>Module</legend>
         <p class="help" style="margin:2px 0 4px">Bereiche im oberen Menü – ein- oder ausschalten (Daten bleiben erhalten).</p>
-        ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['pruefungen', 'Prüfungen', 'digitale Prüfungen schreiben, auswerten und archivieren; Klassen mit Notenübersicht'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
+        ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['pruefungen', 'Prüfungen', 'digitale Prüfungen schreiben, auswerten und archivieren; Klassen mit Notenübersicht'], ['unterricht', 'Unterricht', 'Lernpfade und Challenges in der Klasse starten und live sehen, wie weit die Schüler sind (Schüler koppeln ihr iPad einmal per QR-Code)'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
           ['coaching', 'Coaching', 'verschlüsselte Coaching-Gespräche und Fragebögen zu einzelnen Schülern']]
           .map(([k, t, h]) => `<label class="pref"><input type="checkbox" data-pref="${k}"${S.user.prefs?.[k] ? ' checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}
         ${S.user.fachleitung?.length ? `<label class="pref fixed"><input type="checkbox" checked disabled><span><b>Respizienz</b><small>gehört zur Fachleitung (${S.user.fachleitung.map(f => esc(f.name)).join(', ')}) – immer an</small></span></label>` : ''}
@@ -140,6 +141,8 @@ function route() {
   if ((m = h.match(/^\/k\/(\d+)$/))) { stopLive(); return viewClass(helpers(), +m[1]); }
   if (h === '/notizen' || h === '/gespraeche') { stopLive(); return viewTalks(helpers()); }
   if (h === '/umfragen') { stopLive(); return viewSurveyList(helpers()); }
+  if (h === '/unterricht') { stopLive(); return viewUnterricht(helpers()); }
+  if ((m = h.match(/^\/uk\/(\d+)$/))) { stopLive(); return viewUClass(helpers(), +m[1]); }
   if ((m = h.match(/^\/u\/(\d+)$/))) { stopLive(); return viewSurvey(helpers(), +m[1]); }
   if ((m = h.match(/^\/p\/(\d+)$/))) return viewExam(+m[1]);
   if (h === '/archiv' || (m = h.match(/^\/archiv\/(\d+)$/))) { stopLive(); return viewArchiv(m ? +m[1] : null, helpers()); }
@@ -147,7 +150,7 @@ function route() {
   if (S.user.fachleitung?.length && (m = h.match(/^\/resp\/(\d+)$/))) { stopLive(); return viewResp(+m[1], helpers()); }
   const P = S.user.prefs || {};
   if (P.pruefungen === false) { // Modul Prüfungen aus: Start ist das erste eingeschaltete Modul
-    const to = [[P.coaching !== false, '#/coaching'], [P.notizen, '#/notizen'], [P.umfragen, '#/umfragen'], [S.user.fachleitung?.length, '#/resp'], [S.user.is_berater, '#/berater']].find(x => x[0]);
+    const to = [[P.unterricht, '#/unterricht'], [P.coaching !== false, '#/coaching'], [P.notizen, '#/notizen'], [P.umfragen, '#/umfragen'], [S.user.fachleitung?.length, '#/resp'], [S.user.is_berater, '#/berater']].find(x => x[0]);
     if (to && h === '/') { location.replace(to[1]); return; }
   }
   if (!S.user.demo && !S.demoTried && P.pruefungen !== false) return demos(false).then(viewDashboard);

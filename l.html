@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Probe Unterricht</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Probe Unterricht">
+<link rel="icon" href="app/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="app/icon-180.png">
+<link rel="stylesheet" href="vendor/pathfinder/core/pathfinder.css">
+<link rel="stylesheet" href="app/student.css">
+<style>
+  .u-home { max-width: 640px; margin: 0 auto; padding: 18px 16px 40px; }
+  .u-home h1 { display: flex; align-items: center; gap: 10px; font-size: 24px; margin: 6px 0 4px; } .u-home h1 img { width: 34px; height: 34px; }
+  .u-cl { background: #fff; border-radius: 16px; padding: 14px 16px; margin: 14px 0; box-shadow: 0 1px 4px #0001; }
+  .u-cl h2 { margin: 0 0 2px; font-size: 18px; } .u-cl .help { color: #667; font-size: 14px; }
+  .u-un { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 1px solid #d6dbe8; background: #f6f8fd; border-radius: 12px; padding: 12px 14px; margin-top: 10px; font: inherit; font-size: 16px; cursor: pointer; color: inherit; }
+  .u-un b { flex: 1; } .u-un .ok { color: #2f9e5b; font-size: 14px; }
+  .u-hint { background: #fff7d6; border-radius: 12px; padding: 10px 14px; font-size: 14px; margin: 12px 0; }
+  .u-err { color: #b3261e; }
+  .u-end { background: #fde8e7; color: #7a1b14; padding: 8px 14px; font-size: 14px; text-align: center; }
+  @media (prefers-color-scheme: dark) { .u-cl { background: #1d2233; } .u-un { background: #242a3d; border-color: #343c55; } .u-hint { background: #3a3420; } }
+</style>
+</head>
+<body class="pf-player">
+<div class="sbar" id="sbar" hidden>
+  <button id="sbBack" title="Zur Übersicht">‹<span class="t"> Übersicht</span></button>
+  <span class="sb-t" id="sbT"></span>
+  <span class="sb-sp"></span>
+  <span class="sb-save" id="sbSave"></span>
+  <button id="sbSub" title="Bearbeitung an die Lehrkraft abgeben">✓<span class="t"> Abgeben</span></button>
+</div>
+<div id="uEnd" class="u-end" hidden></div>
+<div class="app" id="app" hidden><section class="lpwrap"><div class="lp-scroll" id="scroll"><div class="lp" id="lp"></div></div></section></div>
+<div class="u-home" id="home"><p>lädt …</p></div>
+<script type="module" src="app/unterricht-s.js"></script>
+</body></html>

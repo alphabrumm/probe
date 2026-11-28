@@ -356,3 +356,16 @@ fieldset.prefs.mods legend { color: var(--a1, #3b4fc4); font-size: 15px; letter-
 .pp-toggle { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; margin: 12px 0; border-radius: 12px; background: var(--bg2, #f3f5fa); }
 .pp-toggle .switch { margin-top: 2px; } .pp-toggle > span { display: flex; flex-direction: column; } .pp-toggle small { color: var(--ink-2); font-size: 13px; line-height: 1.35; }
 .pp-toggle .switch input:checked + span { background: var(--a1, #3b4fc4); }
+
+/* Modul Unterricht: Live-Tabelle, Fortschrittsbalken, Stationen */
+.u-tab td, .u-tab th { white-space: nowrap; }
+.u-bar { display: inline-block; width: 80px; height: 8px; border-radius: 4px; background: var(--line, #e3e6ee); vertical-align: middle; overflow: hidden; }
+.u-bar i { display: block; height: 100%; background: #2f9e5b; border-radius: 4px; }
+.u-st { text-align: center; min-width: 30px; font-size: 13px; }
+td.u-st.ok { background: #e3f4ea; color: #1f7a45; font-weight: 700; } td.u-st.half { background: #fff4d6; color: #8a6200; } td.u-st.seen { color: var(--ink-2); }
+.u-on { color: #1f7a45 !important; font-weight: 600; }
+.u-sel { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; max-height: 240px; overflow: auto; padding: 6px 2px; }
+.u-sel label { display: flex; gap: 6px; align-items: center; font-weight: 400; margin: 0; }
+.tile.lp-t { cursor: default; } button.tile { font: inherit; text-align: left; color: inherit; cursor: pointer; }
+.u-old summary { cursor: pointer; margin: 12px 0 6px; font-weight: 600; color: var(--ink-2); }
+@media (prefers-color-scheme: dark) { td.u-st.ok { background: #1d3a2a; color: #8fe0b0; } td.u-st.half { background: #3a3218; color: #f0d27a; } }

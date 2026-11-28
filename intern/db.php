@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 21;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 22;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -368,6 +368,32 @@ function migrate_steps(PDO $pdo, int $v): void {
         ALTER TABLE exams ADD COLUMN archived_hash TEXT;
         ALTER TABLE exams ADD COLUMN archive_enc TEXT;
         PRAGMA user_version = 21;
+        SQL);
+    }
+    if ($v < 22) { // Modul Unterricht: Lernpfade der Lehrkraft, Kopplung der Schüler-Geräte je Klasse, Unterrichtseinheiten, Bearbeitungsstand (alles Inhaltliche verschlüsselt)
+        $pdo->exec(<<<SQL
+        ALTER TABLE classes ADD COLUMN ukey_enc TEXT;               -- Klassenschlüssel (für die Lehrkraft verschlüsselt); Schüler bekommen ihn über den QR-Code
+        CREATE TABLE lpaths (
+            id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title TEXT NOT NULL DEFAULT '', form TEXT NOT NULL DEFAULT 'lernpfad', doc_enc TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL
+        );
+        CREATE INDEX lpaths_owner ON lpaths(owner_id);
+        CREATE TABLE ucouplings (                                   -- ein Eintrag je QR-Code bzw. gekoppeltem Gerät; der Server kennt nur die Kennung (sid), keine Namen
+            id INTEGER PRIMARY KEY, class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE, sid TEXT NOT NULL,
+            qr_hash TEXT, token_hash TEXT UNIQUE, created INTEGER NOT NULL, paired INTEGER, last_seen INTEGER, revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ucouplings_class ON ucouplings(class_id, sid);
+        CREATE TABLE units (                                        -- Unterrichtseinheit: ein Lernpfad, in einer Klasse gestartet
+            id INTEGER PRIMARY KEY, class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE, title TEXT NOT NULL DEFAULT '', form TEXT NOT NULL DEFAULT 'lernpfad',
+            doc_enc TEXT NOT NULL, targets TEXT, status TEXT NOT NULL DEFAULT 'laeuft', started INTEGER NOT NULL, ended INTEGER
+        );
+        CREATE INDEX units_class ON units(class_id, status);
+        CREATE TABLE uprogress (                                    -- Bearbeitungsstand je Schüler und Einheit, für die Lehrkraft verschlüsselt
+            unit_id INTEGER NOT NULL REFERENCES units(id) ON DELETE CASCADE, sid TEXT NOT NULL, data_enc TEXT NOT NULL, updated INTEGER NOT NULL, submitted INTEGER,
+            PRIMARY KEY (unit_id, sid)
+        );
+        CREATE INDEX uprogress_upd ON uprogress(unit_id, updated);
+        PRAGMA user_version = 22;
         SQL);
     }
 }

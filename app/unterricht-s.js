@@ -1,0 +1,104 @@
+// Probe Unterricht – Seite der Schüler (l.html, am besten als Symbol auf dem Home-Bildschirm).
+// Einmal den QR-Code der Lehrkraft scannen: l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name> → das Gerät wird mit der Klasse
+// gekoppelt (Geräteschlüssel). Der Teil hinter „#“ geht nie an den Server. Danach zeigt die Seite alle gekoppelten Klassen und die
+// gestarteten Lernpfade; der Bearbeitungsstand geht verschlüsselt an die Lehrkraft (nur bei Änderungen, gebündelt).
+import { startPathFinder } from '../vendor/pathfinder/core/pathfinder.js';
+import * as K from './crypto.js';
+
+const $ = s => document.querySelector(s), home = $('#home');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+async function api(a, data = {}) {
+  let r, j;
+  try { r = await fetch('api.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a, ...data }), cache: 'no-store' }); }
+  catch (e) { const er = new Error('Keine Verbindung'); er.offline = true; throw er; }
+  try { j = await r.json(); } catch (e) { const er = new Error('Server antwortet nicht'); er.offline = true; throw er; }
+  if (!j.ok) { const er = new Error(j.error || 'Fehler'); er.status = r.status; throw er; }
+  return j;
+}
+
+/* ---------- Kopplungen im Gerät (IndexedDB) ---------- */
+const DB = () => new Promise((res, rej) => { const q = indexedDB.open('probe-unterricht', 1); q.onupgradeneeded = () => q.result.createObjectStore('k', { keyPath: 'c' }); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+async function store(mode, fn) { const db = await DB(); return new Promise((res, rej) => { const t = db.transaction('k', mode), s = t.objectStore('k'), q = fn(s); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); }
+const allK = () => store('readonly', s => s.getAll()), putK = k => store('readwrite', s => s.put(k)), delK = c => store('readwrite', s => s.delete(c));
+try { navigator.storage?.persist?.(); } catch (e) { }
+
+/* ---------- QR-Code einlösen ---------- */
+async function pairFromHash() {
+  const m = location.hash.match(/^#u=(\d+)\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{22})\.(.*)$/); if (!m) return null;
+  history.replaceState(null, '', location.pathname); // Geheimnis sofort aus der Adresse entfernen
+  const [, c, s, k, nm] = m; let [v, n] = ['', '']; try { [v, n = ''] = decodeURIComponent(nm).split('|'); } catch (e) { }
+  try { const r = await api('ut_pair', { class: +c, secret: s }); await putK({ c: +c, token: r.token, k, v, n, at: Date.now() }); return { ok: true, v }; }
+  catch (er) { return { error: er.message }; }
+}
+
+/* ---------- Übersicht ---------- */
+let KL = [], INFO = new Map(), DOCS = new Map(), homeT = null;
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+async function drawHome(msg = '') {
+  KL = await allK();
+  home.innerHTML = `<h1><img src="app/icon.svg" alt="">Probe Unterricht</h1>
+    ${msg}
+    ${!KL.length ? '<div class="u-cl"><h2>Noch nicht gekoppelt</h2><p>Scanne den QR-Code, den du von deiner Lehrkraft bekommen hast, mit der Kamera.</p></div>' : ''}
+    ${KL.length && !standalone ? '<div class="u-hint">📲 Tipp: In Safari auf <b>Teilen</b> → <b>„Zum Home-Bildschirm“</b>. Dann startest du Probe Unterricht wie eine App – und bleibst gekoppelt.</div>' : ''}
+    ${KL.map(k => { const I = INFO.get(k.c); return `<div class="u-cl"><h2>${I ? `${esc(I.class.name)}${I.class.fach ? ' · ' + esc(I.class.fach) : ''}` : 'Klasse …'}</h2>
+      <div class="help">${esc(k.v)} ${esc(k.n)}${I ? ` · Lehrkraft ${esc(I.teacher)}` : ''}</div>
+      ${I?.error ? `<p class="u-err">${esc(I.error)}</p>${I.gone ? `<button class="btn alt" data-forget="${k.c}">Kopplung entfernen</button>` : ''}`
+        : I ? (I.units.length ? I.units.map(u => `<button class="u-un" data-open="${k.c}:${u.id}">▶ <b>${esc(u.title || 'Lernpfad')}</b>${u.submitted ? '<span class="ok">✓ abgegeben</span>' : ''}</button>`).join('') : '<p class="help">Gerade ist nichts gestartet.</p>') : '<p class="help">wird geladen …</p>'}</div>`; }).join('')}
+    <p class="help" style="margin-top:24px">Deine Lehrkraft sieht nur, wie weit du in den gestarteten Lernpfaden bist – verschlüsselt, nur für sie lesbar.</p>`;
+}
+async function pollAll() {
+  for (const k of await allK()) {
+    try {
+      const r = await api('ut_poll', { token: k.token, have: [...DOCS.keys()].filter(x => x.startsWith(k.c + ':')).map(x => +x.split(':')[1]) });
+      for (const u of r.units) if (u.doc_enc) DOCS.set(`${k.c}:${u.id}`, { enc: u.doc_enc });
+      INFO.set(k.c, r);
+    } catch (er) { if (!er.offline) INFO.set(k.c, { error: er.message, gone: er.status === 401, units: [] }); }
+  }
+}
+home.onclick = async ev => {
+  const o = ev.target.closest('[data-open]'), f = ev.target.closest('[data-forget]');
+  if (f && confirm('Diese Kopplung von diesem Gerät entfernen?')) { await delK(+f.dataset.forget); INFO.delete(+f.dataset.forget); drawHome(); }
+  if (o) { const [c, id] = o.dataset.open.split(':').map(Number); openUnit(c, id); }
+};
+
+/* ---------- Lernpfad bearbeiten ---------- */
+let cur = null, sendT = null, last = null, dirty = false, sending = false;
+async function openUnit(c, id) {
+  const k = KL.find(x => x.c === c), I = INFO.get(c), u = I?.units.find(x => x.id === id), D = DOCS.get(`${c}:${id}`); if (!k || !u || !D) return;
+  let doc; try { doc = await K.openExamDoc(k.k, D.enc); } catch (er) { alert('Der Lernpfad lässt sich mit deiner Kopplung nicht öffnen. Bitte deine Lehrkraft um einen neuen QR-Code.'); return; }
+  clearInterval(homeT); cur = { k, u, pub: I.pub_key }; history.pushState({ u: id }, '', '#lernpfad');
+  home.hidden = true; $('#app').hidden = false; $('#sbar').hidden = false; $('#sbT').textContent = u.title || 'Lernpfad';
+  $('#sbSub').hidden = !!u.submitted;
+  startPathFinder({ player: true, doc, storage: 'probe-u', appName: 'Probe', logo: 'app/icon.svg',
+    host: { onProgress: (sum, prog) => { last = { sum, prog }; dirty = true; clearTimeout(sendT); sendT = setTimeout(() => send(false), 3000); label('…'); } } });
+  setInterval(async () => { // Lebenszeichen; merkt, wenn die Lehrkraft die Einheit beendet
+    if (document.visibilityState !== 'visible') return;
+    try { const r = await api('ut_poll', { token: k.token, have: [id] }); if (!r.units.some(x => x.id === id)) ended(); } catch (er) { if (er.status === 401) ended(er.message); }
+  }, 45000);
+}
+function label(t) { $('#sbSave').textContent = t; }
+async function send(submit) {
+  if (!cur || (!dirty && !submit) || sending) return; sending = true; clearTimeout(sendT);
+  try {
+    const data_enc = await K.seal(cur.pub, { ...(last || {}), at: Date.now() });
+    await api('ut_save', { token: cur.k.token, unit: cur.u.id, data_enc, submit: submit ? 1 : 0 });
+    dirty = false; label('✓ gespeichert');
+    if (submit) { cur.u.submitted = 1; $('#sbSub').hidden = true; alert('✓ Abgegeben. Du kannst trotzdem weiterarbeiten – deine Lehrkraft sieht dann den neuesten Stand.'); }
+  } catch (er) { label(er.offline ? '⚠ offline – wird nachgeholt' : '⚠ ' + er.message); if (er.status === 409) ended(); else if (er.offline) sendT = setTimeout(() => send(submit), 15000); }
+  finally { sending = false; }
+}
+function ended(msg) { const e = $('#uEnd'); e.hidden = false; e.textContent = msg || 'Deine Lehrkraft hat diese Einheit beendet. Dein letzter Stand ist gespeichert.'; $('#sbSub').hidden = true; cur = null; }
+$('#sbSub').onclick = () => { if (confirm('Bearbeitung jetzt abgeben?')) { dirty = true; send(true); } };
+$('#sbBack').onclick = () => { if (dirty) send(false); setTimeout(() => { location.hash = ''; location.reload(); }, dirty ? 800 : 0); };
+addEventListener('pagehide', () => { if (dirty && cur) send(false); });
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && dirty && cur) send(false); });
+addEventListener('popstate', () => { if (cur || !$('#app').hidden) location.reload(); });
+
+/* ---------- Start ---------- */
+(async () => {
+  let msg = '';
+  if (location.hash.startsWith('#u=')) { const p = await pairFromHash(); msg = p?.ok ? `<div class="u-hint">✓ Gekoppelt${p.v ? ` – hallo ${esc(p.v)}!` : ''}</div>` : `<div class="u-hint u-err">${esc(p?.error || 'QR-Code ungültig')}</div>`; }
+  else if (location.hash) history.replaceState(null, '', location.pathname);
+  await drawHome(msg); await pollAll(); await drawHome(msg);
+  homeT = setInterval(async () => { if (document.visibilityState === 'visible' && home.hidden === false) { await pollAll(); drawHome(); } }, 10000);
+})();

@@ -128,6 +128,24 @@ Konto-Menü → „Farbe“: Blau (Standard), Nachtblau, Weiß, Nachtblau und Go
 und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung und Tab). Gespeichert am Konto
 (`prefs.theme`); `app/theme-boot.js` merkt sich nur den Namen auf dem Gerät, damit beim Laden nichts aufflackert.
 
+## Modul Unterricht (Variante Lernpfad/Challenge)
+
+`app/unterricht.js` (Lehrkraft), `l.html` + `app/unterricht-s.js` (Schüler), DB v22 (`lpaths`, `ucouplings`, `units`, `uprogress`,
+`classes.ukey_enc`), Aktionen `lp_*` und `ut_*`. Im Konto-Menü unter „Module“ einschalten.
+
+* **Meine Lernpfade:** im PathFinder-Editor (Formen Lernpfad und Challenge) erstellen oder eine PathFinder-Datei einlesen;
+  verschlüsselt für die Lehrkraft gespeichert, auf allen Geräten gleich.
+* **Klasse** (dieselbe wie bei Prüfungen) trägt die **QR-Kopplung**: je Schüler ein Einmal-QR-Code
+  `l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name>` (der Teil hinter „#“ geht nie an den Server; der Server speichert nur den
+  Hash des Geheimnisses). Beim Scannen bekommt das Gerät einen Geräteschlüssel (IndexedDB); der Code ist danach verbraucht. Neuer
+  QR-Code je Person (z. B. zweites Gerät), „Abmelden“ sperrt alle Geräte der Person. Der Server kennt nur die Kennung (sid), keine Namen.
+* **Unterrichtseinheit:** „＋ Lernpfad starten“ (ganze Klasse oder Auswahl) – der Lernpfad wird mit dem Klassenschlüssel verschlüsselt
+  und erscheint auf den gekoppelten Geräten (Abfrage alle 10 s). Er läuft über mehrere Stunden, bis die Lehrkraft „Beenden“ tippt
+  (wieder öffnen möglich). Schüler senden ihren Stand nur bei Änderungen (gebündelt, für die Lehrkraft verschlüsselt) plus
+  Lebenszeichen alle 45 s; „Abgeben“ markiert die Abgabe. PathFinder meldet den Stand über `host.onProgress` (Kurzfassung je Station).
+* **Dashboard:** laufende Einheiten live (alle 7 s; zuletzt aktiv, Fortschritt, Stationen, Tipps, Zeit, Abgabe), beendete Einheiten
+  (die letzten 3 als Kacheln, ältere eingeklappt), **Bearbeitungsstatistik** (Schüler × Einheiten, keine Note), Kopplung.
+
 ## Module
 
 Die Einträge im oberen Menü sind **Module**: PathFinder, Prüfungen, Notizen, Umfragen und Coaching. Jede Lehrkraft schaltet

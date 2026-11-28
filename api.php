@@ -88,7 +88,7 @@ function ufields(array $u): array {
     return ['id' => (int)$u['id'], 'kuerzel' => $u['kuerzel'], 'name' => $u['name'], 'is_admin' => (bool)$u['is_admin'], 'must_setup' => (bool)$u['must_setup'],
         'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'is_demo' => (bool)$u['is_demo'], 'is_berater' => (bool)($u['is_berater'] ?? 0), 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id']), 'prefs' => prefs_of($u)];
 }
-const PREFS = ['pathfinder', 'pruefungen', 'notizen', 'umfragen', 'coaching', 'planpad']; // Module (und PlanPad-Kopplung) im Konto-Menü
+const PREFS = ['pathfinder', 'pruefungen', 'unterricht', 'notizen', 'umfragen', 'coaching', 'planpad']; // Module (und PlanPad-Kopplung) im Konto-Menü
 const PREFS_ON = ['pruefungen', 'coaching']; // ohne eigene Wahl an: Neue sehen Prüfungen und Coaching, der Rest ist zunächst aus
 const THEMES = ['blau', 'nacht', 'weiss', 'gold', 'gelb', 'sepia', 'bunt']; // Farbschemata (app/themes/; bunt = app/icon.svg), Standard: blau
 function prefs_of(array $u): array { $p = json_decode((string)($u['prefs'] ?? ''), true) ?: []; $o = []; foreach (PREFS as $k) $o[$k] = array_key_exists($k, $p) ? !empty($p[$k]) : in_array($k, PREFS_ON, true); $o['theme'] = in_array($p['theme'] ?? '', THEMES, true) ? $p['theme'] : 'blau'; return $o; }
@@ -125,6 +125,14 @@ const ARCH_STATES = ['beendet', 'veroeffentlicht'];
 function exam_fachschaft(array $e): string {
     if (!$e['fach_id']) return '';
     $st = db()->prepare('SELECT s.name FROM faecher f JOIN fachschaften s ON s.id = f.fachschaft_id WHERE f.id = ?'); $st->execute([(int)$e['fach_id']]); return (string)($st->fetchColumn() ?: '');
+}
+/** Schüler-Gerät im Modul Unterricht: Geräteschlüssel prüfen (gesperrte Geräte abweisen) */
+function ucoupling(array $in): array {
+    $t = (string)($in['token'] ?? ''); if (!preg_match('~^[0-9a-f]{48}$~', $t)) fail('Nicht gekoppelt', 401);
+    $st = db()->prepare('SELECT k.*, c.name, c.fach, c.owner_id FROM ucouplings k JOIN classes c ON c.id = k.class_id WHERE k.token_hash = ?'); $st->execute([hash('sha256', $t)]); $k = $st->fetch();
+    if (!$k) fail('Diese Kopplung gibt es nicht mehr. Bitte deine Lehrkraft um einen neuen QR-Code.', 401);
+    if ((int)$k['revoked']) fail('Dieses Gerät wurde von deiner Lehrkraft abgemeldet. Bitte um einen neuen QR-Code.', 401);
+    return $k;
 }
 function exam_meta(array $e): array {
     return ['id' => (int)$e['id'], 'schuljahr' => $e['schuljahr'], 'klasse' => $e['klasse'], 'fach_id' => $e['fach_id'] ? (int)$e['fach_id'] : null, 'fach' => $e['fach'],
@@ -1204,6 +1212,104 @@ case 'exam_grading': {
     $h = preg_match('~^[0-9a-f]{16,64}$~', (string)($in['ghash'] ?? '')) ? (string)$in['ghash'] : null; // Prüfsumme der Bewertung: ändert sie sich nach dem Archivieren, wird der Punkt rot
     db()->prepare('UPDATE exams SET grading_enc = ?, notes_enc = COALESCE(?, notes_enc), grading_hash = COALESCE(?, grading_hash), updated = ? WHERE id = ?')->execute([str($in, 'grading_enc', 5_000_000, true), blob($in, 'notes_enc', 400_000), $h, time(), $e['id']]);
     out(['exam' => exam_meta(own_exam($u, (int)$e['id']))]);
+}
+/* ---------- Modul Unterricht (Lehrkraft) ---------- */
+case 'lp_list': { $u = teacher(); $st = db()->prepare('SELECT id, title, form, created, updated FROM lpaths WHERE owner_id = ? ORDER BY updated DESC'); $st->execute([$u['id']]); out(['items' => $st->fetchAll()]); }
+case 'lp_get': { $u = teacher(); $st = db()->prepare('SELECT * FROM lpaths WHERE id = ? AND owner_id = ?'); $st->execute([(int)($in['id'] ?? 0), $u['id']]); out(['item' => $st->fetch() ?: fail('Lernpfad nicht gefunden', 404)]); }
+case 'lp_save': { // Lernpfad der Lehrkraft (verschlüsselt); Titel und Art im Klartext für die Liste
+    $u = teacher(); $pdo = db(); $id = (int)($in['id'] ?? 0); $doc = str($in, 'doc_enc', 20_000_000, true);
+    $title = str($in, 'title', 200); $form = in_array($in['form'] ?? '', ['lernpfad', 'challenge'], true) ? $in['form'] : 'lernpfad';
+    if ($id) { $st = $pdo->prepare('UPDATE lpaths SET title = ?, form = ?, doc_enc = ?, updated = ? WHERE id = ? AND owner_id = ?'); $st->execute([$title, $form, $doc, time(), $id, $u['id']]); if (!$st->rowCount()) fail('Lernpfad nicht gefunden', 404); }
+    else { $pdo->prepare('INSERT INTO lpaths (owner_id, title, form, doc_enc, created, updated) VALUES (?,?,?,?,?,?)')->execute([$u['id'], $title, $form, $doc, time(), time()]); $id = (int)$pdo->lastInsertId(); }
+    out(['id' => $id]);
+}
+case 'lp_del': { $u = teacher(); db()->prepare('DELETE FROM lpaths WHERE id = ? AND owner_id = ?')->execute([(int)($in['id'] ?? 0), $u['id']]); out([]); }
+case 'ut_classes': { // Klassen des Schuljahres mit Anzahl gekoppelter Schüler und laufender Einheiten
+    $u = teacher(); $sj = str($in, 'schuljahr', 9) ?: schuljahr();
+    $st = db()->prepare("SELECT c.id, c.name, c.fach, c.roster_n, (SELECT COUNT(DISTINCT sid) FROM ucouplings k WHERE k.class_id = c.id AND k.token_hash IS NOT NULL AND k.revoked = 0) AS paired,
+        (SELECT COUNT(*) FROM units n WHERE n.class_id = c.id AND n.status = 'laeuft') AS running, (SELECT COUNT(*) FROM units n WHERE n.class_id = c.id) AS units
+        FROM classes c WHERE c.owner_id = ? AND c.schuljahr = ? ORDER BY c.name COLLATE NOCASE, c.fach");
+    $st->execute([$u['id'], $sj]); out(['schuljahr' => $sj, 'items' => $st->fetchAll()]);
+}
+case 'ut_class': {
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db();
+    $k = $pdo->prepare('SELECT id, sid, created, paired, last_seen, revoked, (qr_hash IS NOT NULL AND token_hash IS NULL) AS open FROM ucouplings WHERE class_id = ? ORDER BY id'); $k->execute([$c['id']]);
+    $n = $pdo->prepare('SELECT id, title, form, targets, status, started, ended FROM units WHERE class_id = ? ORDER BY started DESC'); $n->execute([$c['id']]);
+    out(['class' => ['id' => (int)$c['id'], 'name' => $c['name'], 'fach' => $c['fach'], 'schuljahr' => $c['schuljahr']], 'ukey_enc' => $c['ukey_enc'], 'couplings' => $k->fetchAll(), 'units' => $n->fetchAll(), 'now' => time()]);
+}
+case 'ut_key': { // Klassenschlüssel einmalig hinterlegen (ein vorhandener bleibt – gedruckte QR-Codes enthalten ihn)
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $k = blob($in, 'ukey_enc', 4000) ?: fail('Schlüssel fehlt');
+    db()->prepare('UPDATE classes SET ukey_enc = ? WHERE id = ? AND ukey_enc IS NULL')->execute([$k, $c['id']]);
+    out(['ukey_enc' => own_class($u, (int)$c['id'])['ukey_enc']]);
+}
+case 'ut_qr': { // neue QR-Codes: je Schüler ein Einmal-Geheimnis (nur der Hash liegt hier); noch nicht benutzte ältere verfallen
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db(); $pdo->beginTransaction();
+    foreach ((array)($in['items'] ?? []) as $x) {
+        $sid = str($x, 'sid', 40, true); $h = (string)($x['qr_hash'] ?? ''); if (!preg_match('~^[0-9a-f]{64}$~', $h)) fail('QR-Code ungültig');
+        $pdo->prepare('DELETE FROM ucouplings WHERE class_id = ? AND sid = ? AND token_hash IS NULL')->execute([$c['id'], $sid]);
+        $pdo->prepare('INSERT INTO ucouplings (class_id, sid, qr_hash, created) VALUES (?,?,?,?)')->execute([$c['id'], $sid, $h, time()]);
+    }
+    $pdo->commit(); out([]);
+}
+case 'ut_revoke': { // alle Geräte eines Schülers sperren (und offene QR-Codes ungültig machen)
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $sid = str($in, 'sid', 40, true);
+    db()->prepare('UPDATE ucouplings SET revoked = 1, qr_hash = NULL WHERE class_id = ? AND sid = ?')->execute([$c['id'], $sid]); out([]);
+}
+case 'ut_start': { // Unterrichtseinheit starten: Lernpfad, mit dem Klassenschlüssel verschlüsselt; targets = Liste von Kennungen oder null (alle)
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db();
+    $t = isset($in['targets']) && is_array($in['targets']) ? json_encode(array_values(array_map('strval', $in['targets']))) : null;
+    $form = in_array($in['form'] ?? '', ['lernpfad', 'challenge'], true) ? $in['form'] : 'lernpfad';
+    $pdo->prepare("INSERT INTO units (class_id, title, form, doc_enc, targets, status, started) VALUES (?,?,?,?,?,'laeuft',?)")->execute([$c['id'], str($in, 'title', 200), $form, str($in, 'doc_enc', 20_000_000, true), $t, time()]);
+    out(['id' => (int)$pdo->lastInsertId()]);
+}
+case 'ut_unit': { // beenden, wieder öffnen, Empfänger ändern, löschen
+    $u = teacher(); $pdo = db(); $st = $pdo->prepare('SELECT n.* FROM units n JOIN classes c ON c.id = n.class_id WHERE n.id = ? AND c.owner_id = ?'); $st->execute([(int)($in['unit'] ?? 0), $u['id']]);
+    $n = $st->fetch() ?: fail('Einheit nicht gefunden', 404); $op = (string)($in['op'] ?? '');
+    if ($op === 'end') $pdo->prepare("UPDATE units SET status = 'beendet', ended = ? WHERE id = ?")->execute([time(), $n['id']]);
+    elseif ($op === 'reopen') $pdo->prepare("UPDATE units SET status = 'laeuft', ended = NULL WHERE id = ?")->execute([$n['id']]);
+    elseif ($op === 'del') $pdo->prepare('DELETE FROM units WHERE id = ?')->execute([$n['id']]);
+    elseif ($op === 'targets') $pdo->prepare('UPDATE units SET targets = ? WHERE id = ?')->execute([isset($in['targets']) && is_array($in['targets']) ? json_encode(array_values(array_map('strval', $in['targets']))) : null, $n['id']]);
+    else fail('Unbekannt');
+    out([]);
+}
+case 'ut_status': { // Dashboard: Lebenszeichen der Geräte und geänderte Bearbeitungsstände seit „since“
+    $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $pdo = db(); $since = max(0, (int)($in['since'] ?? 0));
+    $k = $pdo->prepare('SELECT sid, MAX(last_seen) AS seen, MAX(token_hash IS NOT NULL AND revoked = 0) AS paired FROM ucouplings WHERE class_id = ? GROUP BY sid'); $k->execute([$c['id']]);
+    $p = $pdo->prepare('SELECT p.unit_id, p.sid, p.data_enc, p.updated, p.submitted FROM uprogress p JOIN units n ON n.id = p.unit_id WHERE n.class_id = ? AND p.updated >= ?'); $p->execute([$c['id'], $since]);
+    out(['now' => time(), 'devices' => $k->fetchAll(), 'progress' => $p->fetchAll()]);
+}
+/* ---------- Modul Unterricht (Schüler-Gerät; ohne Anmeldung, über den Geräteschlüssel) ---------- */
+case 'ut_pair': { // Einmal-QR-Code einlösen → Geräteschlüssel
+    throttle('u', 30); $pdo = db(); $sec = str($in, 'secret', 80, true);
+    $st = $pdo->prepare('SELECT k.*, c.name, c.fach, c.owner_id FROM ucouplings k JOIN classes c ON c.id = k.class_id WHERE k.class_id = ? AND k.qr_hash = ? AND k.token_hash IS NULL AND k.revoked = 0');
+    $st->execute([(int)($in['class'] ?? 0), hash('sha256', $sec)]); $k = $st->fetch();
+    if (!$k) { throttle_fail('u'); fail('Dieser QR-Code ist schon benutzt oder nicht mehr gültig. Bitte deine Lehrkraft um einen neuen.', 403); }
+    $tok = bin2hex(random_bytes(24));
+    $pdo->prepare('UPDATE ucouplings SET token_hash = ?, qr_hash = NULL, paired = ?, last_seen = ? WHERE id = ?')->execute([hash('sha256', $tok), time(), time(), $k['id']]);
+    out(['token' => $tok]);
+}
+case 'ut_poll': { // Gerät fragt nach: laufende Einheiten (Lernpfad nur, wenn noch nicht vorhanden), öffentlicher Schlüssel der Lehrkraft
+    $pdo = db(); $k = ucoupling($in);
+    $pdo->prepare('UPDATE ucouplings SET last_seen = ? WHERE id = ?')->execute([time(), $k['id']]);
+    $have = array_map('intval', (array)($in['have'] ?? []));
+    $n = $pdo->prepare("SELECT n.id, n.title, n.form, n.targets, n.started, n.doc_enc, p.submitted FROM units n LEFT JOIN uprogress p ON p.unit_id = n.id AND p.sid = ? WHERE n.class_id = ? AND n.status = 'laeuft' ORDER BY n.started DESC");
+    $n->execute([$k['sid'], $k['class_id']]); $L = [];
+    foreach ($n->fetchAll() as $x) {
+        if ($x['targets'] !== null && !in_array($k['sid'], json_decode($x['targets'], true) ?: [], true)) continue;
+        $L[] = ['id' => (int)$x['id'], 'title' => $x['title'], 'form' => $x['form'], 'started' => (int)$x['started'], 'submitted' => $x['submitted'] ? (int)$x['submitted'] : null] + (in_array((int)$x['id'], $have, true) ? [] : ['doc_enc' => $x['doc_enc']]);
+    }
+    $o = $pdo->prepare('SELECT u.pub_key, u.kuerzel FROM users u WHERE u.id = ?'); $o->execute([$k['owner_id']]); $ow = $o->fetch();
+    out(['class' => ['name' => $k['name'], 'fach' => $k['fach']], 'teacher' => $ow['kuerzel'], 'pub_key' => $ow['pub_key'], 'units' => $L, 'now' => time()]);
+}
+case 'ut_save': { // Bearbeitungsstand (für die Lehrkraft verschlüsselt); submit = Abgabe
+    $pdo = db(); $k = ucoupling($in); $uid = (int)($in['unit'] ?? 0);
+    $st = $pdo->prepare("SELECT * FROM units WHERE id = ? AND class_id = ? AND status = 'laeuft'"); $st->execute([$uid, $k['class_id']]); $n = $st->fetch() ?: fail('Diese Einheit ist beendet.', 409);
+    if ($n['targets'] !== null && !in_array($k['sid'], json_decode($n['targets'], true) ?: [], true)) fail('Diese Einheit ist nicht für dich.', 403);
+    $d = str($in, 'data_enc', 400_000, true); $sub = !empty($in['submit']) ? time() : null;
+    $pdo->prepare('INSERT INTO uprogress (unit_id, sid, data_enc, updated, submitted) VALUES (?,?,?,?,?) ON CONFLICT(unit_id, sid) DO UPDATE SET data_enc = excluded.data_enc, updated = excluded.updated, submitted = COALESCE(excluded.submitted, uprogress.submitted)')
+        ->execute([$uid, $k['sid'], $d, time(), $sub]);
+    $pdo->prepare('UPDATE ucouplings SET last_seen = ? WHERE id = ?')->execute([time(), $k['id']]);
+    out(['saved' => time(), 'submitted' => $sub]);
 }
 case 'exam_archive_put': { // Lehrkraft hat archiviert: Archiv-Kopie (für sie und den Schulschlüssel verschlüsselt) für das Jahresarchiv des Admins
     $u = teacher(); $e = own_exam($u, (int)($in['id'] ?? 0));
