@@ -100,16 +100,16 @@ function drawWho() {
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
       <fieldset class="prefs"><legend>Farbe</legend><div class="themes">${THEMES.map(([k, t]) => `<button type="button" data-theme="${k}" aria-pressed="${(S.user.prefs?.theme || 'blau') === k}" title="${t}" aria-label="Farbschema ${t}"><img src="${themeIcon(k)}" alt=""></button>`).join('')}</div></fieldset>
-      <fieldset class="prefs"><legend>Module</legend>
+      <fieldset class="prefs mods"><legend>Module</legend>
+        <p class="help" style="margin:2px 0 4px">Bereiche im oberen Menü – ein- oder ausschalten (Daten bleiben erhalten).</p>
         ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['pruefungen', 'Prüfungen', 'digitale Prüfungen schreiben, auswerten und archivieren; Klassen mit Notenübersicht'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
           ['coaching', 'Coaching', 'verschlüsselte Coaching-Gespräche und Fragebögen zu einzelnen Schülern']]
           .map(([k, t, h]) => `<label class="pref"><input type="checkbox" data-pref="${k}"${S.user.prefs?.[k] ? ' checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}
         ${S.user.fachleitung?.length ? `<label class="pref fixed"><input type="checkbox" checked disabled><span><b>Respizienz</b><small>gehört zur Fachleitung (${S.user.fachleitung.map(f => esc(f.name)).join(', ')}) – immer an</small></span></label>` : ''}
         ${S.user.is_berater ? '<label class="pref fixed"><input type="checkbox" checked disabled><span><b>Schulberatung</b><small>gehört zur Rolle Beratung – immer an</small></span></label>' : ''}
       </fieldset>
-      <fieldset class="prefs"><legend>Kopplung</legend>
-        <label class="pref"><input type="checkbox" data-pref="planpad"${S.user.prefs?.planpad ? ' checked' : ''}><span><b>PlanPad-Kopplung</b><small>Noten aus PlanPad (Sitzplan- und Unterrichtsmanager) automatisch in die Klassen von Probe übernehmen – verschlüsselt, nur in eine Richtung</small></span></label>
-      </fieldset>
+      <div class="pp-toggle"><label class="switch" title="PlanPad-Kopplung ein/aus"><input type="checkbox" data-pref="planpad"${S.user.prefs?.planpad ? ' checked' : ''} aria-label="PlanPad-Kopplung"><span></span></label>
+        <span><b>PlanPad-Kopplung</b><small>Noten aus PlanPad (Sitzplan- und Unterrichtsmanager) automatisch in die Klassen von Probe übernehmen – verschlüsselt, nur in eine Richtung</small></span></div>
       <div class="btns"><button class="btn" data-fa>Meine Fächer</button>${S.user.is_demo ? '' : '<button class="btn" data-pw>Passwort ändern</button>'}<button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
     d.el.querySelectorAll('[data-theme]').forEach(b => b.onclick = async () => {
       const k = b.dataset.theme, old = S.user.prefs?.theme || 'blau'; applyTheme(k); d.el.querySelectorAll('[data-theme]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));

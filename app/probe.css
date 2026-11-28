@@ -350,3 +350,9 @@ h1 .brille svg { width: 34px; height: 17px; }
 .legende { margin-top: 14px; } .legende .adot { margin: 0 3px 0 6px; } .legende .brille svg { width: 22px; height: 11px; }
 /* Übungsprüfung in der Notenübersicht: Note in Klammern, zählt nicht */
 .k-ueb { color: var(--ink-2, #6b7085); } th.k-ex.k-ueb a { opacity: .75; font-style: italic; }
+/* Konto-Menü: Module umrandet, PlanPad-Kopplung als eigener Schalter darunter */
+fieldset.prefs.mods { border: 2px solid var(--a1, #3b4fc4); background: color-mix(in srgb, var(--a1, #3b4fc4) 5%, transparent); }
+fieldset.prefs.mods legend { color: var(--a1, #3b4fc4); font-size: 15px; letter-spacing: .02em; }
+.pp-toggle { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; margin: 12px 0; border-radius: 12px; background: var(--bg2, #f3f5fa); }
+.pp-toggle .switch { margin-top: 2px; } .pp-toggle > span { display: flex; flex-direction: column; } .pp-toggle small { color: var(--ink-2); font-size: 13px; line-height: 1.35; }
+.pp-toggle .switch input:checked + span { background: var(--a1, #3b4fc4); }
