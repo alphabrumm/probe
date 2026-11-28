@@ -13,7 +13,7 @@ const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [..
 const b64u = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const sha256hex = async s => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(x => x.toString(16).padStart(2, '0')).join('');
 const plain = s => String(s || '').replace(/<[^>]*>/g, '').trim();
-const FORM = { lernpfad: 'Lernpfad', challenge: 'Challenge', jpad: '☕ JPad', papp: '🧩 Lernpfad + App' };
+const FORM = { lernpfad: 'Lernpfad', challenge: 'Challenge', jpad: '☕ JPad', papp: '🧩 App-Lernpfad' };
 /** Einordnung als kurze Zeile: „Physik · 8. Jgst. · 2 Optik“ */
 const metaLine = m => [m?.fach, m?.jg ? `${m.jg}. Jgst.` : '', m?.lbt].filter(Boolean).join(' · ');
 /** Jahrgangsstufe aus dem Klassennamen („8b“ → 8, „Q11“ → 11) */
@@ -150,7 +150,7 @@ async function drawAppList(H) {
   el.innerHTML = `<div class="tiles">${A.map(a => `<div class="tile pa-t"><span class="k">${esc(a.icon || '🧩')} ${esc(a.own ? 'eigene App' : a.kind === 'jpad' ? 'App' : 'Probe-App')}${a.fach ? ' · ' + esc(a.fach) : ''}${a.jg ? ' · ' + esc(a.jg) : ''}</span><span class="t">${esc(a.name)}</span>
     <span class="m">${esc(a.beschreibung || '')}</span><span class="s">${a.ready === false ? '<span class="chip">in Vorbereitung</span>'
       : a.kind === 'jpad' ? '<button class="btn sm" data-pa="jpad">＋ JPad-Projekt</button>'
-      : `<button class="btn sm" data-pa="new" data-app="${esc(a.id)}" title="Lernpfad + App anlegen${a.m?.lernpfadText || a.m?.lernpfad ? ' – mit dem Beispiel-Lernpfad der App' : ''}">＋ Lernpfad + App</button>${a.own ? `<button class="btn sm ghost danger" data-pa="del" data-app="${esc(a.id)}" title="App löschen">🗑</button>` : ''}`}</span></div>`).join('')}</div>`;
+      : `<button class="btn sm" data-pa="new" data-app="${esc(a.id)}" title="Einen Lernpfad zu dieser App bauen: links die App, rechts der Lernpfad">＋ App-Lernpfad erstellen</button>${a.own ? `<button class="btn sm ghost danger" data-pa="del" data-app="${esc(a.id)}" title="App löschen">🗑</button>` : ''}`}</span></div>`).join('')}</div>`;
   $('#paOwn').onclick = () => PA.ownAppDialog(H, { faecher: C.faecher, save: d => saveLp(H, null, d), onDone: () => drawAppList(H) });
 }
 async function appAction(H, what, appId) {
@@ -158,11 +158,19 @@ async function appAction(H, what, appId) {
   if (what === 'jpad') return jpadDialog(H, null, null);
   const C = await PA.loadApps(H), a = C.apps.find(x => x.id === appId); if (!a) return;
   if (what === 'del') { if (!confirm(`App „${a.name}“ löschen? Schon gebaute Lernpfade mit dieser App behalten ihre Kopie.`)) return; await H.api('lp_del', { id: a.lpid }); PA.dropCache(); drawAppList(H); return; }
-  if (what === 'new') { // mit dem Beispiel-Lernpfad der App bzw. einem Gerüst aus ihren Ereignissen
-    let lp = null; try { lp = await PA.builtinLernpfad(a); } catch (e) { }
-    if (!lp) lp = skeletonDoc(a);
-    authorApp(H, null, PA.material(a, lp));
-    toast(`🧩 „${esc(a.name)}“: links die App, rechts der Lernpfad – App-Aufgaben prüfen die Ereignisse der App`, 5000);
+  if (what === 'new') { // App-Lernpfad: mit KI, mit dem Beispiel-Lernpfad der App oder mit einem Gerüst aus ihren Ereignissen
+    let ex = null; try { ex = await PA.builtinLernpfad(a); } catch (e) { }
+    const d = H.dialog(`🧩 App-Lernpfad zu „${esc(a.name)}“`, `<p class="help">Links läuft die App, rechts baust du den Lernpfad. <b>App-Aufgaben</b> im Lernpfad sind gelöst, sobald die App das passende Ereignis meldet (z. B. „Zellkern richtig beschriftet“). Wie möchtest du beginnen?</p>
+      <div class="stack" style="gap:10px">
+        <button class="btn pri" data-st="ki">✨ Mit KI erstellen</button><p class="help" style="margin:-4px 0 6px">Der KI-Dialog kennt die App, ihre Ereignisse und Regeln – du wählst Klasse und Thema, die KI baut passende App-Aufgaben.</p>
+        ${ex ? `<button class="btn" data-st="ex">📘 Beispiel-Lernpfad der App übernehmen</button><p class="help" style="margin:-4px 0 6px">„${esc(plain(ex.title) || a.name)}“ – fertig zum Ausprobieren und Anpassen.</p>` : ''}
+        <button class="btn" data-st="leer">＋ Selbst bauen</button><p class="help" style="margin:-4px 0 0">Ein Gerüst mit einigen App-Aufgaben; im Editor fügst du weitere über „＋ Baustein → App-Aufgabe“ hinzu.</p>
+      </div>`);
+    d.el.onclick = ev => {
+      const st = ev.target.closest('[data-st]')?.dataset.st; if (!st) return; d.close();
+      if (st === 'ki') authorApp(H, null, PA.material(a, null), true);
+      else authorApp(H, null, PA.material(a, st === 'ex' ? ex : skeletonDoc(a)));
+    };
   }
 }
 /** Gerüst eines Lernpfads zu einer App: eine Station mit einer App-Aufgabe je Ereignis (höchstens 3) */
@@ -172,8 +180,8 @@ function skeletonDoc(a) {
     stations: [{ id: id(), title: 'Los geht\'s', sub: a.name, check: false, blocks: [{ id: id(), type: 'text', html: `Links siehst du die App <b>${a.name}</b>.` }, ...ev.map(e => ({ id: id(), type: 'apptask', title: e.text || e.name, html: '', event: e.name, count: 1, xp: 10, tips: [], solution: '', solHide: true, img: '' }))] }],
     cert: { on: true, need: 'immer', pct: 80, text: 'hat den Lernpfad mit folgendem Ergebnis bearbeitet:', show: { zeit: true, tipps: true, quiz: true, xp: true } } };
 }
-function authorApp(H, id, mat) {
-  PA.authorPapp(H, { id, mat, save: (i, m) => saveLp(H, i, m), onDone: () => { if (location.hash === '#/unterricht') viewUnterricht(H); } });
+function authorApp(H, id, mat, ki = false) {
+  PA.authorPapp(H, { id, mat, ki, save: (i, m) => saveLp(H, i, m), onDone: () => { if (location.hash === '#/unterricht') viewUnterricht(H); } });
 }
 async function saveLp(H, id, d) {
   return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: ['challenge', 'jpad', 'papp', 'app'].includes(d.form) ? d.form : 'lernpfad', meta: d.meta || {}, doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;

@@ -77,10 +77,10 @@ export async function builtinLernpfad(a) {
 
 /* ---------- Bauen: links die App (zum Ausprobieren), rechts der Lernpfad-Editor mit „App-Aufgaben“ ---------- */
 /** save(id, mat) → id; onDone() nach dem Schließen */
-export function authorPapp(H, { id = null, mat, save, onDone }) {
+export function authorPapp(H, { id = null, mat, ki = false, save, onDone }) {
   const { esc, toast } = H;
   const w = document.createElement('div'); w.className = 'papp-author';
-  w.innerHTML = `<div class="pa-bar"><b>${esc(mat.app.m?.icon || '🧩')} ${esc(mat.app.m?.name || 'App')}</b><span class="help">links ausprobieren – Ereignisse lösen in der Vorschau rechts die App-Aufgaben</span><span class="sp"></span><span class="help" id="paSaved"></span></div>
+  w.innerHTML = `<div class="pa-bar"><b>${esc(mat.app.m?.icon || '🧩')} ${esc(mat.app.m?.name || 'App')}</b><span class="help">links ausprobieren · rechts der Lernpfad: mit „KI“ oben im Editor erweitern, App-Aufgaben über ＋ Baustein → App-Aufgabe; in der Vorschau lösen die Ereignisse der App sie</span><span class="sp"></span><span class="help" id="paSaved"></span></div>
     <div class="pa-split"><div class="pa-app" id="paApp"></div><div class="pa-lp"><iframe src="editor.html" title="Lernpfad bearbeiten"></iframe></div></div>`;
   document.body.appendChild(w); document.body.style.overflow = 'hidden';
   const fr = $('iframe', w); let timer = null, pending = null, saving = Promise.resolve();
@@ -90,7 +90,8 @@ export function authorPapp(H, { id = null, mat, save, onDone }) {
   const close = async () => { await flush(); app.destroy(); w.remove(); document.body.style.overflow = ''; H.cleanLocal?.(); onDone?.(id); };
   const onMsg = ev => {
     if (ev.source !== fr.contentWindow || ev.data?.probeEditor !== 'ready') return; removeEventListener('message', onMsg);
-    fr.contentWindow.probeEdit({ doc: mat.lernpfad || undefined, startDialog: false, forms: ['lernpfad', 'challenge'], papp: { events: mat.app.m?.events || [], name: mat.app.m?.name },
+    fr.contentWindow.probeEdit({ doc: mat.lernpfad || undefined, startDialog: ki ? 'ki' : !mat.lernpfad, forms: ['lernpfad', 'challenge'], papp: { events: mat.app.m?.events || [], name: mat.app.m?.name },
+      kiApp: { id: mat.app.id, name: mat.app.m?.name, rules: mat.app.m ? appPromptRules(mat.app.m) : '' }, // jeder KI-Prompt im Editor kennt die App
       host: { saved: d => { pending = d; const s = $('#paSaved', w); if (s) s.textContent = '…'; clearTimeout(timer); timer = setTimeout(flush, 1500); }, done: d => { pending = d; close(); }, doneLabel: 'Fertig – zurück zu Probe', doneTitle: 'Speichern und zurück' } });
   };
   addEventListener('message', onMsg);
