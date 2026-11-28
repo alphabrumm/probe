@@ -139,7 +139,8 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   `l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name>` (der Teil hinter „#“ geht nie an den Server; der Server speichert nur den
   Hash des Geheimnisses). Beim Scannen bekommt das Gerät einen Geräteschlüssel (IndexedDB); der Code ist danach verbraucht. Neuer
   QR-Code je Person (z. B. zweites Gerät), „Abmelden“ sperrt alle Geräte der Person. Der Server kennt nur die Kennung (sid), keine Namen.
-* **JPad-Lernumgebung bauen:** „＋ Neuer Lernpfad“ → „☕ JPad-Lernumgebung“ (oder im KI-Dialog bei Informatik ganz oben als Art).
+* **JPad-Lernumgebung bauen:** „＋ Neuer Lernpfad“ → „Mit KI erstellen“, Art Lernpfad, Fach Informatik → im Schritt „Aufgaben“
+  „Als Java-Projekt realisieren“ (SQL- und Tabellen-Projekt stehen schon da, haben aber noch keine Funktion).
   JPad öffnet sich im Modus `?pfapp=autor`: links Startcode, rechts der Lernpfad-Editor von JPad (PathFinder mit Programmier-Aufgaben).
   Code, Lernpfad (als HTML wie in JPad-Projektdateien) und Titel werden laufend verschlüsselt als Material „JPad“ gespeichert;
   „✎ Bearbeiten“ öffnet es wieder dort. Leere Entwürfe aus dem Startdialog werden nicht mehr gespeichert.
