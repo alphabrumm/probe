@@ -388,3 +388,11 @@ td.u-st.ok { background: #e3f4ea; color: #1f7a45; font-weight: 700; } td.u-st.ha
 .u-board .ub-left { font-size: 18px; color: #555; } .u-board .ub-n { font-size: 18px; color: #2f7d4f; font-weight: 700; margin-top: 6px; }
 .u-board .off { opacity: .15; }
 @media (max-width: 700px) { .u-board .ub-main { flex-direction: column; } .u-board .ub-qr { height: 50vh; } }
+/* JPad im Modul Unterricht: Knöpfe in der Kopfleiste der Live-Ansicht, Kommentar-Fenster */
+.pfapp-bar .u-jbtns { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.pfapp-ov .u-cbox { position: absolute; inset: 0; z-index: 5; background: #0006; display: flex; align-items: flex-start; justify-content: center; padding: 70px 16px 16px; }
+.pfapp-ov .u-cin { background: var(--card, #fff); color: inherit; border-radius: 16px; padding: 16px 18px; width: min(520px, 100%); max-height: 80vh; overflow: auto; box-shadow: 0 10px 40px #0004; font: 15px/1.45 system-ui, sans-serif; }
+.pfapp-ov .u-cin ul { padding-left: 18px; margin: 10px 0; } .pfapp-ov .u-cin li { margin: 6px 0; }
+.pfapp-ov .u-cin label { display: block; margin-top: 10px; } .pfapp-ov .u-cin textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line, #ccd); }
+.pfapp-ov .u-cin code { font-size: 13px; background: #f1f3f8; padding: 1px 5px; border-radius: 5px; }
+.pfapp-ov .u-cin .btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }

@@ -145,6 +145,11 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   Der eigene Stand liegt im Gerät (IndexedDB, Store `u`) und geht bei Änderungen verschlüsselt an die Lehrkraft (Dateien, letzter Lauf).
   Dashboard: Code-Umfang und letzter Lauf je Person, **👁 Ansehen** = Live-Ansicht (JPad schreibgeschützt, neuer Stand alle 3 s);
   das Gerät zeigt dann „Deine Lehrkraft schaut gerade zu“ und sendet schneller (`ut_watch`, Datenbank v25).
+  In der Live-Ansicht: **✎ Bearbeiten** sperrt den Editor auf dem iPad; erst wenn das Gerät seinen letzten Stand geschickt und die Sperre
+  bestätigt hat (`ack` zur Version `v`), wird der Code für die Lehrkraft frei. Ihre Änderungen sieht der Schüler live; **↩ Zurückgeben**
+  übergibt ihren Stand, **✕ Verwerfen** gibt ohne Änderung frei (Schließen gibt automatisch zurück). **💬 Kommentar** zur Cursorzeile:
+  blinkender grüner Kreis in der Haltepunkt-Spalte und Eintrag unter „Probleme“ (Zeilentext zum Wiederfinden). Inhalte mit dem
+  Klassenschlüssel verschlüsselt (`uedit`, `ut_edit`, Datenbank v26).
 * **Tafel-QR-Code** (Knopf in der Klasse, mit „Was ist das?“): gemeinsamer Code `l.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel>`
   plus 4-stellige PIN im Vollbild für Beamer/Tafel, 15 Minuten gültig (Server kennt Geheimnis und PIN nur als Hash; nach 25 falschen PINs
   verfällt der Code). Schüler ohne persönlichen Code tragen PIN, Vor- und Nachnamen ein und sind sofort gekoppelt (sid `T…`); der Name geht

@@ -109,35 +109,65 @@ async function openUnit(c, id) {
 }
 /* ---------- JPad-Einheit: JPad (Lernmodus) im Vollbild-Fenster; eigener Stand im Gerät, verschlüsselt an die Lehrkraft ---------- */
 let J = null;
+const LOCK_TEXT = 'Deine Lehrkraft bearbeitet gerade deinen Code – du bekommst ihn gleich zurück.';
 async function openJPad(k, u, doc, I) {
   clearInterval(homeT);
-  const { openApp, closeApp, flushApp } = await import('../vendor/pathfinder/core/pfapp.js');
-  const key = `${k.c}:${u.id}`, saved = await getU(key).catch(() => null);
-  J = { k, u, pub: I.pub_key, key, last: saved || null, dirty: false, t: null, sending: false, watch: !!I.watch, flushApp };
-  openApp({ app: 'jpad', url: I.apps?.jpad, mode: 'unterricht', task: 'u' + u.id, title: u.title || 'JPad', files: saved?.files || [], closeLabel: '‹ Übersicht',
-    extra: { ...(doc.jcode ? { jcode: doc.jcode } : {}), ...(doc.project ? { project: doc.project, projectKey: 'u' + u.id } : {}) },
-    onState: st => { J.last = { id: key, files: st.files, run: st.run || J.last?.run || null }; J.dirty = true; putU(J.last).catch(() => { }); clearTimeout(J.t); J.t = setTimeout(sendJ, J.watch ? 1200 : 3000); },
-    onClose: async () => { clearInterval(J?.iv); await sendJ(); J = null; location.hash = ''; location.reload(); } });
+  const A = await import('../vendor/pathfinder/core/pfapp.js');
+  const key = `${k.c}:${u.id}`, saved = await getU(key).catch(() => null), e0 = u.edit || null;
+  J = { k, u, A, pub: I.pub_key, key, last: saved || null, dirty: false, t: null, sending: false, watch: !!I.watch, locked: !!e0?.lock, ev: saved?.ev || 0, ef: null, cupd: null };
+  let comments = []; try { if (e0?.comments_enc) comments = (await K.openExamDoc(k.k, e0.comments_enc)).list || []; J.cupd = e0?.cupd ?? null; } catch (er) { }
+  A.openApp({ app: 'jpad', url: I.apps?.jpad, mode: 'unterricht', task: 'u' + u.id, title: u.title || 'JPad', files: saved?.files || [], readonly: J.locked, closeLabel: '‹ Übersicht',
+    extra: { comments, ...(J.locked ? { lockText: LOCK_TEXT } : {}), ...(doc.jcode ? { jcode: doc.jcode } : {}), ...(doc.project ? { project: doc.project, projectKey: 'u' + u.id } : {}) },
+    onState: st => { if (J.locked) return; J.last = { id: key, ev: J.ev, files: st.files, run: st.run || J.last?.run || null }; J.dirty = true; putU(J.last).catch(() => { }); clearTimeout(J.t); J.t = setTimeout(sendJ, J.watch ? 1200 : 3000); },
+    onClose: async () => { clearTimeout(J?.pt); await sendJ(); J = null; location.hash = ''; location.reload(); } });
   // Hinweis in der Kopfleiste, solange die Lehrkraft zuschaut
-  const bar = document.querySelector('.pfapp-bar'); let w = bar?.querySelector('.u-watch');
+  const bar = A.appBar(); let w = bar?.querySelector('.u-watch');
   if (bar && !w) { w = document.createElement('span'); w.className = 'u-watch'; w.textContent = '👁 Deine Lehrkraft schaut gerade zu'; bar.insertBefore(w, bar.querySelector('[data-close]')); }
-  if (w) w.hidden = !J.watch;
-  J.iv = setInterval(async () => { // Lebenszeichen alle 8 s: merkt Zuschauen und Ende der Einheit
-    if (!J || document.visibilityState !== 'visible') return;
-    try {
+  const badge = () => { if (w) { w.hidden = !J?.watch && !J?.locked; w.textContent = J?.locked ? '✎ Deine Lehrkraft bearbeitet deinen Code' : '👁 Deine Lehrkraft schaut gerade zu'; } };
+  badge();
+  if (e0) applyEdit(e0).then(badge);
+  const tick = async () => { // Lebenszeichen (alle 8 s, beim Zuschauen bzw. Bearbeiten alle 3 s): Zuschauen, Sperre, Kommentare, Ende der Einheit
+    if (!J) return;
+    if (document.visibilityState === 'visible') try {
       const r = await api('ut_poll', { token: k.token, have: [u.id] });
-      J.watch = !!r.watch; if (w) w.hidden = !J.watch;
-      if (!r.units.some(x => x.id === u.id)) { clearInterval(J.iv); await sendJ(); alert('Deine Lehrkraft hat diese Einheit beendet. Dein Stand ist gespeichert.'); closeApp(true); J = null; location.hash = ''; location.reload(); }
-    } catch (er) { if (er.status === 401) { clearInterval(J.iv); alert(er.message); } }
-  }, 8000);
+      J.watch = !!r.watch;
+      const uu = r.units.find(x => x.id === u.id);
+      if (!uu) { await sendJ(); alert('Deine Lehrkraft hat diese Einheit beendet. Dein Stand ist gespeichert.'); A.closeApp(true); J = null; location.hash = ''; location.reload(); return; }
+      await applyEdit(uu.edit); badge();
+    } catch (er) { if (er.status === 401) { alert(er.message); return; } }
+    if (J) J.pt = setTimeout(tick, J.watch || J.locked ? 3000 : 8000);
+  };
+  J.pt = setTimeout(tick, 3000);
 }
-async function sendJ() {
-  if (!J || !J.dirty || !J.last || J.sending) return; J.sending = true; clearTimeout(J.t);
-  const L = J.last, lines = (L.files || []).reduce((a, f) => a + (f.text ? f.text.split('\n').length : 0), 0);
+/** Sperre, Stand der Lehrkraft und Kommentare übernehmen (Inhalte mit dem Klassenschlüssel verschlüsselt) */
+async function applyEdit(e) {
+  if (!J || !e) return; const { A, k } = J;
+  if (e.cupd !== J.cupd) { J.cupd = e.cupd; let list = []; try { if (e.comments_enc) list = (await K.openExamDoc(k.k, e.comments_enc)).list || []; } catch (er) { } A.appComments(list); }
+  if (e.lock) {
+    if (!J.locked) { // erst den eigenen Stand sichern, dann sperren und der Lehrkraft bestätigen
+      await A.flushApp(800); J.locked = true; J.ev = e.v; A.setAppReadonly(true, LOCK_TEXT);
+      await sendJ(e.v);
+    } else if (J.ev !== e.v) { J.ev = e.v; await sendJ(e.v); }
+    if (e.files_enc && e.files_enc !== J.ef) { J.ef = e.files_enc; try { const f = (await K.openExamDoc(k.k, e.files_enc)).files; if (f?.length) A.updateApp(f); } catch (er) { } }
+  } else if (J.locked || e.v > J.ev) { // zurückgegeben (mit dem Stand der Lehrkraft) bzw. verworfen
+    const was = J.locked; J.ev = e.v; J.ef = null;
+    if (e.files_enc) try {
+      const f = (await K.openExamDoc(k.k, e.files_enc)).files;
+      if (f?.length) { if (!was) A.setAppReadonly(true); A.updateApp(f); J.last = { id: J.key, ev: J.ev, files: f, run: J.last?.run || null }; J.dirty = true; }
+    } catch (er) { }
+    if (J.last) { J.last.ev = J.ev; putU(J.last).catch(() => { }); }
+    J.locked = false; A.setAppReadonly(false);
+    if (was) alert(e.files_enc ? 'Deine Lehrkraft hat dir deinen Code zurückgegeben – mit ihren Änderungen. Du kannst weiterarbeiten.' : 'Du kannst weiterarbeiten.');
+    sendJ();
+  }
+}
+async function sendJ(ack) {
+  if (!J || (!J.dirty && ack == null) || J.sending) return; J.sending = true; clearTimeout(J.t);
+  const L = J.last || { files: [] }, lines = (L.files || []).reduce((a, f) => a + (f.text ? f.text.split('\n').length : 0), 0);
   try {
     const data_enc = await K.seal(J.pub, { files: L.files, run: L.run, sum: { files: (L.files || []).length, lines }, at: Date.now() });
-    await api('ut_save', { token: J.k.token, unit: J.u.id, data_enc }); J.dirty = false;
-  } catch (er) { if (er.offline) J.t = setTimeout(sendJ, 15000); }
+    await api('ut_save', { token: J.k.token, unit: J.u.id, data_enc, ...(ack != null ? { ack } : {}) }); J.dirty = false;
+  } catch (er) { if (er.offline) J.t = setTimeout(() => sendJ(ack), 15000); }
   finally { if (J) J.sending = false; }
 }
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && J?.dirty) { J.flushApp(600).then(sendJ); } });

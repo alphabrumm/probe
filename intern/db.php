@@ -54,7 +54,7 @@ const FAECHER = ['Berufliche Orientierung', 'Biologie', 'Chemie', 'Deutsch', 'En
 const ARTEN = ['Schulaufgabe', 'Kurzarbeit', 'AKL', 'Übungsprüfung'];
 
 /* ---------- Sicherungen: vollständige Kopie der Datenbank in data/sicherungen/ (nicht abrufbar, wie data/) ---------- */
-const DB_VERSION = 25;     // bei jeder neuen Migration erhöhen
+const DB_VERSION = 26;     // bei jeder neuen Migration erhöhen
 const BACKUP_KEEP = 10;    // so viele Sicherungen bleiben, ältere werden gelöscht
 function backup_dir(): string { $d = data_dir() . '/sicherungen'; if (!is_dir($d)) mkdir($d, 0770, true); return $d; }
 function backup_log(string $m): void { @file_put_contents(backup_dir() . '/protokoll.log', date('Y-m-d H:i:s') . " $m\n", FILE_APPEND); }
@@ -416,6 +416,16 @@ function migrate_steps(PDO $pdo, int $v): void {
         $pdo->exec(<<<SQL
         ALTER TABLE ucouplings ADD COLUMN watch_until INTEGER;
         PRAGMA user_version = 25;
+        SQL);
+    }
+    if ($v < 26) { // Modul Unterricht, JPad: Lehrkraft bearbeitet den Code einer Person (Sperre mit Version und Bestätigung) und kommentiert Zeilen
+        $pdo->exec(<<<SQL
+        CREATE TABLE IF NOT EXISTS uedit (
+          unit_id INTEGER NOT NULL REFERENCES units(id) ON DELETE CASCADE, sid TEXT NOT NULL,
+          lock INTEGER NOT NULL DEFAULT 0, v INTEGER NOT NULL DEFAULT 0, ack INTEGER NOT NULL DEFAULT 0,
+          files_enc TEXT, comments_enc TEXT, cupd INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (unit_id, sid));
+        PRAGMA user_version = 26;
         SQL);
     }
 }

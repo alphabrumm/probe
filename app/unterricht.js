@@ -230,24 +230,94 @@ function jpadTable(H, P, u, frozen) {
         <td>${x?.run ? `<span class="chip ${x.run.error ? 'warn' : 'good'}" title="${esc(out || '(keine Ausgabe)')}">${x.run.error ? '⚠ Fehler' : '▶ lief'}</span> <span class="help">${esc(tm(x.run.at))}</span>` : '<span class="help">–</span>'}</td>
         <td><button class="btn sm" data-uwatch="${u.id}|${esc(r.sid)}" title="Code live ansehen (die Schülerin, der Schüler sieht einen Hinweis)"${x || P.dev.get(r.sid)?.paired ? '' : ' disabled'}>👁 Ansehen</button></td></tr>`; }).join('')}</table></div>`;
 }
-/** Live-Ansicht des JPad-Codes einer Person: JPad schreibgeschützt; neuer Stand alle 3 Sekunden */
+/** Live-Ansicht des JPad-Codes einer Person: JPad schreibgeschützt, neuer Stand alle 3 Sekunden.
+    ✎ Bearbeiten: das Gerät sperrt seinen Editor und bestätigt (ack) – erst dann ist der Code frei für die Lehrkraft; ↩ Zurückgeben
+    schickt ihren Stand an das Gerät, ✕ Verwerfen gibt ohne Änderung frei. 💬 Kommentar: grüner Kreis an der Zeile beim Schüler. */
 async function watchJPad(H, P, uid, sid) {
   const { api, esc, toast, K } = H, u = P.units.find(x => x.id === uid), r = P.roster.find(x => x.sid === sid); if (!u || !r) return;
-  let doc; try { doc = await K.openExamDoc(await classKey(H, P), (await api('ut_unit', { unit: uid, op: 'doc' })).doc_enc); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
-  const { openApp, updateApp, appStatus } = await import('../vendor/pathfinder/core/pfapp.js');
+  let doc, E, ck; try { ck = await classKey(H, P); [doc, E] = await Promise.all([api('ut_unit', { unit: uid, op: 'doc' }).then(x => K.openExamDoc(ck, x.doc_enc)), api('ut_edit', { unit: uid, sid, op: 'state' })]); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
+  const A = await import('../vendor/pathfinder/core/pfapp.js');
   const cur = () => P.prog.get(uid)?.get(sid), live = u.status === 'laeuft';
-  let last = cur()?.updated || 0, iv = null, pings = 0;
-  const line = () => { const x = cur(); appStatus(x ? `zuletzt geändert ${new Date(x.updated * 1000).toLocaleTimeString('de-DE')}${x.run ? ` · letzter Lauf ${x.run.error ? '⚠ Fehler' : '▶ ok'}` : ''}` : 'noch nichts geändert'); };
-  const stop = () => { clearInterval(iv); if (live) api('ut_watch', { id: P.cid, sid, off: 1 }).catch(() => { }); };
-  openApp({ app: 'jpad', url: P.apps.jpad, mode: 'unterricht', task: `w${uid}-${sid}`, title: `👁 ${r.v} ${r.n} · ${u.title || ''}`, files: cur()?.files || [], readonly: true, closeLabel: 'Schließen',
-    extra: { observe: true, ...(doc.jcode ? { jcode: doc.jcode } : {}), ...(doc.project ? { project: doc.project, projectKey: 'u' + uid } : {}) }, onClose: stop });
-  line();
+  let comments = []; try { comments = E.comments_enc ? (await K.openExamDoc(ck, E.comments_enc)).list || [] : []; } catch (er) { }
+  const S = { mode: E.lock ? 'edit' : 'watch', v: E.v, files: null, t: null, last: cur()?.updated || 0, iv: null, pings: 0, closed: false };
+  if (E.lock && E.files_enc) try { S.files = (await K.openExamDoc(ck, E.files_enc)).files; } catch (er) { }
+  const line = () => {
+    if (S.mode === 'wait') return A.appStatus('⏳ warte, bis das iPad gesperrt ist …');
+    if (S.mode === 'edit') return A.appStatus('✎ Du bearbeitest – das iPad ist gesperrt');
+    const x = cur(); A.appStatus(x ? `zuletzt geändert ${new Date(x.updated * 1000).toLocaleTimeString('de-DE')}${x.run ? ` · letzter Lauf ${x.run.error ? '⚠ Fehler' : '▶ ok'}` : ''}` : 'noch nichts geändert');
+  };
+  const sendFiles = () => { clearTimeout(S.t); S.t = setTimeout(async () => { if (S.mode === 'edit' && S.files) try { await api('ut_edit', { unit: uid, sid, op: 'files', files_enc: await K.sealExamDoc(ck, { files: S.files }) }); } catch (er) { } }, 1500); };
+  const buttons = () => {
+    const bar = A.appBar(); if (!bar) return; let box = bar.querySelector('.u-jbtns');
+    if (!box) { box = document.createElement('span'); box.className = 'u-jbtns'; bar.insertBefore(box, bar.querySelector('[data-close]')); box.onclick = onBtn; }
+    box.innerHTML = !live ? `<button class="alt" data-j="cm">💬 Kommentare (${comments.length})</button>`
+      : S.mode === 'edit' ? `<button class="alt" data-j="cm">💬 Kommentar${comments.length ? ` (${comments.length})` : ''}</button><button class="alt" data-j="cancel" title="Änderungen verwerfen, das iPad wieder freigeben">✕ Verwerfen</button><button data-j="release" title="Deinen Stand an das iPad geben und es wieder freigeben">↩ Zurückgeben</button>`
+      : S.mode === 'wait' ? `<button class="alt" data-j="cancel">Abbrechen</button>`
+      : `<button class="alt" data-j="cm">💬 Kommentar${comments.length ? ` (${comments.length})` : ''}</button><button class="alt" data-j="edit" title="Das iPad sperren und selbst im Code arbeiten">✎ Bearbeiten</button>`;
+    line();
+  };
+  const toEdit = async () => { // Gerät hat gesperrt: neuesten Stand holen, dann frei für die Lehrkraft
+    try { await pull(H, P); } catch (er) { }
+    S.files = S.files || cur()?.files || null; if (S.files) A.updateApp(S.files);
+    S.mode = 'edit'; A.setAppReadonly(false); buttons();
+  };
+  const backToWatch = () => { S.mode = 'watch'; S.files = null; A.setAppReadonly(true); const x = cur(); if (x?.files) A.updateApp(x.files); buttons(); };
+  async function onBtn(ev) {
+    const j = ev.target.closest('[data-j]')?.dataset.j; if (!j) return;
+    try {
+      if (j === 'edit') { const e = await api('ut_edit', { unit: uid, sid, op: 'lock' }); S.v = e.v; S.mode = 'wait'; S.since = Date.now(); buttons(); }
+      else if (j === 'cancel') { await api('ut_edit', { unit: uid, sid, op: 'cancel' }); backToWatch(); toast('Das iPad ist wieder frei – ohne Änderungen.'); }
+      else if (j === 'release') {
+        await A.flushApp(800); clearTimeout(S.t);
+        await api('ut_edit', { unit: uid, sid, op: 'release', files_enc: await K.sealExamDoc(ck, { files: S.files || [] }) });
+        backToWatch(); toast(`↩ Zurückgegeben – ${esc(r.v)} arbeitet mit deinem Stand weiter.`, 4000);
+      } else if (j === 'cm') commentBox();
+    } catch (er) { toast('⚠ ' + esc(er.message)); }
+  }
+  const saveComments = async () => { await api('ut_edit', { unit: uid, sid, op: 'comments', comments_enc: comments.length ? await K.sealExamDoc(ck, { list: comments }) : null }); A.appComments(comments); buttons(); };
+  async function commentBox() { // kleines Fenster über JPad: Kommentar zur Cursorzeile, Liste mit Löschen
+    const c = await A.appCursor(), ov = document.querySelector('.pfapp-ov'); if (!ov) return;
+    ov.querySelector('.u-cbox')?.remove();
+    const box = document.createElement('div'); box.className = 'u-cbox';
+    const draw = () => {
+      box.innerHTML = `<div class="u-cin"><b>💬 Kommentare für ${esc(r.v)}</b>
+        ${comments.length ? `<ul>${comments.map((x, i) => `<li><span class="help">${esc(x.file)}, Zeile ${x.line}</span> ${esc(x.text)} <button class="linkbtn" data-cdel="${i}">entfernen</button></li>`).join('')}</ul>` : ''}
+        ${live && c?.file ? `<label>Neu zu <b>${esc(c.file)}, Zeile ${c.line}</b>${c.text?.trim() ? ` <code>${esc(c.text.trim().slice(0, 60))}</code>` : ''}<textarea id="ctext" rows="3" placeholder="z. B. Hier fehlt die Abbruchbedingung – wann endet die Schleife?"></textarea></label>
+          <p class="help">Tipp: Erst in JPad in die Zeile tippen, dann auf „💬 Kommentar“.</p>` : live ? '<p class="help">Tippe in JPad in die Zeile, zu der der Kommentar gehört, und öffne dieses Fenster dann erneut.</p>' : ''}
+        <div class="btns"><button class="btn" data-cx>Schließen</button>${live && c?.file ? '<button class="btn pri" data-cadd>Kommentar setzen</button>' : ''}</div></div>`;
+    };
+    draw(); ov.appendChild(box); box.querySelector('#ctext')?.focus();
+    box.onclick = async e => {
+      if (e.target === box || e.target.closest('[data-cx]')) { box.remove(); return; }
+      const d = e.target.closest('[data-cdel]'); if (d) { comments.splice(+d.dataset.cdel, 1); try { await saveComments(); } catch (er) { toast('⚠ ' + esc(er.message)); } draw(); return; }
+      if (e.target.closest('[data-cadd]')) {
+        const t = box.querySelector('#ctext').value.trim(); if (!t) return;
+        comments.push({ id: Math.random().toString(36).slice(2, 10), file: c.file, line: c.line, snip: String(c.text || '').trim().slice(0, 200), text: t.slice(0, 2000), at: Date.now() });
+        try { await saveComments(); box.remove(); toast('💬 Kommentar gesetzt – erscheint gleich auf dem iPad.'); } catch (er) { comments.pop(); toast('⚠ ' + esc(er.message)); }
+      }
+    };
+  }
+  const stop = async () => {
+    S.closed = true; clearInterval(S.iv); if (!live) return;
+    if (S.mode === 'edit') { try { await api('ut_edit', { unit: uid, sid, op: 'release', files_enc: await K.sealExamDoc(ck, { files: S.files || [] }) }); toast('↩ Beim Schließen zurückgegeben – das iPad ist wieder frei.', 4000); } catch (er) { } }
+    else if (S.mode === 'wait') api('ut_edit', { unit: uid, sid, op: 'cancel' }).catch(() => { });
+    api('ut_watch', { id: P.cid, sid, off: 1 }).catch(() => { });
+  };
+  A.openApp({ app: 'jpad', url: P.apps.jpad, mode: 'unterricht', task: `w${uid}-${sid}`, title: `👁 ${r.v} ${r.n} · ${u.title || ''}`, files: S.files || cur()?.files || [], readonly: S.mode !== 'edit', closeLabel: 'Schließen',
+    extra: { observe: S.mode !== 'edit', comments, ...(doc.jcode ? { jcode: doc.jcode } : {}), ...(doc.project ? { project: doc.project, projectKey: 'u' + uid } : {}) },
+    onState: st => { if (S.mode !== 'edit') return; S.files = st.files; sendFiles(); }, onClose: stop });
+  buttons();
   if (!live) return;
   api('ut_watch', { id: P.cid, sid }).catch(() => { });
-  iv = setInterval(async () => {
-    if (!document.querySelector('.pfapp-ov:not([hidden])')) { stop(); return; }
-    try { if (++pings % 4 === 0) api('ut_watch', { id: P.cid, sid }).catch(() => { }); await pull(H, P); } catch (er) { return; }
-    const x = cur(); if (x && x.updated !== last) { last = x.updated; if (x.files) updateApp(x.files); } line();
+  S.iv = setInterval(async () => {
+    if (S.closed || !document.querySelector('.pfapp-ov:not([hidden])')) return;
+    try {
+      if (++S.pings % 4 === 0) api('ut_watch', { id: P.cid, sid }).catch(() => { });
+      if (S.mode === 'wait') { const e = await api('ut_edit', { unit: uid, sid, op: 'state' }); if (e.ack >= S.v) await toEdit(); else if (Date.now() - S.since > 30000) A.appStatus('⏳ das iPad meldet sich nicht – ist es online? (Abbrechen gibt es wieder frei)'); return; }
+      if (S.mode === 'edit') return;
+      await pull(H, P);
+    } catch (er) { return; }
+    const x = cur(); if (x && x.updated !== S.last) { S.last = x.updated; if (x.files) A.updateApp(x.files); } line();
   }, 3000);
 }
 function liveTable(H, P, u, frozen = false) {

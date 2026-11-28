@@ -1288,10 +1288,27 @@ case 'ut_merge': { // selbst eingetragene Person (Tafel-QR-Code) einem Namen der
             else { $pdo->prepare('DELETE FROM uprogress WHERE unit_id = ? AND sid = ?')->execute([$x['unit_id'], $from]); $pdo->prepare('UPDATE uprogress SET submitted = ? WHERE unit_id = ? AND sid = ?')->execute([$sub, $x['unit_id'], $to]); }
         } else $pdo->prepare('UPDATE uprogress SET sid = ? WHERE unit_id = ? AND sid = ?')->execute([$to, $x['unit_id'], $from]);
     }
+    $pdo->prepare('UPDATE OR IGNORE uedit SET sid = ? WHERE sid = ? AND unit_id IN (SELECT id FROM units WHERE class_id = ?)')->execute([$to, $from, $c['id']]);
+    $pdo->prepare('DELETE FROM uedit WHERE sid = ? AND unit_id IN (SELECT id FROM units WHERE class_id = ?)')->execute([$from, $c['id']]);
     $n = $pdo->prepare('SELECT id, targets FROM units WHERE class_id = ? AND targets IS NOT NULL'); $n->execute([$c['id']]);
     foreach ($n->fetchAll() as $x) { $t = json_decode($x['targets'], true) ?: []; if (!in_array($from, $t, true)) continue;
         $t = array_values(array_unique(array_map(fn($s) => $s === $from ? $to : $s, $t))); $pdo->prepare('UPDATE units SET targets = ? WHERE id = ?')->execute([json_encode($t), $x['id']]); }
     $pdo->commit(); out([]);
+}
+case 'ut_edit': { // JPad: Lehrkraft übernimmt den Code einer Person (lock → Gerät sperrt und bestätigt mit ack), schickt ihren Stand (files),
+                 // gibt zurück (release, mit Dateien) oder verwirft (cancel); comments = Kommentare. Inhalte mit dem Klassenschlüssel verschlüsselt.
+    $u = teacher(); $pdo = db(); $st = $pdo->prepare("SELECT n.* FROM units n JOIN classes c ON c.id = n.class_id WHERE n.id = ? AND c.owner_id = ?"); $st->execute([(int)($in['unit'] ?? 0), $u['id']]);
+    $n = $st->fetch() ?: fail('Einheit nicht gefunden', 404); $sid = str($in, 'sid', 40, true); $op = (string)($in['op'] ?? 'state');
+    $pdo->prepare('INSERT OR IGNORE INTO uedit (unit_id, sid) VALUES (?,?)')->execute([$n['id'], $sid]);
+    $g = function () use ($pdo, $n, $sid) { $q = $pdo->prepare('SELECT lock, v, ack, files_enc, comments_enc, cupd FROM uedit WHERE unit_id = ? AND sid = ?'); $q->execute([$n['id'], $sid]); return $q->fetch(); };
+    if ($op !== 'state' && $op !== 'comments' && $n['status'] !== 'laeuft') fail('Die Einheit ist beendet.', 409);
+    $f = isset($in['files_enc']) ? str($in, 'files_enc', 600_000, true) : null;
+    if ($op === 'lock') $pdo->prepare('UPDATE uedit SET lock = 1, v = v + 1, files_enc = NULL, updated = ? WHERE unit_id = ? AND sid = ?')->execute([time(), $n['id'], $sid]);
+    elseif ($op === 'files') $pdo->prepare('UPDATE uedit SET files_enc = ?, updated = ? WHERE unit_id = ? AND sid = ? AND lock = 1')->execute([$f, time(), $n['id'], $sid]);
+    elseif ($op === 'release' || $op === 'cancel') $pdo->prepare('UPDATE uedit SET lock = 0, v = v + 1, files_enc = ?, updated = ? WHERE unit_id = ? AND sid = ?')->execute([$op === 'release' ? $f : null, time(), $n['id'], $sid]);
+    elseif ($op === 'comments') $pdo->prepare('UPDATE uedit SET comments_enc = ?, cupd = ?, updated = ? WHERE unit_id = ? AND sid = ?')->execute([isset($in['comments_enc']) ? str($in, 'comments_enc', 200_000) : null, time(), time(), $n['id'], $sid]);
+    elseif ($op !== 'state') fail('Unbekannt');
+    $e = $g(); out(['lock' => (int)$e['lock'], 'v' => (int)$e['v'], 'ack' => (int)$e['ack'], 'cupd' => (int)$e['cupd']] + ($op === 'state' ? ['files_enc' => $e['files_enc'], 'comments_enc' => $e['comments_enc']] : []));
 }
 case 'ut_watch': { // Lehrkraft schaut live zu (JPad): das Gerät sendet Änderungen schneller und zeigt „Lehrkraft schaut zu“
     $u = teacher(); $c = own_class($u, (int)($in['id'] ?? 0)); $sid = str($in, 'sid', 40, true);
@@ -1355,11 +1372,13 @@ case 'ut_poll': { // Gerät fragt nach: laufende Einheiten (Lernpfad nur, wenn n
     $pdo = db(); $k = ucoupling($in);
     $pdo->prepare('UPDATE ucouplings SET last_seen = ? WHERE id = ?')->execute([time(), $k['id']]);
     $have = array_map('intval', (array)($in['have'] ?? []));
-    $n = $pdo->prepare("SELECT n.id, n.title, n.form, n.targets, n.started, n.doc_enc, p.submitted FROM units n LEFT JOIN uprogress p ON p.unit_id = n.id AND p.sid = ? WHERE n.class_id = ? AND n.status = 'laeuft' ORDER BY n.started DESC");
-    $n->execute([$k['sid'], $k['class_id']]); $L = [];
+    $n = $pdo->prepare("SELECT n.id, n.title, n.form, n.targets, n.started, n.doc_enc, p.submitted, e.lock AS e_lock, e.v AS e_v, e.files_enc AS e_files, e.comments_enc AS e_cm, e.cupd AS e_cupd
+        FROM units n LEFT JOIN uprogress p ON p.unit_id = n.id AND p.sid = ? LEFT JOIN uedit e ON e.unit_id = n.id AND e.sid = ? WHERE n.class_id = ? AND n.status = 'laeuft' ORDER BY n.started DESC");
+    $n->execute([$k['sid'], $k['sid'], $k['class_id']]); $L = [];
     foreach ($n->fetchAll() as $x) {
         if ($x['targets'] !== null && !in_array($k['sid'], json_decode($x['targets'], true) ?: [], true)) continue;
-        $L[] = ['id' => (int)$x['id'], 'title' => $x['title'], 'form' => $x['form'], 'started' => (int)$x['started'], 'submitted' => $x['submitted'] ? (int)$x['submitted'] : null] + (in_array((int)$x['id'], $have, true) ? [] : ['doc_enc' => $x['doc_enc']]);
+        $L[] = ['id' => (int)$x['id'], 'title' => $x['title'], 'form' => $x['form'], 'started' => (int)$x['started'], 'submitted' => $x['submitted'] ? (int)$x['submitted'] : null] + (in_array((int)$x['id'], $have, true) ? [] : ['doc_enc' => $x['doc_enc']])
+            + ($x['e_v'] !== null ? ['edit' => ['lock' => (int)$x['e_lock'], 'v' => (int)$x['e_v'], 'files_enc' => $x['e_files'], 'comments_enc' => $x['e_cm'], 'cupd' => (int)$x['e_cupd']]] : []);
     }
     $o = $pdo->prepare('SELECT u.pub_key, u.kuerzel FROM users u WHERE u.id = ?'); $o->execute([$k['owner_id']]); $ow = $o->fetch();
     $w = $pdo->prepare('SELECT MAX(watch_until) FROM ucouplings WHERE class_id = ? AND sid = ?'); $w->execute([$k['class_id'], $k['sid']]);
@@ -1370,6 +1389,7 @@ case 'ut_save': { // Bearbeitungsstand (für die Lehrkraft verschlüsselt); subm
     $st = $pdo->prepare("SELECT * FROM units WHERE id = ? AND class_id = ? AND status = 'laeuft'"); $st->execute([$uid, $k['class_id']]); $n = $st->fetch() ?: fail('Diese Einheit ist beendet.', 409);
     if ($n['targets'] !== null && !in_array($k['sid'], json_decode($n['targets'], true) ?: [], true)) fail('Diese Einheit ist nicht für dich.', 403);
     $d = str($in, 'data_enc', 400_000, true); $sub = !empty($in['submit']) ? time() : null;
+    if (isset($in['ack'])) $pdo->prepare('UPDATE uedit SET ack = MAX(ack, ?) WHERE unit_id = ? AND sid = ?')->execute([(int)$in['ack'], $uid, $k['sid']]); // Gerät hat gesperrt
     $pdo->prepare('INSERT INTO uprogress (unit_id, sid, data_enc, updated, submitted) VALUES (?,?,?,?,?) ON CONFLICT(unit_id, sid) DO UPDATE SET data_enc = excluded.data_enc, updated = excluded.updated, submitted = COALESCE(excluded.submitted, uprogress.submitted)')
         ->execute([$uid, $k['sid'], $d, time(), $sub]);
     $pdo->prepare('UPDATE ucouplings SET last_seen = ? WHERE id = ?')->execute([time(), $k['id']]);
