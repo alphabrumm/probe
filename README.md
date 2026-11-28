@@ -139,6 +139,12 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
   `l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name>` (der Teil hinter „#“ geht nie an den Server; der Server speichert nur den
   Hash des Geheimnisses). Beim Scannen bekommt das Gerät einen Geräteschlüssel (IndexedDB); der Code ist danach verbraucht. Neuer
   QR-Code je Person (z. B. zweites Gerät), „Abmelden“ sperrt alle Geräte der Person. Der Server kennt nur die Kennung (sid), keine Namen.
+* **JPad-Projekte** (☕ JPad-Projekt bzw. JPad-Projektdatei über „Datei einlesen“): Material mit JCode (JPad lädt Startcode und
+  Lernpfad selbst), Projektdatei oder leerem Projekt. Auf dem Schüler-Gerät läuft JPad im Lernmodus (`?pfapp=unterricht`, Adresse aus
+  config `apps_unterricht`, Standard jpad.pandapy.de; Test-Deploy: GitHub Pages) im Vollbild-Fenster von PathFinder (`core/pfapp.js`).
+  Der eigene Stand liegt im Gerät (IndexedDB, Store `u`) und geht bei Änderungen verschlüsselt an die Lehrkraft (Dateien, letzter Lauf).
+  Dashboard: Code-Umfang und letzter Lauf je Person, **👁 Ansehen** = Live-Ansicht (JPad schreibgeschützt, neuer Stand alle 3 s);
+  das Gerät zeigt dann „Deine Lehrkraft schaut gerade zu“ und sendet schneller (`ut_watch`, Datenbank v25).
 * **Tafel-QR-Code** (Knopf in der Klasse, mit „Was ist das?“): gemeinsamer Code `l.html#t=<Klasse>.<Geheimnis>.<Klassenschlüssel>`
   plus 4-stellige PIN im Vollbild für Beamer/Tafel, 15 Minuten gültig (Server kennt Geheimnis und PIN nur als Hash; nach 25 falschen PINs
   verfällt der Code). Schüler ohne persönlichen Code tragen PIN, Vor- und Nachnamen ein und sind sofort gekoppelt (sid `T…`); der Name geht

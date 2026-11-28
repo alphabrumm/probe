@@ -17,9 +17,11 @@ async function api(a, data = {}) {
 }
 
 /* ---------- Kopplungen im Gerät (IndexedDB) ---------- */
-const DB = () => new Promise((res, rej) => { const q = indexedDB.open('probe-unterricht', 1); q.onupgradeneeded = () => q.result.createObjectStore('k', { keyPath: 'c' }); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
-async function store(mode, fn) { const db = await DB(); return new Promise((res, rej) => { const t = db.transaction('k', mode), s = t.objectStore('k'), q = fn(s); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); }
+// Stores: k = Kopplungen (je Klasse), u = eigener Stand in App-Einheiten (JPad), Schlüssel „Klasse:Einheit“
+const DB = () => new Promise((res, rej) => { const q = indexedDB.open('probe-unterricht', 2); q.onupgradeneeded = () => { const d = q.result; if (!d.objectStoreNames.contains('k')) d.createObjectStore('k', { keyPath: 'c' }); if (!d.objectStoreNames.contains('u')) d.createObjectStore('u', { keyPath: 'id' }); }; q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+async function store(mode, fn, name = 'k') { const db = await DB(); return new Promise((res, rej) => { const t = db.transaction(name, mode), s = t.objectStore(name), q = fn(s); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); }
 const allK = () => store('readonly', s => s.getAll()), putK = k => store('readwrite', s => s.put(k)), delK = c => store('readwrite', s => s.delete(c));
+const getU = id => store('readonly', s => s.get(id), 'u'), putU = x => store('readwrite', s => s.put(x), 'u');
 try { navigator.storage?.persist?.(); } catch (e) { }
 
 /* ---------- QR-Code einlösen ---------- */
@@ -94,6 +96,7 @@ let cur = null, sendT = null, last = null, dirty = false, sending = false;
 async function openUnit(c, id) {
   const k = KL.find(x => x.c === c), I = INFO.get(c), u = I?.units.find(x => x.id === id), D = DOCS.get(`${c}:${id}`); if (!k || !u || !D) return;
   let doc; try { doc = await K.openExamDoc(k.k, D.enc); } catch (er) { alert('Der Lernpfad lässt sich mit deiner Kopplung nicht öffnen. Bitte deine Lehrkraft um einen neuen QR-Code.'); return; }
+  if (u.form === 'jpad') return openJPad(k, u, doc, I);
   clearInterval(homeT); cur = { k, u, pub: I.pub_key }; history.pushState({ u: id }, '', '#lernpfad');
   home.hidden = true; $('#app').hidden = false; $('#sbar').hidden = false; $('#sbT').textContent = u.title || 'Lernpfad';
   $('#sbSub').hidden = !!u.submitted;
@@ -104,6 +107,42 @@ async function openUnit(c, id) {
     try { const r = await api('ut_poll', { token: k.token, have: [id] }); if (!r.units.some(x => x.id === id)) ended(); } catch (er) { if (er.status === 401) ended(er.message); }
   }, 45000);
 }
+/* ---------- JPad-Einheit: JPad (Lernmodus) im Vollbild-Fenster; eigener Stand im Gerät, verschlüsselt an die Lehrkraft ---------- */
+let J = null;
+async function openJPad(k, u, doc, I) {
+  clearInterval(homeT);
+  const { openApp, closeApp, flushApp } = await import('../vendor/pathfinder/core/pfapp.js');
+  const key = `${k.c}:${u.id}`, saved = await getU(key).catch(() => null);
+  J = { k, u, pub: I.pub_key, key, last: saved || null, dirty: false, t: null, sending: false, watch: !!I.watch, flushApp };
+  openApp({ app: 'jpad', url: I.apps?.jpad, mode: 'unterricht', task: 'u' + u.id, title: u.title || 'JPad', files: saved?.files || [], closeLabel: '‹ Übersicht',
+    extra: { ...(doc.jcode ? { jcode: doc.jcode } : {}), ...(doc.project ? { project: doc.project, projectKey: 'u' + u.id } : {}) },
+    onState: st => { J.last = { id: key, files: st.files, run: st.run || J.last?.run || null }; J.dirty = true; putU(J.last).catch(() => { }); clearTimeout(J.t); J.t = setTimeout(sendJ, J.watch ? 1200 : 3000); },
+    onClose: async () => { clearInterval(J?.iv); await sendJ(); J = null; location.hash = ''; location.reload(); } });
+  // Hinweis in der Kopfleiste, solange die Lehrkraft zuschaut
+  const bar = document.querySelector('.pfapp-bar'); let w = bar?.querySelector('.u-watch');
+  if (bar && !w) { w = document.createElement('span'); w.className = 'u-watch'; w.textContent = '👁 Deine Lehrkraft schaut gerade zu'; bar.insertBefore(w, bar.querySelector('[data-close]')); }
+  if (w) w.hidden = !J.watch;
+  J.iv = setInterval(async () => { // Lebenszeichen alle 8 s: merkt Zuschauen und Ende der Einheit
+    if (!J || document.visibilityState !== 'visible') return;
+    try {
+      const r = await api('ut_poll', { token: k.token, have: [u.id] });
+      J.watch = !!r.watch; if (w) w.hidden = !J.watch;
+      if (!r.units.some(x => x.id === u.id)) { clearInterval(J.iv); await sendJ(); alert('Deine Lehrkraft hat diese Einheit beendet. Dein Stand ist gespeichert.'); closeApp(true); J = null; location.hash = ''; location.reload(); }
+    } catch (er) { if (er.status === 401) { clearInterval(J.iv); alert(er.message); } }
+  }, 8000);
+}
+async function sendJ() {
+  if (!J || !J.dirty || !J.last || J.sending) return; J.sending = true; clearTimeout(J.t);
+  const L = J.last, lines = (L.files || []).reduce((a, f) => a + (f.text ? f.text.split('\n').length : 0), 0);
+  try {
+    const data_enc = await K.seal(J.pub, { files: L.files, run: L.run, sum: { files: (L.files || []).length, lines }, at: Date.now() });
+    await api('ut_save', { token: J.k.token, unit: J.u.id, data_enc }); J.dirty = false;
+  } catch (er) { if (er.offline) J.t = setTimeout(sendJ, 15000); }
+  finally { if (J) J.sending = false; }
+}
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && J?.dirty) { J.flushApp(600).then(sendJ); } });
+addEventListener('pagehide', () => { if (J?.dirty) sendJ(); });
+
 function label(t) { $('#sbSave').textContent = t; }
 async function send(submit) {
   if (!cur || (!dirty && !submit) || sending) return; sending = true; clearTimeout(sendT);

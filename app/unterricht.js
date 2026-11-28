@@ -12,7 +12,7 @@ const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [..
 const b64u = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const sha256hex = async s => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(x => x.toString(16).padStart(2, '0')).join('');
 const plain = s => String(s || '').replace(/<[^>]*>/g, '').trim();
-const FORM = { lernpfad: 'Lernpfad', challenge: 'Challenge' };
+const FORM = { lernpfad: 'Lernpfad', challenge: 'Challenge', jpad: '☕ JPad' };
 /** Einordnung als kurze Zeile: „Physik · 8. Jgst. · 2 Optik“ */
 const metaLine = m => [m?.fach, m?.jg ? `${m.jg}. Jgst.` : '', m?.lbt].filter(Boolean).join(' · ');
 /** Jahrgangsstufe aus dem Klassennamen („8b“ → 8, „Q11“ → 11) */
@@ -33,7 +33,7 @@ export async function viewUnterricht(H) {
     ${C.items.length ? `<div class="tiles">${C.items.map(c => `<a class="tile" href="#/uk/${c.id}"><span class="k">${esc(c.fach || 'alle Fächer')}</span><span class="t">${esc(c.name)}</span>
       <span class="m">${+c.roster_n} Schüler:innen · ${+c.paired} gekoppelt</span><span class="s">${+c.running ? `<span class="chip good">▶ ${+c.running} läuft</span>` : ''}${+c.units ? `<span class="chip">${+c.units} Einheit${+c.units === 1 ? '' : 'en'}</span>` : ''}</span></a>`).join('')}</div>`
       : '<p class="help">Noch keine Klassen in diesem Schuljahr – Klassen legst du unter „Prüfungen“ an (＋ Neue Klasse); sie gelten auch hier.</p>'}
-    <div class="bar" style="margin-top:28px"><h2 style="margin:0">Meine Lernpfade</h2><span class="sp"></span><button class="btn" id="lpImp" title="Aus PathFinder exportierter Lernpfad: HTML-Datei, SCORM-Paket (.zip) oder .json">⤒ Datei einlesen</button><button class="btn pri" id="lpNew">＋ Neuer Lernpfad</button></div>
+    <div class="bar" style="margin-top:28px"><h2 style="margin:0">Meine Lernpfade</h2><span class="sp"></span><button class="btn" id="lpImp" title="Aus PathFinder exportierter Lernpfad (HTML-Datei, SCORM-Paket .zip oder .json) oder JPad-Projektdatei (.json)">⤒ Datei einlesen</button><button class="btn" id="lpJPad" title="Java-Projekt für JPad: über einen JCode, aus einer Projektdatei oder leer">☕ JPad-Projekt</button><button class="btn pri" id="lpNew">＋ Neuer Lernpfad</button></div>
     ${L.items.some(x => x.meta) ? `<div class="bar lp-filter"><select id="lfF" aria-label="Fach"><option value="">alle Fächer</option>${[...new Set(L.items.map(x => x.meta?.fach).filter(Boolean))].sort().map(f => `<option${LPF.fach === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select>
       <select id="lfJ" aria-label="Jahrgangsstufe"><option value="">alle Jahrgangsstufen</option>${[...new Set(L.items.map(x => x.meta?.jg).filter(Boolean))].sort((a, b) => a - b).map(j => `<option value="${j}"${+LPF.jg === j ? ' selected' : ''}>${j}. Jahrgangsstufe</option>`).join('')}</select></div>` : ''}
     ${L.items.length ? `<div class="tiles">${L.items.filter(x => (!LPF.fach || x.meta?.fach === LPF.fach) && (!LPF.jg || +x.meta?.jg === +LPF.jg)).map(x => `<div class="tile lp-t"><span class="k">${esc(FORM[x.form] || 'Lernpfad')}${x.meta ? ' · ' + esc(metaLine(x.meta)) : ''}</span><span class="t">${esc(x.title || 'ohne Titel')}</span>
@@ -41,13 +41,14 @@ export async function viewUnterricht(H) {
       : '<p class="help">Noch keine Lernpfade. Erstelle einen mit „＋ Neuer Lernpfad“ (PathFinder-Editor) oder lies einen aus PathFinder exportierten Lernpfad ein (HTML-Datei, SCORM-Paket oder .json) – gespeichert wird nur der Lernpfad selbst, ohne den Player.</p>'}
     <p class="help">Lernpfade liegen verschlüsselt auf dem Server und sind auf all deinen Geräten gleich. Gestartet wird ein Lernpfad in einer Klasse (Klasse öffnen → „＋ Lernpfad starten“).</p>`;
   $('#lpNew').onclick = () => editLp(H, null, null);
+  $('#lpJPad').onclick = () => jpadDialog(H, null, null);
   main.onchange = ev => { if (ev.target.id === 'lfF') LPF.fach = ev.target.value; else if (ev.target.id === 'lfJ') LPF.jg = ev.target.value; else return; viewUnterricht(H); };
   $('#lpImp').onclick = () => H.pickFile('.json,.html,.htm,.zip,application/json,text/html,application/zip', async f => {
-    try { const d = await readLp(f); await saveLp(H, null, d); H.toast(`✓ „${esc(plain(d.title) || 'Lernpfad')}“ eingelesen`); viewUnterricht(H); } catch (er) { H.toast('⚠ ' + esc(er.message), 6000); }
+    try { const d = await readLp(f); await saveLp(H, null, d); H.toast(`✓ „${esc(plain(d.title) || (d.form === 'jpad' ? 'JPad-Projekt' : 'Lernpfad'))}“ eingelesen`); viewUnterricht(H); } catch (er) { H.toast('⚠ ' + esc(er.message), 6000); }
   });
   main.onclick = async ev => {
     const ed = ev.target.closest('[data-ed]'), del = ev.target.closest('[data-del]');
-    if (ed) { try { const { item } = await api('lp_get', { id: +ed.dataset.ed }); editLp(H, item.id, await H.K.open(S.priv, item.doc_enc)); } catch (er) { H.toast('⚠ ' + esc(er.message)); } }
+    if (ed) { try { const { item } = await api('lp_get', { id: +ed.dataset.ed }), d = await H.K.open(S.priv, item.doc_enc); if (d?.form === 'jpad') jpadDialog(H, item.id, d); else editLp(H, item.id, d); } catch (er) { H.toast('⚠ ' + esc(er.message)); } }
     if (del && confirm('Diesen Lernpfad löschen? Schon gestartete Einheiten bleiben erhalten.')) { await api('lp_del', { id: +del.dataset.del }); viewUnterricht(H); }
   };
 }
@@ -60,6 +61,11 @@ async function readLp(f) {
     return JSON.parse(m[1]);
   };
   let d;
+  if (/\.json$/i.test(f.name) || f.type === 'application/json') { // JPad- bzw. Online-IDE-Projektdatei?
+    let j = null; try { j = JSON.parse(await f.text()); } catch (e) { }
+    const p = Array.isArray(j) ? j[0] : j;
+    if (p && Array.isArray(p.modules)) return jpadFromProject(p, f.name);
+  }
   if (/\.zip$/i.test(f.name) || f.type === 'application/zip') {
     const Z = await unzip(await f.arrayBuffer()), h = Z.filter(z => /\.html?$/i.test(z.name)).sort((a, b) => (/index\.html?$/i.test(b.name) ? 1 : 0) - (/index\.html?$/i.test(a.name) ? 1 : 0));
     if (!h.length) throw new Error('Im ZIP-Paket ist keine HTML-Datei.');
@@ -72,8 +78,44 @@ async function readLp(f) {
   if (!['lernpfad', 'challenge'].includes(d.form)) d.form = 'lernpfad';
   delete d.exam; return d;
 }
+/** JPad-Projektdatei (Format der Online-IDE, ggf. mit eingebettetem Lernpfad) → Material „JPad“ */
+function jpadFromProject(p, fname = '') {
+  const files = p.modules.filter(m => !m.isFolder && typeof m.name === 'string');
+  if (!files.length) throw new Error('Die Projektdatei enthält keine Java-Dateien.');
+  const keep = { name: String(p.name || ''), modules: files.map(m => ({ name: m.name, text: String(m.text || '') })) };
+  if (typeof p.lernpfadHtml === 'string' && p.lernpfadHtml.trim()) keep.lernpfadHtml = p.lernpfadHtml;
+  if (typeof p.spritesheetBase64 === 'string' && p.spritesheetBase64) keep.spritesheetBase64 = p.spritesheetBase64;
+  return { form: 'jpad', title: String(p.name || fname.replace(/\.json$/i, '').replace(/^JPad-/, '') || 'JPad-Projekt').slice(0, 120), project: keep };
+}
+/** Material „JPad“: Projekt über einen JCode (JPad lädt es selbst), aus einer Projektdatei oder leer */
+function jpadDialog(H, id, doc) {
+  const { dialog, esc, toast, withBusy, pickFile } = H; let proj = doc?.project || null;
+  const src0 = doc?.jcode ? 'jcode' : proj ? 'datei' : doc ? 'leer' : 'jcode';
+  const d = dialog(id ? '☕ JPad-Projekt bearbeiten' : '☕ JPad-Projekt', `<label class="f">Titel<input id="jt" maxlength="120" value="${esc(doc?.title || '')}" placeholder="z. B. Schafe zählen mit Arrays"></label>
+    <fieldset class="prefs"><legend>Startcode und Lernpfad</legend>
+      <label class="pref"><input type="radio" name="js" value="jcode"${src0 === 'jcode' ? ' checked' : ''}><span><b>JCode</b><small>Projekt aus JPad, z. B. U67CU – mit Lernpfad, falls es einen hat</small></span></label>
+      <input id="jc" maxlength="7" value="${esc(doc?.jcode || '')}" placeholder="5 Zeichen" style="max-width:160px;text-transform:uppercase;letter-spacing:.15em">
+      <label class="pref"><input type="radio" name="js" value="datei"${src0 === 'datei' ? ' checked' : ''}><span><b>Projektdatei</b><small>in JPad über ⋯ → Datei sichern bzw. Export gespeichert (.json)</small></span></label>
+      <div><button class="btn sm" id="jf">⤒ Datei wählen</button> <span class="help" id="jfn">${proj ? esc(`${proj.modules.length} Datei${proj.modules.length === 1 ? '' : 'en'}${proj.lernpfadHtml ? ' + Lernpfad' : ''}`) : ''}</span></div>
+      <label class="pref"><input type="radio" name="js" value="leer"${src0 === 'leer' ? ' checked' : ''}><span><b>Leeres Projekt</b><small>die Schüler beginnen mit dem Hauptprogramm</small></span></label></fieldset>
+    <p class="help">Gestartet wird das Projekt in einer Klasse („＋ Lernpfad starten“). Die Schüler arbeiten in JPad innerhalb von Probe Unterricht; du siehst live ihren Code.</p>
+    <div class="err" id="err"></div><div class="btns"><button class="btn pri" id="go">Speichern</button></div>`);
+  $('#jf', d.el).onclick = () => pickFile('.json,application/json', async f => {
+    try { let j = JSON.parse(await f.text()); if (Array.isArray(j)) j = j[0]; if (!j || !Array.isArray(j.modules)) throw new Error('Das ist keine JPad-Projektdatei.');
+      const m = jpadFromProject(j, f.name); proj = m.project; $('#jfn', d.el).textContent = `${f.name}: ${proj.modules.length} Datei${proj.modules.length === 1 ? '' : 'en'}${proj.lernpfadHtml ? ' + Lernpfad' : ''}`;
+      if (!$('#jt', d.el).value.trim()) $('#jt', d.el).value = m.title; $('[name=js][value=datei]', d.el).checked = true; $('#err', d.el).textContent = ''; }
+    catch (er) { $('#err', d.el).textContent = er.message; }
+  });
+  $('#go', d.el).onclick = async () => {
+    const src = $('[name=js]:checked', d.el).value, t = $('#jt', d.el).value.trim(), code = $('#jc', d.el).value.toUpperCase().replace(/[\s\-_.]/g, '');
+    if (src === 'jcode' && !/^[2-9A-HJ-NP-Z]{5}$/.test(code)) { $('#err', d.el).textContent = 'Ein JCode hat genau 5 Zeichen (ohne 0, O, 1 und I).'; return; }
+    if (src === 'datei' && !proj) { $('#err', d.el).textContent = 'Bitte eine Projektdatei wählen.'; return; }
+    const m = { form: 'jpad', title: t || (src === 'jcode' ? 'JCode ' + code : proj?.name || 'JPad-Projekt'), ...(src === 'jcode' ? { jcode: code } : {}), ...(src === 'datei' ? { project: proj } : {}), meta: doc?.meta || { fach: 'Informatik' } };
+    try { await withBusy('wird verschlüsselt …', () => saveLp(H, id, m)); d.close(); toast('✓ Gespeichert'); viewUnterricht(H); } catch (er) { $('#err', d.el).textContent = er.message; }
+  };
+}
 async function saveLp(H, id, d) {
-  return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: d.form === 'challenge' ? 'challenge' : 'lernpfad', meta: d.meta || {}, doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
+  return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: ['challenge', 'jpad'].includes(d.form) ? d.form : 'lernpfad', meta: d.meta || {}, doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
 }
 /** PathFinder-Editor im Overlay (Formen Lernpfad und Challenge); speichert laufend verschlüsselt */
 function editLp(H, id, doc) {
@@ -96,7 +138,7 @@ export async function viewUClass(H, cid) {
   clearInterval(POLL); main.innerHTML = '<p class="help">entschlüsselt …</p>';
   let D, R;
   try { [D, R] = await Promise.all([loadClass(H, cid), api('ut_class', { id: cid })]); } catch (er) { main.innerHTML = `<a class="back" href="#/unterricht">‹ Unterricht</a><p class="err">${esc(er.message)}</p>`; return; }
-  const P = { cid, c: R.class, D, base: D.roster, roster: D.roster, selfs: [], couplings: R.couplings, units: R.units, prog: new Map(), dev: new Map(), since: 0, ukey: R.ukey_enc, now: R.now, k: null, showOld: false };
+  const P = { cid, c: R.class, apps: R.apps || {}, D, base: D.roster, roster: D.roster, selfs: [], couplings: R.couplings, units: R.units, prog: new Map(), dev: new Map(), since: 0, ukey: R.ukey_enc, now: R.now, k: null, showOld: false };
   try { const t = JSON.parse(sessionStorage.getItem('probe-tafel-' + cid) || 'null'); if (t && t.until > Date.now() && R.class.tafel_until) TAFEL.set(cid, t); } catch (er) { }
   await loadSelfs(H, P, R);
   await pull(H, P);
@@ -175,7 +217,41 @@ function runHtml(H, P, run) {
   return run.map(u => `<section class="card u-live"><div class="bar"><h2 style="margin:0">▶ ${esc(u.title || 'ohne Titel')}</h2><span class="help">${esc(FORM[u.form] || '')} · seit ${new Date(u.started * 1000).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })}${u.targets ? ` · für ${JSON.parse(u.targets).length} Schüler` : ''}</span><span class="sp"></span>
     <button class="btn sm" data-uend="${u.id}" title="Einheit beenden: Stand einfrieren, Abgaben einsammeln">■ Beenden</button></div>${liveTable(H, P, u)}</section>`).join('');
 }
+/** JPad-Einheit: wer arbeitet gerade, wie viel Code, letzter Programmlauf; 👁 Live-Ansicht */
+function jpadTable(H, P, u, frozen) {
+  const { esc } = H, M = P.prog.get(u.id) || new Map(), R = P.roster.filter(r => forSid(u, r.sid) || M.has(r.sid));
+  const act = R.filter(r => P.now - (P.dev.get(r.sid)?.seen || 0) < 120).length, runs = [...M.values()].filter(x => x.run).length;
+  const tm = t => t ? new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
+  return `<p class="help" style="margin:6px 0">${frozen ? '' : `${act} gerade aktiv · `}${M.size} von ${R.length} haben Code geschrieben · ${runs} haben ihr Programm ausgeführt</p>
+    <div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${frozen ? '' : '<th>zuletzt</th>'}<th>Code</th><th>letzter Lauf</th><th></th></tr>
+    ${R.map(r => { const x = M.get(r.sid), seen = P.dev.get(r.sid)?.seen, out = x?.run ? String(x.run.output || '').trim().split('\n').slice(-6).join('\n') : '';
+      return `<tr><td>${nameCell(esc, r)}</td>${frozen ? '' : `<td class="help${P.now - (seen || 0) < 120 ? ' u-on' : ''}">${P.dev.get(r.sid)?.paired ? esc(ago(P.now, seen)) : 'nicht gekoppelt'}</td>`}
+        <td>${x?.sum ? `${x.sum.files} Datei${x.sum.files === 1 ? '' : 'en'} · ${x.sum.lines} Zeilen` : '<span class="help">noch nichts geändert</span>'}</td>
+        <td>${x?.run ? `<span class="chip ${x.run.error ? 'warn' : 'good'}" title="${esc(out || '(keine Ausgabe)')}">${x.run.error ? '⚠ Fehler' : '▶ lief'}</span> <span class="help">${esc(tm(x.run.at))}</span>` : '<span class="help">–</span>'}</td>
+        <td><button class="btn sm" data-uwatch="${u.id}|${esc(r.sid)}" title="Code live ansehen (die Schülerin, der Schüler sieht einen Hinweis)"${x || P.dev.get(r.sid)?.paired ? '' : ' disabled'}>👁 Ansehen</button></td></tr>`; }).join('')}</table></div>`;
+}
+/** Live-Ansicht des JPad-Codes einer Person: JPad schreibgeschützt; neuer Stand alle 3 Sekunden */
+async function watchJPad(H, P, uid, sid) {
+  const { api, esc, toast, K } = H, u = P.units.find(x => x.id === uid), r = P.roster.find(x => x.sid === sid); if (!u || !r) return;
+  let doc; try { doc = await K.openExamDoc(await classKey(H, P), (await api('ut_unit', { unit: uid, op: 'doc' })).doc_enc); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
+  const { openApp, updateApp, appStatus } = await import('../vendor/pathfinder/core/pfapp.js');
+  const cur = () => P.prog.get(uid)?.get(sid), live = u.status === 'laeuft';
+  let last = cur()?.updated || 0, iv = null, pings = 0;
+  const line = () => { const x = cur(); appStatus(x ? `zuletzt geändert ${new Date(x.updated * 1000).toLocaleTimeString('de-DE')}${x.run ? ` · letzter Lauf ${x.run.error ? '⚠ Fehler' : '▶ ok'}` : ''}` : 'noch nichts geändert'); };
+  const stop = () => { clearInterval(iv); if (live) api('ut_watch', { id: P.cid, sid, off: 1 }).catch(() => { }); };
+  openApp({ app: 'jpad', url: P.apps.jpad, mode: 'unterricht', task: `w${uid}-${sid}`, title: `👁 ${r.v} ${r.n} · ${u.title || ''}`, files: cur()?.files || [], readonly: true, closeLabel: 'Schließen',
+    extra: { observe: true, ...(doc.jcode ? { jcode: doc.jcode } : {}), ...(doc.project ? { project: doc.project, projectKey: 'u' + uid } : {}) }, onClose: stop });
+  line();
+  if (!live) return;
+  api('ut_watch', { id: P.cid, sid }).catch(() => { });
+  iv = setInterval(async () => {
+    if (!document.querySelector('.pfapp-ov:not([hidden])')) { stop(); return; }
+    try { if (++pings % 4 === 0) api('ut_watch', { id: P.cid, sid }).catch(() => { }); await pull(H, P); } catch (er) { return; }
+    const x = cur(); if (x && x.updated !== last) { last = x.updated; if (x.files) updateApp(x.files); } line();
+  }, 3000);
+}
 function liveTable(H, P, u, frozen = false) {
+  if (u.form === 'jpad') return jpadTable(H, P, u, frozen);
   const { esc } = H, M = P.prog.get(u.id) || new Map(), R = P.roster.filter(r => forSid(u, r.sid) || M.has(r.sid));
   const st = [...M.values()].find(x => x.sum?.st)?.sum.st || [];
   const sub = [...M.values()].filter(x => x.submitted).length, act = R.filter(r => P.now - (P.dev.get(r.sid)?.seen || 0) < 120).length;
@@ -190,6 +266,9 @@ function liveTable(H, P, u, frozen = false) {
 function drawLive(H, P) { const el = $('#uRun'); if (el) el.innerHTML = runHtml(H, P, P.units.filter(u => u.status === 'laeuft')); const c = $('#uCpl'); if (c) c.innerHTML = couplingHtml(H, P); }
 function drawSeen(H, P) { drawLive(H, P); }
 function unitTile(H, P, u) {
+  if (u.form === 'jpad') { const M = P.prog.get(u.id) || new Map(), esc = H.esc;
+    return `<button type="button" class="tile" data-uopen="${u.id}"><span class="k">${esc(FORM.jpad)}</span><span class="t">${esc(u.title || 'ohne Titel')}</span>
+      <span class="m">${new Date(u.started * 1000).toLocaleDateString('de-DE')} – ${u.ended ? new Date(u.ended * 1000).toLocaleDateString('de-DE') : ''}</span><span class="s"><span class="chip">${M.size} mit Code</span><span class="chip">${[...M.values()].filter(x => x.run).length} ausgeführt</span></span></button>`; }
   const { esc } = H, M = P.prog.get(u.id) || new Map(), n = P.roster.filter(r => forSid(u, r.sid)).length || M.size, pct = M.size ? Math.round([...M.values()].reduce((a, x) => a + (x.sum?.pct || 0), 0) / Math.max(n, 1)) : 0;
   return `<button type="button" class="tile" data-uopen="${u.id}"><span class="k">${esc(FORM[u.form] || 'Lernpfad')}</span><span class="t">${esc(u.title || 'ohne Titel')}</span>
     <span class="m">${new Date(u.started * 1000).toLocaleDateString('de-DE')} – ${u.ended ? new Date(u.ended * 1000).toLocaleDateString('de-DE') : ''}</span><span class="s"><span class="chip">Ø ${pct} %</span><span class="chip">${[...M.values()].filter(x => x.submitted).length} Abgaben</span></span></button>`;
@@ -197,9 +276,10 @@ function unitTile(H, P, u) {
 function statHtml(H, P) {
   const { esc } = H, U = P.units.slice().reverse();
   return `<div class="scroll-x"><table class="t u-tab"><tr><th>Name</th>${U.map(u => `<th class="k-ex" title="${esc(u.title)}">${esc((u.title || '–').slice(0, 14))}${(u.title || '').length > 14 ? '…' : ''}<br><span class="help">${new Date(u.started * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })}</span></th>`).join('')}<th>Ø</th></tr>
-    ${P.roster.map(r => { const v = U.filter(u => forSid(u, r.sid)).map(u => P.prog.get(u.id)?.get(r.sid)?.sum?.pct ?? 0);
-      return `<tr><td>${nameCell(esc, r)}</td>${U.map(u => { if (!forSid(u, r.sid)) return '<td class="help">–</td>'; const x = P.prog.get(u.id)?.get(r.sid); return `<td>${x ? `${x.sum?.pct ?? 0} %${x.submitted ? ' ✓' : ''}` : '<span class="help">0 %</span>'}</td>`; }).join('')}<td><b>${v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + ' %' : ''}</b></td></tr>`; }).join('')}</table></div>
-    <p class="help">Prozent = gelöste Aufgaben des Lernpfads (ohne Aufgaben: angesehene Stationen) · ✓ abgegeben · – nicht für diese Person gestartet. Das ist keine Note.</p>`;
+    ${P.roster.map(r => { const v = U.filter(u => u.form !== 'jpad' && forSid(u, r.sid)).map(u => P.prog.get(u.id)?.get(r.sid)?.sum?.pct ?? 0);
+      return `<tr><td>${nameCell(esc, r)}</td>${U.map(u => { if (!forSid(u, r.sid)) return '<td class="help">–</td>'; const x = P.prog.get(u.id)?.get(r.sid);
+        if (u.form === 'jpad') return `<td>${x ? (x.run ? (x.run.error ? '<span title="letzter Lauf mit Fehler">⚠</span>' : '<span title="Programm ausgeführt">▶</span>') : '<span title="Code geschrieben">✎</span>') : '<span class="help">–</span>'}</td>`; return `<td>${x ? `${x.sum?.pct ?? 0} %${x.submitted ? ' ✓' : ''}` : '<span class="help">0 %</span>'}</td>`; }).join('')}<td><b>${v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + ' %' : ''}</b></td></tr>`; }).join('')}</table></div>
+    <p class="help">Prozent = gelöste Aufgaben des Lernpfads (ohne Aufgaben: angesehene Stationen) · ✓ abgegeben · – nicht für diese Person gestartet${P.units.some(u => u.form === 'jpad') ? ' · JPad: ✎ Code geschrieben, ▶ ausgeführt, ⚠ letzter Lauf mit Fehler' : ''}. Das ist keine Note.</p>`;
 }
 function couplingHtml(H, P) {
   const { esc } = H;
@@ -213,7 +293,8 @@ function couplingHtml(H, P) {
 }
 async function onClick(H, P, ev) {
   if (!ev.target.closest('#uWhat,#uTip') && $('#uTip') && !$('#uTip').hidden) { $('#uTip').hidden = true; $('#uWhat').setAttribute('aria-expanded', 'false'); }
-  const { api, esc, toast, dialog } = H, b = ev.target.closest('[data-uend],[data-uqr],[data-urev],[data-uopen],[data-tshow],[data-tend]'); if (!b) return;
+  const { api, esc, toast, dialog } = H, b = ev.target.closest('[data-uend],[data-uqr],[data-urev],[data-uopen],[data-tshow],[data-tend],[data-uwatch]'); if (!b) return;
+  if (b.dataset.uwatch) { const [uid, sid] = b.dataset.uwatch.split('|'); return watchJPad(H, P, +uid, sid); }
   if (b.dataset.tshow) return showBoard(H, P);
   if (b.dataset.tend) return endTafel(H, P);
   if (b.dataset.uend && confirm('Einheit beenden? Der Stand wird eingefroren, die Schüler können nicht mehr weiterarbeiten (wieder öffnen ist möglich).')) { await api('ut_unit', { unit: +b.dataset.uend, op: 'end' }); return reload(H, P); }
