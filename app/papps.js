@@ -91,6 +91,7 @@ export function authorPapp(H, { id = null, mat, ki = false, save, onDone }) {
   const onMsg = ev => {
     if (ev.source !== fr.contentWindow || ev.data?.probeEditor !== 'ready') return; removeEventListener('message', onMsg);
     fr.contentWindow.probeEdit({ doc: mat.lernpfad || undefined, startDialog: ki ? 'ki' : !mat.lernpfad, forms: ['lernpfad', 'challenge'], papp: { events: mat.app.m?.events || [], name: mat.app.m?.name },
+      ...(ki && typeof ki === 'object' ? { kiPreset: ki } : {}),
       kiApp: { id: mat.app.id, name: mat.app.m?.name, rules: mat.app.m ? appPromptRules(mat.app.m) : '' }, // jeder KI-Prompt im Editor kennt die App
       host: { saved: d => { pending = d; const s = $('#paSaved', w); if (s) s.textContent = '…'; clearTimeout(timer); timer = setTimeout(flush, 1500); }, done: d => { pending = d; close(); }, doneLabel: 'Fertig – zurück zu Probe', doneTitle: 'Speichern und zurück' } });
   };

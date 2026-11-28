@@ -169,10 +169,21 @@ async function appAction(H, what, appId) {
       </div>`);
     d.el.onclick = ev => {
       const st = ev.target.closest('[data-st]')?.dataset.st; if (!st) return; d.close();
-      if (st === 'ki') authorApp(H, null, PA.material(a, null), true);
+      if (st === 'ki') return kiArt(H, C, a);
       else authorApp(H, null, PA.material(a, st === 'ex' ? ex : skeletonDoc(a)));
     };
   }
+}
+/** App-Lernpfad mit KI: erst Lernpfad (neues Thema) oder Challenge (Bekanntes trainieren), dann der KI-Dialog von PathFinder – Art und Fach vorgewählt */
+function kiArt(H, C, a) {
+  const { esc } = H, L = String(a.fach || '').split(',').map(s => s.trim()).filter(Boolean);
+  const fach = L.find(f => C.meine.some(m => m.toLowerCase() === f.toLowerCase())) || L[0] || ''; // passend zu den eigenen Fächern, sonst das erste der App
+  const d = H.dialog(`🧩 ${esc(a.name)} – mit KI`, `<p>Möchtest du ein <b>neues Thema einführen</b> oder <b>bekannten Lernstoff trainieren</b>?</p>
+    <div class="stack" style="gap:10px">
+      <button class="btn pri" data-art="lernpfad">📘 Neues Thema einführen – Lernpfad</button><p class="help" style="margin:-4px 0 6px">Erklärungen, Beispiele und Aufgaben Schritt für Schritt, mit der App zum Ausprobieren.</p>
+      <button class="btn" data-art="challenge">⚡ Bekanntes trainieren – Challenge</button><p class="help" style="margin:-4px 0 0">Aufgaben in drei Schwierigkeitsstufen mit XP – die App prüft, ob es sitzt.</p>
+    </div>`);
+  d.el.onclick = ev => { const art = ev.target.closest('[data-art]')?.dataset.art; if (!art) return; d.close(); authorApp(H, null, PA.material(a, null), { art, ...(fach ? { fach } : {}) }); };
 }
 /** Gerüst eines Lernpfads zu einer App: eine Station mit einer App-Aufgabe je Ereignis (höchstens 3) */
 function skeletonDoc(a) {
