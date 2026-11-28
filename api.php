@@ -88,9 +88,10 @@ function ufields(array $u): array {
     return ['id' => (int)$u['id'], 'kuerzel' => $u['kuerzel'], 'name' => $u['name'], 'is_admin' => (bool)$u['is_admin'], 'must_setup' => (bool)$u['must_setup'],
         'has_keys' => (bool)$u['pub_key'], 'demo' => (bool)$u['demo'], 'is_demo' => (bool)$u['is_demo'], 'is_berater' => (bool)($u['is_berater'] ?? 0), 'fachleitung' => $fl->fetchAll(), 'faecher' => user_faecher((int)$u['id']), 'prefs' => prefs_of($u)];
 }
-const PREFS = ['pathfinder', 'notizen', 'umfragen', 'planpad']; // alle zunächst aus: Neue sehen nur Prüfungen und Coaching
+const PREFS = ['pathfinder', 'pruefungen', 'notizen', 'umfragen', 'coaching', 'planpad']; // Module (und PlanPad-Kopplung) im Konto-Menü
+const PREFS_ON = ['pruefungen', 'coaching']; // ohne eigene Wahl an: Neue sehen Prüfungen und Coaching, der Rest ist zunächst aus
 const THEMES = ['blau', 'nacht', 'weiss', 'gold', 'gelb', 'sepia', 'bunt']; // Farbschemata (app/themes/; bunt = app/icon.svg), Standard: blau
-function prefs_of(array $u): array { $p = json_decode((string)($u['prefs'] ?? ''), true) ?: []; $o = []; foreach (PREFS as $k) $o[$k] = !empty($p[$k]); $o['theme'] = in_array($p['theme'] ?? '', THEMES, true) ? $p['theme'] : 'blau'; return $o; }
+function prefs_of(array $u): array { $p = json_decode((string)($u['prefs'] ?? ''), true) ?: []; $o = []; foreach (PREFS as $k) $o[$k] = array_key_exists($k, $p) ? !empty($p[$k]) : in_array($k, PREFS_ON, true); $o['theme'] = in_array($p['theme'] ?? '', THEMES, true) ? $p['theme'] : 'blau'; return $o; }
 function user_faecher(int $id): array {
     $st = db()->prepare('SELECT fach_id FROM user_faecher WHERE user_id = ?'); $st->execute([$id]);
     return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));

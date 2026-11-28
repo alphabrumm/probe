@@ -84,11 +84,11 @@ function drawNav() {
   const h = location.hash.replace(/^#/, '') || '/';
   const on = /^\/k\//.test(h) ? 'p' : /^\/resp/.test(h) ? 'r' : /^\/(notizen|gespraeche)/.test(h) ? 'g' : /^\/(umfragen|u\/)/.test(h) ? 'u' : /^\/(coaching|c\/)/.test(h) ? 'c' : /^\/berater/.test(h) ? 'b' : /^\/admin/.test(h) ? '' : 'p';
   const a = (k, href, t, extra = '') => `<a href="${href}"${on === k ? ' class="on" aria-current="page"' : ''}>${t}${extra}</a>`, sep = '<span class="nsep" aria-hidden="true"></span>';
-  const P = S.user.prefs || {}; // PathFinder, Notizen, Umfragen nur, wenn im Konto-Menü eingeschaltet
+  const P = S.user.prefs || {}; // Module: nur, wenn im Konto-Menü eingeschaltet (Respizienz und Schulberatung gehören zur Rolle, nicht abwählbar)
   n.innerHTML = [P.pathfinder && '<a href="https://pathfinder.pandapy.de" target="_blank" rel="noopener" title="PathFinder in neuem Tab öffnen">PathFinder</a>',
-    a('p', '#/', 'Prüfungen') + (S.user.fachleitung?.length ? a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '') : ''),
+    [(P.pruefungen !== false || on === 'p') && a('p', '#/', 'Prüfungen'), S.user.fachleitung?.length && a('r', '#/resp', 'Respizienz', S.respOpen ? ` <span class="chip warn" title="neu eingereicht">${S.respOpen}</span>` : '')].filter(Boolean).join('') || null,
     (P.notizen || on === 'g') && a('g', '#/notizen', 'Notizen'), (P.umfragen || on === 'u') && a('u', '#/umfragen', 'Umfragen')].filter(Boolean).join(sep) + `
-    <span class="nsp"></span>${S.user.is_berater || S.user.is_demo ? a('b', '#/berater', 'Schulberatung') + sep : ''}${a('c', '#/coaching', 'Coaching', '<img class="lumi" src="app/lumi.gif" alt="">')}`;
+    <span class="nsp"></span>${S.user.is_berater || S.user.is_demo ? a('b', '#/berater', 'Schulberatung') + sep : ''}${P.coaching !== false || on === 'c' ? a('c', '#/coaching', 'Coaching', '<img class="lumi" src="app/lumi.gif" alt="">') : ''}`;
   const cur = $('a.on', n); if (cur && n.scrollWidth > n.clientWidth) n.scrollLeft = cur.offsetLeft - (n.clientWidth - cur.offsetWidth) / 2; // iPhone: aktiven Bereich zeigen
 }
 function drawWho() {
@@ -100,10 +100,15 @@ function drawWho() {
   $('#bMe').onclick = () => {
     const d = dialog(esc(S.user.name || S.user.kuerzel), `<div class="help">Angemeldet als <b>${esc(S.user.kuerzel)}</b>${S.user.is_admin ? ' · Admin' : ''}${S.user.fachleitung.length ? ' · Fachleitung ' + S.user.fachleitung.map(f => esc(f.name)).join(', ') : ''}</div>
       <fieldset class="prefs"><legend>Farbe</legend><div class="themes">${THEMES.map(([k, t]) => `<button type="button" data-theme="${k}" aria-pressed="${(S.user.prefs?.theme || 'blau') === k}" title="${t}" aria-label="Farbschema ${t}"><img src="${themeIcon(k)}" alt=""></button>`).join('')}</div></fieldset>
-      <fieldset class="prefs"><legend>Im Menü anzeigen</legend>
-        ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
-          ['planpad', 'PlanPad-Kopplung', 'Noten aus PlanPad (Sitzplan- und Unterrichtsmanager) automatisch in die Klassen von Probe übernehmen – verschlüsselt, nur in eine Richtung']]
+      <fieldset class="prefs"><legend>Module</legend>
+        ${[['pathfinder', 'PathFinder', 'Lernpfade, Challenges und Prüfungen gestalten (öffnet in neuem Tab)'], ['pruefungen', 'Prüfungen', 'digitale Prüfungen schreiben, auswerten und archivieren; Klassen mit Notenübersicht'], ['notizen', 'Notizen', 'eigene verschlüsselte Notizen, z. B. zu Gesprächen'], ['umfragen', 'Umfragen', 'anonyme Umfragen in der Klasse, Ergebnisse an der Tafel'],
+          ['coaching', 'Coaching', 'verschlüsselte Coaching-Gespräche und Fragebögen zu einzelnen Schülern']]
           .map(([k, t, h]) => `<label class="pref"><input type="checkbox" data-pref="${k}"${S.user.prefs?.[k] ? ' checked' : ''}><span><b>${t}</b><small>${h}</small></span></label>`).join('')}
+        ${S.user.fachleitung?.length ? `<label class="pref fixed"><input type="checkbox" checked disabled><span><b>Respizienz</b><small>gehört zur Fachleitung (${S.user.fachleitung.map(f => esc(f.name)).join(', ')}) – immer an</small></span></label>` : ''}
+        ${S.user.is_berater ? '<label class="pref fixed"><input type="checkbox" checked disabled><span><b>Schulberatung</b><small>gehört zur Rolle Beratung – immer an</small></span></label>' : ''}
+      </fieldset>
+      <fieldset class="prefs"><legend>Kopplung</legend>
+        <label class="pref"><input type="checkbox" data-pref="planpad"${S.user.prefs?.planpad ? ' checked' : ''}><span><b>PlanPad-Kopplung</b><small>Noten aus PlanPad (Sitzplan- und Unterrichtsmanager) automatisch in die Klassen von Probe übernehmen – verschlüsselt, nur in eine Richtung</small></span></label>
       </fieldset>
       <div class="btns"><button class="btn" data-fa>Meine Fächer</button>${S.user.is_demo ? '' : '<button class="btn" data-pw>Passwort ändern</button>'}<button class="btn" data-demo>Beispielprüfungen neu anlegen</button><button class="btn" data-out>Abmelden</button></div>`);
     d.el.querySelectorAll('[data-theme]').forEach(b => b.onclick = async () => {
@@ -140,7 +145,12 @@ function route() {
   if (h === '/archiv' || (m = h.match(/^\/archiv\/(\d+)$/))) { stopLive(); return viewArchiv(m ? +m[1] : null, helpers()); }
   if (S.user.fachleitung?.length && h === '/resp') { stopLive(); return viewRespList(helpers()); }
   if (S.user.fachleitung?.length && (m = h.match(/^\/resp\/(\d+)$/))) { stopLive(); return viewResp(+m[1], helpers()); }
-  if (!S.user.demo && !S.demoTried) return demos(false).then(viewDashboard);
+  const P = S.user.prefs || {};
+  if (P.pruefungen === false) { // Modul Prüfungen aus: Start ist das erste eingeschaltete Modul
+    const to = [[P.coaching !== false, '#/coaching'], [P.notizen, '#/notizen'], [P.umfragen, '#/umfragen'], [S.user.fachleitung?.length, '#/resp'], [S.user.is_berater, '#/berater']].find(x => x[0]);
+    if (to && h === '/') { location.replace(to[1]); return; }
+  }
+  if (!S.user.demo && !S.demoTried && P.pruefungen !== false) return demos(false).then(viewDashboard);
   return viewDashboard();
 }
 /** Hilfen für die Ansichten in run.js und resp.js */

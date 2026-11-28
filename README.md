@@ -128,11 +128,14 @@ Konto-Menü → „Farbe“: Blau (Standard), Nachtblau, Weiß, Nachtblau und Go
 und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung und Tab). Gespeichert am Konto
 (`prefs.theme`); `app/theme-boot.js` merkt sich nur den Namen auf dem Gerät, damit beim Laden nichts aufflackert.
 
-## Menü für Einsteiger
+## Module
 
-PathFinder, Notizen, Umfragen und die PlanPad-Kopplung sind zunächst ausgeblendet; jede Lehrkraft schaltet sie im
-Konto-Menü (Kürzel ▾ oben rechts) unter „Im Menü anzeigen“ ein (`users.prefs`, Aktion `set_prefs`). Eine schon
-verbundene Klasse zeigt PlanPad weiter an.
+Die Einträge im oberen Menü sind **Module**: PathFinder, Prüfungen, Notizen, Umfragen und Coaching. Jede Lehrkraft schaltet
+sie im Konto-Menü (Kürzel ▾ oben rechts) unter „Module“ ein oder aus (`users.prefs`, Aktion `set_prefs`). Ohne eigene Wahl
+sind Prüfungen und Coaching an, der Rest aus (`PREFS_ON`). Ausschalten blendet nur aus – Daten bleiben. Ist „Prüfungen“ aus,
+startet Probe im ersten eingeschalteten Modul. **Respizienz** (Fachleitung) und **Schulberatung** gehören zur Rolle und sind
+nicht abwählbar. Die PlanPad-Kopplung steht darunter unter „Kopplung“; eine schon verbundene Klasse zeigt PlanPad weiter an.
+Geplant: Module, die der Admin Fächern (oder allen Fächern) und einzelnen Lehrkräften freigibt, z. B. ein JPad-Modul.
 
 ## Klassen
 
