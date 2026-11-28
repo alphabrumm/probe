@@ -19,7 +19,7 @@ export const BUILTIN = [
 let CACHE = null;
 /** alle Apps, die es für diese Lehrkraft gibt (eingebaute + eigene), mit Steckbrief, HTML und Freigabe */
 export async function loadApps(H, force = false) {
-  if (CACHE && !force) return CACHE;
+  if (CACHE && !force && CACHE.uid === H.S.user?.id) return CACHE; // nach Ab- und Anmelden ohne Neuladen nicht die Liste der vorigen Lehrkraft zeigen
   const [R, L] = await Promise.all([H.api('papp_rules'), H.api('lp_list')]);
   const out = [];
   for (const b of BUILTIN) {
@@ -35,7 +35,7 @@ export async function loadApps(H, force = false) {
     catch (e) { }
   }
   for (const a of out) a.rule = R.rules?.[a.id] || null;
-  CACHE = { apps: out, faecher: R.faecher || [], meine: R.meine || [], me: R.me };
+  CACHE = { apps: out, faecher: R.faecher || [], meine: R.meine || [], me: R.me, uid: H.S.user?.id };
   return CACHE;
 }
 export function dropCache() { CACHE = null; }

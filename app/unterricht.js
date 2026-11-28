@@ -463,6 +463,7 @@ async function watchJPad(H, P, uid, sid) {
 const DOCC = new Map(); // entschlüsselte Einheiten (nur im Speicher)
 async function watchApp(H, P, uid, sid) {
   const { api, esc, toast, K } = H, u = P.units.find(x => x.id === uid), r = P.roster.find(x => x.sid === sid); if (!u || !r) return;
+  if (DOCC.uid !== H.S.user?.id) { DOCC.clear(); DOCC.uid = H.S.user?.id; } // nie Inhalte der vorigen Lehrkraft (Ab- und Anmelden ohne Neuladen)
   let doc = DOCC.get(uid); if (!doc) try { doc = await K.openExamDoc(await classKey(H, P), (await api('ut_unit', { unit: uid, op: 'doc' })).doc_enc); DOCC.set(uid, doc); } catch (er) { toast('⚠ ' + esc(er.message)); return; }
   const live = u.status === 'laeuft', ping = () => api('ut_watch', { id: P.cid, sid }).catch(() => { });
   if (live) ping();
