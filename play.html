@@ -88,6 +88,17 @@
   .u-end { background: #fde8e7; color: #7a1b14; padding: 3px 12px; font-size: 12.5px; text-align: center; }
   @media (prefers-color-scheme: dark) { .u-tile { background: #1d2233; } .u-app, .u-pb button { background: #242a3d; border-color: #343c55; color: #eef; } .u-cm { background: #1f3326; } .u-back { color: #9db0ff; }
     .u-cl { background: #1d2233; } .u-un { background: #242a3d; border-color: #343c55; } .u-hint { background: #3a3420; } }
+  /* dunkel: die Übersicht ganz dunkel (Lernpfade behalten ihr eigenes Design) */
+  @media (prefers-color-scheme: dark) {
+    body.pf-player:has(> #home:not([hidden])) { background: #0e1222; }
+    .u-home { color: #eef0fa; }
+    .u-home .help, .u-home .u-legend, .u-tile .u-tk, .u-tile .help, .u-app .help, .u-pr .u-un .help, .u-join label, .u-old summary { color: #a9b0cc; }
+    .u-home .u-hint { color: #f6e7b8; } .u-home .u-hint.u-err, .u-home .u-err { color: #ff9b8f; }
+    .u-un, .u-tile, .u-app, .u-cl h2, .u-home h1 { color: #eef0fa; }
+    .u-un .ok { color: #6fd39b; }
+    .u-join input { background: #242a3d; color: #eef0fa; border-color: #343c55; }
+    .u-home .btn.alt { background: #242a3d; color: #eef0fa; }
+  }
 </style>
 </head>
 <body class="pf-player">
