@@ -133,7 +133,7 @@ und Dunkelmodus; `<name>.svg` ist das passende Symbol in Menüband, Anmeldung un
 `app/unterricht.js` (Lehrkraft), `l.html` + `app/unterricht-s.js` (Schüler), DB v22 (`lpaths`, `ucouplings`, `units`, `uprogress`,
 `classes.ukey_enc`), Aktionen `lp_*` und `ut_*`. Im Konto-Menü unter „Module“ einschalten.
 
-* **Meine Lernpfade:** im PathFinder-Editor (Formen Lernpfad und Challenge) erstellen oder eine PathFinder-Datei einlesen;
+* **Meine Lernpfade:** im PathFinder-Editor (Formen Lernpfad und Challenge) erstellen oder einen aus PathFinder exportierten Lernpfad einlesen (HTML-Datei, auch Originaldesign, SCORM-/ZIP-Paket oder .json – übernommen wird nur das eingebettete Dokument `pf-doc`, nicht der Player);
   verschlüsselt für die Lehrkraft gespeichert, auf allen Geräten gleich.
 * **Klasse** (dieselbe wie bei Prüfungen) trägt die **QR-Kopplung**: je Schüler ein Einmal-QR-Code
   `l.html#u=<Klasse>.<Geheimnis>.<Klassenschlüssel>.<Name>` (der Teil hinter „#“ geht nie an den Server; der Server speichert nur den

@@ -6,6 +6,7 @@
 import { loadClass } from './klassen.js';
 import { qrMatrix } from './qr.js';
 import { Pdf, PAGE_W, PAGE_H, fit, wrap } from './pdf.js';
+import { unzip } from './zip.js';
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const b64u = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -24,21 +25,41 @@ export async function viewUnterricht(H) {
     ${C.items.length ? `<div class="tiles">${C.items.map(c => `<a class="tile" href="#/uk/${c.id}"><span class="k">${esc(c.fach || 'alle Fächer')}</span><span class="t">${esc(c.name)}</span>
       <span class="m">${+c.roster_n} Schüler:innen · ${+c.paired} gekoppelt</span><span class="s">${+c.running ? `<span class="chip good">▶ ${+c.running} läuft</span>` : ''}${+c.units ? `<span class="chip">${+c.units} Einheit${+c.units === 1 ? '' : 'en'}</span>` : ''}</span></a>`).join('')}</div>`
       : '<p class="help">Noch keine Klassen in diesem Schuljahr – Klassen legst du unter „Prüfungen“ an (＋ Neue Klasse); sie gelten auch hier.</p>'}
-    <div class="bar" style="margin-top:28px"><h2 style="margin:0">Meine Lernpfade</h2><span class="sp"></span><button class="btn" id="lpImp" title="PathFinder-Datei (.json) einlesen">⤒ Datei einlesen</button><button class="btn pri" id="lpNew">＋ Neuer Lernpfad</button></div>
+    <div class="bar" style="margin-top:28px"><h2 style="margin:0">Meine Lernpfade</h2><span class="sp"></span><button class="btn" id="lpImp" title="Aus PathFinder exportierter Lernpfad: HTML-Datei, SCORM-Paket (.zip) oder .json">⤒ Datei einlesen</button><button class="btn pri" id="lpNew">＋ Neuer Lernpfad</button></div>
     ${L.items.length ? `<div class="tiles">${L.items.map(x => `<div class="tile lp-t"><span class="k">${esc(FORM[x.form] || 'Lernpfad')}</span><span class="t">${esc(x.title || 'ohne Titel')}</span>
       <span class="m">geändert ${esc(fmtDate(new Date(x.updated * 1000).toISOString().slice(0, 10)))}</span><span class="s"><button class="btn sm" data-ed="${x.id}">✎ Bearbeiten</button><button class="btn sm ghost danger" data-del="${x.id}" title="Löschen">🗑</button></span></div>`).join('')}</div>`
-      : '<p class="help">Noch keine Lernpfade. Erstelle einen mit „＋ Neuer Lernpfad“ (PathFinder-Editor) oder lies eine PathFinder-Datei ein.</p>'}
+      : '<p class="help">Noch keine Lernpfade. Erstelle einen mit „＋ Neuer Lernpfad“ (PathFinder-Editor) oder lies einen aus PathFinder exportierten Lernpfad ein (HTML-Datei, SCORM-Paket oder .json) – gespeichert wird nur der Lernpfad selbst, ohne den Player.</p>'}
     <p class="help">Lernpfade liegen verschlüsselt auf dem Server und sind auf all deinen Geräten gleich. Gestartet wird ein Lernpfad in einer Klasse (Klasse öffnen → „＋ Lernpfad starten“).</p>`;
   $('#lpNew').onclick = () => editLp(H, null, null);
-  $('#lpImp').onclick = () => H.pickFile('.json,application/json', async f => {
-    try { const d = JSON.parse(await f.text()); if (!Array.isArray(d?.stations)) throw new Error('Keine PathFinder-Datei'); if (!['lernpfad', 'challenge'].includes(d.form)) d.form = 'lernpfad';
-      await saveLp(H, null, d); H.toast('✓ Lernpfad eingelesen'); viewUnterricht(H); } catch (er) { H.toast('⚠ ' + esc(er.message), 5000); }
+  $('#lpImp').onclick = () => H.pickFile('.json,.html,.htm,.zip,application/json,text/html,application/zip', async f => {
+    try { const d = await readLp(f); await saveLp(H, null, d); H.toast(`✓ „${esc(plain(d.title) || 'Lernpfad')}“ eingelesen`); viewUnterricht(H); } catch (er) { H.toast('⚠ ' + esc(er.message), 6000); }
   });
   main.onclick = async ev => {
     const ed = ev.target.closest('[data-ed]'), del = ev.target.closest('[data-del]');
     if (ed) { try { const { item } = await api('lp_get', { id: +ed.dataset.ed }); editLp(H, item.id, await H.K.open(S.priv, item.doc_enc)); } catch (er) { H.toast('⚠ ' + esc(er.message)); } }
     if (del && confirm('Diesen Lernpfad löschen? Schon gestartete Einheiten bleiben erhalten.')) { await api('lp_del', { id: +del.dataset.del }); viewUnterricht(H); }
   };
+}
+/** Lernpfad aus einer Datei: PathFinder-JSON, aus PathFinder exportierte HTML-Datei (auch im Originaldesign) oder SCORM-/ZIP-Paket.
+    Aus HTML wird nur das eingebettete PathFinder-Dokument übernommen – der Player bleibt draußen. */
+async function readLp(f) {
+  const fromHtml = html => {
+    const m = html.match(/<script type="application\/json" id="pf-doc">([\s\S]*?)<\/script>/);
+    if (!m) throw new Error('In dieser HTML-Datei steckt kein PathFinder-Lernpfad (nur Lernpfade, die mit PathFinder exportiert wurden, lassen sich einlesen; ältere bitte erst in PathFinder öffnen).');
+    return JSON.parse(m[1]);
+  };
+  let d;
+  if (/\.zip$/i.test(f.name) || f.type === 'application/zip') {
+    const Z = await unzip(await f.arrayBuffer()), h = Z.filter(z => /\.html?$/i.test(z.name)).sort((a, b) => (/index\.html?$/i.test(b.name) ? 1 : 0) - (/index\.html?$/i.test(a.name) ? 1 : 0));
+    if (!h.length) throw new Error('Im ZIP-Paket ist keine HTML-Datei.');
+    let err; for (const z of h) { try { d = fromHtml(await z.text()); break; } catch (e) { err = e; } } if (!d) throw err;
+  } else {
+    const t = await f.text();
+    d = /^\s*[{[]/.test(t) ? JSON.parse(t) : fromHtml(t);
+  }
+  if (!Array.isArray(d?.stations)) throw new Error('Keine PathFinder-Datei');
+  if (!['lernpfad', 'challenge'].includes(d.form)) d.form = 'lernpfad';
+  delete d.exam; return d;
 }
 async function saveLp(H, id, d) {
   return (await H.api('lp_save', { id: id || 0, title: plain(d.title), form: d.form === 'challenge' ? 'challenge' : 'lernpfad', doc_enc: await H.K.seal(H.S.keys.pub_key, d) })).id;
